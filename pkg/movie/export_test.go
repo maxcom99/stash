@@ -4,8 +4,9 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/json"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/models/mocks"
 	"github.com/stretchr/testify/assert"
 
@@ -44,18 +45,24 @@ const url = "url"
 
 const studioName = "studio"
 
-const frontImage = "ZnJvbnRJbWFnZUJ5dGVz"
-const backImage = "YmFja0ltYWdlQnl0ZXM="
+const (
+	frontImage = "ZnJvbnRJbWFnZUJ5dGVz"
+	backImage  = "YmFja0ltYWdlQnl0ZXM="
+)
 
-var frontImageBytes = []byte("frontImageBytes")
-var backImageBytes = []byte("backImageBytes")
+var (
+	frontImageBytes = []byte("frontImageBytes")
+	backImageBytes  = []byte("backImageBytes")
+)
 
 var studio models.Studio = models.Studio{
 	Name: models.NullString(studioName),
 }
 
-var createTime time.Time = time.Date(2001, 01, 01, 0, 0, 0, 0, time.UTC)
-var updateTime time.Time = time.Date(2002, 01, 01, 0, 0, 0, 0, time.UTC)
+var (
+	createTime = time.Date(2001, 01, 01, 0, 0, 0, 0, time.UTC)
+	updateTime = time.Date(2002, 01, 01, 0, 0, 0, 0, time.UTC)
+)
 
 func createFullMovie(id int, studioID int) models.Movie {
 	return models.Movie{
@@ -112,10 +119,10 @@ func createFullJSONMovie(studio, frontImage, backImage string) *jsonschema.Movie
 		Studio:     studio,
 		FrontImage: frontImage,
 		BackImage:  backImage,
-		CreatedAt: models.JSONTime{
+		CreatedAt: json.JSONTime{
 			Time: createTime,
 		},
-		UpdatedAt: models.JSONTime{
+		UpdatedAt: json.JSONTime{
 			Time: updateTime,
 		},
 	}
@@ -123,10 +130,10 @@ func createFullJSONMovie(studio, frontImage, backImage string) *jsonschema.Movie
 
 func createEmptyJSONMovie() *jsonschema.Movie {
 	return &jsonschema.Movie{
-		CreatedAt: models.JSONTime{
+		CreatedAt: json.JSONTime{
 			Time: createTime,
 		},
-		UpdatedAt: models.JSONTime{
+		UpdatedAt: json.JSONTime{
 			Time: updateTime,
 		},
 	}
@@ -142,32 +149,32 @@ var scenarios []testScenario
 
 func initTestTable() {
 	scenarios = []testScenario{
-		testScenario{
+		{
 			createFullMovie(movieID, studioID),
 			createFullJSONMovie(studioName, frontImage, backImage),
 			false,
 		},
-		testScenario{
+		{
 			createEmptyMovie(emptyID),
 			createEmptyJSONMovie(),
 			false,
 		},
-		testScenario{
+		{
 			createFullMovie(errFrontImageID, studioID),
 			nil,
 			true,
 		},
-		testScenario{
+		{
 			createFullMovie(errBackImageID, studioID),
 			nil,
 			true,
 		},
-		testScenario{
+		{
 			createFullMovie(errStudioMovieID, errStudioID),
 			nil,
 			true,
 		},
-		testScenario{
+		{
 			createFullMovie(missingStudioMovieID, missingStudioID),
 			createFullJSONMovie("", frontImage, backImage),
 			false,
@@ -207,11 +214,12 @@ func TestToJSON(t *testing.T) {
 		movie := s.movie
 		json, err := ToJSON(mockMovieReader, mockStudioReader, &movie)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}

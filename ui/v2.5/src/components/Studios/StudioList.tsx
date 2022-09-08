@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import _ from "lodash";
+import { useIntl } from "react-intl";
+import cloneDeep from "lodash-es/cloneDeep";
 import { useHistory } from "react-router-dom";
 import Mousetrap from "mousetrap";
 import {
@@ -23,22 +24,23 @@ export const StudioList: React.FC<IStudioList> = ({
   fromParent,
   filterHook,
 }) => {
+  const intl = useIntl();
   const history = useHistory();
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExportAll, setIsExportAll] = useState(false);
 
   const otherOperations = [
     {
-      text: "View Random",
+      text: intl.formatMessage({ id: "actions.view_random" }),
       onClick: viewRandom,
     },
     {
-      text: "Export...",
+      text: intl.formatMessage({ id: "actions.export" }),
       onClick: onExport,
       isDisplayed: showWhenSelected,
     },
     {
-      text: "Export all...",
+      text: intl.formatMessage({ id: "actions.export_all" }),
       onClick: onExportAll,
     },
   ];
@@ -65,7 +67,7 @@ export const StudioList: React.FC<IStudioList> = ({
       const { count } = result.data.findStudios;
 
       const index = Math.floor(Math.random() * count);
-      const filterCopy = _.cloneDeep(filter);
+      const filterCopy = cloneDeep(filter);
       filterCopy.itemsPerPage = 1;
       filterCopy.currentPage = index + 1;
       const singleResult = await queryFindStudios(filterCopy);
@@ -119,8 +121,8 @@ export const StudioList: React.FC<IStudioList> = ({
     <DeleteEntityDialog
       selected={selectedStudios}
       onClose={onClose}
-      singularEntity="studio"
-      pluralEntity="studios"
+      singularEntity={intl.formatMessage({ id: "studio" })}
+      pluralEntity={intl.formatMessage({ id: "studios" })}
       destroyMutation={useStudiosDestroy}
     />
   );

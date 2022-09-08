@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 
 	"github.com/stashapp/stash/pkg/models"
 )
@@ -47,7 +48,7 @@ func (qb *scrapedItemQueryBuilder) Find(id int) (*models.ScrapedItem, error) {
 func (qb *scrapedItemQueryBuilder) find(id int) (*models.ScrapedItem, error) {
 	var ret models.ScrapedItem
 	if err := qb.get(id, &ret); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -70,14 +71,6 @@ func (qb *scrapedItemQueryBuilder) getScrapedItemsSort(findFilter *models.FindFi
 		direction = findFilter.GetDirection()
 	}
 	return getSort(sort, direction, "scraped_items")
-}
-
-func (qb *scrapedItemQueryBuilder) queryScrapedItem(query string, args []interface{}) (*models.ScrapedItem, error) {
-	results, err := qb.queryScrapedItems(query, args)
-	if err != nil || len(results) < 1 {
-		return nil, err
-	}
-	return results[0], nil
 }
 
 func (qb *scrapedItemQueryBuilder) queryScrapedItems(query string, args []interface{}) ([]*models.ScrapedItem, error) {

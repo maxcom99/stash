@@ -1,11 +1,12 @@
 package utils
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -20,19 +21,19 @@ const base64RE = `^data:.+\/(.+);base64,(.*)$`
 
 // ProcessImageInput transforms an image string either from a base64 encoded
 // string, or from a URL, and returns the image as a byte slice
-func ProcessImageInput(imageInput string) ([]byte, error) {
+func ProcessImageInput(ctx context.Context, imageInput string) ([]byte, error) {
 	regex := regexp.MustCompile(base64RE)
 	if regex.MatchString(imageInput) {
-		_, d, err := ProcessBase64Image(imageInput)
+		d, err := ProcessBase64Image(imageInput)
 		return d, err
 	}
 
 	// assume input is a URL. Read it.
-	return ReadImageFromURL(imageInput)
+	return ReadImageFromURL(ctx, imageInput)
 }
 
 // ReadImageFromURL returns image data from a URL
-func ReadImageFromURL(url string) ([]byte, error) {
+func ReadImageFromURL(ctx context.Context, url string) ([]byte, error) {
 	client := &http.Client{
 		Transport: &http.Transport{ // ignore insecure certificates
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -41,7 +42,7 @@ func ReadImageFromURL(url string) ([]byte, error) {
 		Timeout: imageGetTimeout,
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +53,7 @@ func ReadImageFromURL(url string) ([]byte, error) {
 	if req.URL.Scheme != "" {
 		req.Header.Set("Referer", req.URL.Scheme+"://"+req.Host+"/")
 	}
-	req.Header.Set("User-Agent", GetUserAgent())
+	req.Header.Set("User-Agent", getUserAgent())
 
 	resp, err := client.Do(req)
 
@@ -66,7 +67,7 @@ func ReadImageFromURL(url string) ([]byte, error) {
 
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -74,11 +75,11 @@ func ReadImageFromURL(url string) ([]byte, error) {
 	return body, nil
 }
 
-// ProcessBase64Image transforms a base64 encoded string from a form post and returns the MD5 hash of the data and the
-// image itself as a byte slice.
-func ProcessBase64Image(imageString string) (string, []byte, error) {
+// ProcessBase64Image transforms a base64 encoded string from a form post and
+// returns the image itself as a byte slice.
+func ProcessBase64Image(imageString string) ([]byte, error) {
 	if imageString == "" {
-		return "", nil, fmt.Errorf("empty image string")
+		return nil, fmt.Errorf("empty image string")
 	}
 
 	regex := regexp.MustCompile(base64RE)
@@ -91,10 +92,10 @@ func ProcessBase64Image(imageString string) (string, []byte, error) {
 	}
 	imageData, err := GetDataFromBase64String(encodedString)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 
-	return MD5FromBytes(imageData), imageData, nil
+	return imageData, nil
 }
 
 // GetDataFromBase64String returns the given base64 encoded string as a byte slice
@@ -105,13 +106,6 @@ func GetDataFromBase64String(encodedString string) ([]byte, error) {
 // GetBase64StringFromData returns the given byte slice as a base64 encoded string
 func GetBase64StringFromData(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
-
-	// Really slow
-	//result = regexp.MustCompile(`(.{60})`).ReplaceAllString(result, "$1\n")
-	//if result[len(result)-1:] != "\n" {
-	//	result += "\n"
-	//}
-	//return result
 }
 
 func ServeImage(image []byte, w http.ResponseWriter, r *http.Request) error {

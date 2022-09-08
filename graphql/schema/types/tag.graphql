@@ -2,6 +2,7 @@ type Tag {
   id: ID!
   name: String!
   aliases: [String!]!
+  ignore_auto_tag: Boolean!
   created_at: Time!
   updated_at: Time!
 
@@ -11,23 +12,34 @@ type Tag {
   image_count: Int # Resolver
   gallery_count: Int # Resolver
   performer_count: Int
+
+  parents: [Tag!]!
+  children: [Tag!]!
 }
 
 input TagCreateInput {
   name: String!
   aliases: [String!]
+  ignore_auto_tag: Boolean
 
   """This should be a URL or a base64 encoded data URL"""
   image: String
+
+  parent_ids: [ID!]
+  child_ids: [ID!]
 }
 
 input TagUpdateInput {
   id: ID!
   name: String
   aliases: [String!]
+  ignore_auto_tag: Boolean
 
   """This should be a URL or a base64 encoded data URL"""
   image: String
+
+  parent_ids: [ID!]
+  child_ids: [ID!]
 }
 
 input TagDestroyInput {
@@ -37,4 +49,9 @@ input TagDestroyInput {
 type FindTagsResultType {
   count: Int!
   tags: [Tag!]!
+}
+
+input TagsMergeInput {
+  source: [ID!]!
+  destination: ID!
 }

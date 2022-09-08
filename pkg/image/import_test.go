@@ -4,27 +4,25 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/models/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
-const invalidImage = "aW1hZ2VCeXRlcw&&"
-
 const (
 	path = "path"
 
-	imageNameErr      = "imageNameErr"
-	existingImageName = "existingImageName"
+	imageNameErr = "imageNameErr"
+	// existingImageName = "existingImageName"
 
 	existingImageID     = 100
 	existingStudioID    = 101
 	existingGalleryID   = 102
 	existingPerformerID = 103
-	existingMovieID     = 104
-	existingTagID       = 105
+	// existingMovieID     = 104
+	existingTagID = 105
 
 	existingStudioName = "existingStudioName"
 	existingStudioErr  = "existingStudioErr"

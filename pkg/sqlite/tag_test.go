@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package sqlite_test
@@ -5,6 +6,8 @@ package sqlite_test
 import (
 	"database/sql"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -16,7 +19,7 @@ func TestMarkerFindBySceneMarkerID(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		tqb := r.Tag()
 
-		markerID := markerIDs[markerIdxWithScene]
+		markerID := markerIDs[markerIdxWithTag]
 
 		tags, err := tqb.FindBySceneMarkerID(markerID)
 
@@ -25,7 +28,7 @@ func TestMarkerFindBySceneMarkerID(t *testing.T) {
 		}
 
 		assert.Len(t, tags, 1)
-		assert.Equal(t, tagIDs[tagIdxWithMarker], tags[0].ID)
+		assert.Equal(t, tagIDs[tagIdxWithMarkers], tags[0].ID)
 
 		tags, err = tqb.FindBySceneMarkerID(0)
 
@@ -70,11 +73,31 @@ func TestTagFindByName(t *testing.T) {
 	})
 }
 
+func TestTagQueryIgnoreAutoTag(t *testing.T) {
+	withTxn(func(r models.Repository) error {
+		ignoreAutoTag := true
+		tagFilter := models.TagFilterType{
+			IgnoreAutoTag: &ignoreAutoTag,
+		}
+
+		sqb := r.Tag()
+
+		tags := queryTags(t, sqb, &tagFilter, nil)
+
+		assert.Len(t, tags, int(math.Ceil(float64(totalTags)/5)))
+		for _, s := range tags {
+			assert.True(t, s.IgnoreAutoTag)
+		}
+
+		return nil
+	})
+}
+
 func TestTagQueryForAutoTag(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		tqb := r.Tag()
 
-		name := tagNames[tagIdxWithScene] // find a tag by name
+		name := tagNames[tagIdx1WithScene] // find a tag by name
 
 		tags, err := tqb.QueryForAutoTag([]string{name})
 
@@ -83,12 +106,12 @@ func TestTagQueryForAutoTag(t *testing.T) {
 		}
 
 		assert.Len(t, tags, 2)
-		lcName := tagNames[tagIdxWithScene]
+		lcName := tagNames[tagIdx1WithScene]
 		assert.Equal(t, strings.ToLower(lcName), strings.ToLower(tags[0].Name))
 		assert.Equal(t, strings.ToLower(lcName), strings.ToLower(tags[1].Name))
 
 		// find by alias
-		name = getTagStringValue(tagIdxWithScene, "Alias")
+		name = getTagStringValue(tagIdx1WithScene, "Alias")
 		tags, err = tqb.QueryForAutoTag([]string{name})
 
 		if err != nil {
@@ -96,7 +119,7 @@ func TestTagQueryForAutoTag(t *testing.T) {
 		}
 
 		assert.Len(t, tags, 1)
-		assert.Equal(t, tagIDs[tagIdxWithScene], tags[0].ID)
+		assert.Equal(t, tagIDs[tagIdx1WithScene], tags[0].ID)
 
 		return nil
 	})
@@ -144,6 +167,41 @@ func TestTagFindByNames(t *testing.T) {
 		assert.Equal(t, tagNames[tagIdx1WithScene], tags[1].Name)
 		assert.Equal(t, tagNames[tagIdx1WithDupName], tags[2].Name)
 		assert.Equal(t, tagNames[tagIdxWithDupName], tags[3].Name)
+
+		return nil
+	})
+}
+
+func TestTagQuerySort(t *testing.T) {
+	withTxn(func(r models.Repository) error {
+		sqb := r.Tag()
+
+		sortBy := "scenes_count"
+		dir := models.SortDirectionEnumDesc
+		findFilter := &models.FindFilterType{
+			Sort:      &sortBy,
+			Direction: &dir,
+		}
+
+		tags := queryTags(t, sqb, nil, findFilter)
+		assert := assert.New(t)
+		assert.Equal(tagIDs[tagIdxWithScene], tags[0].ID)
+
+		sortBy = "scene_markers_count"
+		tags = queryTags(t, sqb, nil, findFilter)
+		assert.Equal(tagIDs[tagIdxWithMarkers], tags[0].ID)
+
+		sortBy = "images_count"
+		tags = queryTags(t, sqb, nil, findFilter)
+		assert.Equal(tagIDs[tagIdxWithImage], tags[0].ID)
+
+		sortBy = "galleries_count"
+		tags = queryTags(t, sqb, nil, findFilter)
+		assert.Equal(tagIDs[tagIdxWithGallery], tags[0].ID)
+
+		sortBy = "performers_count"
+		tags = queryTags(t, sqb, nil, findFilter)
+		assert.Equal(tagIDs[tagIdxWithPerformer], tags[0].ID)
 
 		return nil
 	})
@@ -320,26 +378,24 @@ func verifyTagSceneCount(t *testing.T, sceneCountCriterion models.IntCriterionIn
 	})
 }
 
-// disabled due to performance issues
+func TestTagQueryMarkerCount(t *testing.T) {
+	countCriterion := models.IntCriterionInput{
+		Value:    1,
+		Modifier: models.CriterionModifierEquals,
+	}
 
-// func TestTagQueryMarkerCount(t *testing.T) {
-// 	countCriterion := models.IntCriterionInput{
-// 		Value:    1,
-// 		Modifier: models.CriterionModifierEquals,
-// 	}
+	verifyTagMarkerCount(t, countCriterion)
 
-// 	verifyTagMarkerCount(t, countCriterion)
+	countCriterion.Modifier = models.CriterionModifierNotEquals
+	verifyTagMarkerCount(t, countCriterion)
 
-// 	countCriterion.Modifier = models.CriterionModifierNotEquals
-// 	verifyTagMarkerCount(t, countCriterion)
+	countCriterion.Modifier = models.CriterionModifierLessThan
+	verifyTagMarkerCount(t, countCriterion)
 
-// 	countCriterion.Modifier = models.CriterionModifierLessThan
-// 	verifyTagMarkerCount(t, countCriterion)
-
-// 	countCriterion.Value = 0
-// 	countCriterion.Modifier = models.CriterionModifierGreaterThan
-// 	verifyTagMarkerCount(t, countCriterion)
-// }
+	countCriterion.Value = 0
+	countCriterion.Modifier = models.CriterionModifierGreaterThan
+	verifyTagMarkerCount(t, countCriterion)
+}
 
 func verifyTagMarkerCount(t *testing.T, markerCountCriterion models.IntCriterionInput) {
 	withTxn(func(r models.Repository) error {
@@ -490,6 +546,247 @@ func verifyTagPerformerCount(t *testing.T, imageCountCriterion models.IntCriteri
 	})
 }
 
+func TestTagQueryParentCount(t *testing.T) {
+	countCriterion := models.IntCriterionInput{
+		Value:    1,
+		Modifier: models.CriterionModifierEquals,
+	}
+
+	verifyTagParentCount(t, countCriterion)
+
+	countCriterion.Modifier = models.CriterionModifierNotEquals
+	verifyTagParentCount(t, countCriterion)
+
+	countCriterion.Modifier = models.CriterionModifierLessThan
+	verifyTagParentCount(t, countCriterion)
+
+	countCriterion.Value = 0
+	countCriterion.Modifier = models.CriterionModifierGreaterThan
+	verifyTagParentCount(t, countCriterion)
+}
+
+func verifyTagParentCount(t *testing.T, sceneCountCriterion models.IntCriterionInput) {
+	withTxn(func(r models.Repository) error {
+		qb := r.Tag()
+		tagFilter := models.TagFilterType{
+			ParentCount: &sceneCountCriterion,
+		}
+
+		tags := queryTags(t, qb, &tagFilter, nil)
+
+		if len(tags) == 0 {
+			t.Error("Expected at least one tag")
+		}
+
+		for _, tag := range tags {
+			verifyInt64(t, sql.NullInt64{
+				Int64: int64(getTagParentCount(tag.ID)),
+				Valid: true,
+			}, sceneCountCriterion)
+		}
+
+		return nil
+	})
+}
+
+func TestTagQueryChildCount(t *testing.T) {
+	countCriterion := models.IntCriterionInput{
+		Value:    1,
+		Modifier: models.CriterionModifierEquals,
+	}
+
+	verifyTagChildCount(t, countCriterion)
+
+	countCriterion.Modifier = models.CriterionModifierNotEquals
+	verifyTagChildCount(t, countCriterion)
+
+	countCriterion.Modifier = models.CriterionModifierLessThan
+	verifyTagChildCount(t, countCriterion)
+
+	countCriterion.Value = 0
+	countCriterion.Modifier = models.CriterionModifierGreaterThan
+	verifyTagChildCount(t, countCriterion)
+}
+
+func verifyTagChildCount(t *testing.T, sceneCountCriterion models.IntCriterionInput) {
+	withTxn(func(r models.Repository) error {
+		qb := r.Tag()
+		tagFilter := models.TagFilterType{
+			ChildCount: &sceneCountCriterion,
+		}
+
+		tags := queryTags(t, qb, &tagFilter, nil)
+
+		if len(tags) == 0 {
+			t.Error("Expected at least one tag")
+		}
+
+		for _, tag := range tags {
+			verifyInt64(t, sql.NullInt64{
+				Int64: int64(getTagChildCount(tag.ID)),
+				Valid: true,
+			}, sceneCountCriterion)
+		}
+
+		return nil
+	})
+}
+
+func TestTagQueryParent(t *testing.T) {
+	withTxn(func(r models.Repository) error {
+		const nameField = "Name"
+		sqb := r.Tag()
+		tagCriterion := models.HierarchicalMultiCriterionInput{
+			Value: []string{
+				strconv.Itoa(tagIDs[tagIdxWithChildTag]),
+			},
+			Modifier: models.CriterionModifierIncludes,
+		}
+
+		tagFilter := models.TagFilterType{
+			Parents: &tagCriterion,
+		}
+
+		tags := queryTags(t, sqb, &tagFilter, nil)
+
+		assert.Len(t, tags, 1)
+
+		// ensure id is correct
+		assert.Equal(t, sceneIDs[tagIdxWithParentTag], tags[0].ID)
+
+		tagCriterion.Modifier = models.CriterionModifierExcludes
+
+		q := getTagStringValue(tagIdxWithParentTag, nameField)
+		findFilter := models.FindFilterType{
+			Q: &q,
+		}
+
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 0)
+
+		depth := -1
+
+		tagCriterion = models.HierarchicalMultiCriterionInput{
+			Value: []string{
+				strconv.Itoa(tagIDs[tagIdxWithGrandChild]),
+			},
+			Modifier: models.CriterionModifierIncludes,
+			Depth:    &depth,
+		}
+
+		tags = queryTags(t, sqb, &tagFilter, nil)
+		assert.Len(t, tags, 2)
+
+		depth = 1
+
+		tags = queryTags(t, sqb, &tagFilter, nil)
+		assert.Len(t, tags, 2)
+
+		tagCriterion = models.HierarchicalMultiCriterionInput{
+			Modifier: models.CriterionModifierIsNull,
+		}
+		q = getTagStringValue(tagIdxWithGallery, nameField)
+
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 1)
+		assert.Equal(t, tagIDs[tagIdxWithGallery], tags[0].ID)
+
+		q = getTagStringValue(tagIdxWithParentTag, nameField)
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 0)
+
+		tagCriterion.Modifier = models.CriterionModifierNotNull
+
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 1)
+		assert.Equal(t, tagIDs[tagIdxWithParentTag], tags[0].ID)
+
+		q = getTagStringValue(tagIdxWithGallery, nameField)
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 0)
+
+		return nil
+	})
+}
+
+func TestTagQueryChild(t *testing.T) {
+	withTxn(func(r models.Repository) error {
+		const nameField = "Name"
+
+		sqb := r.Tag()
+		tagCriterion := models.HierarchicalMultiCriterionInput{
+			Value: []string{
+				strconv.Itoa(tagIDs[tagIdxWithParentTag]),
+			},
+			Modifier: models.CriterionModifierIncludes,
+		}
+
+		tagFilter := models.TagFilterType{
+			Children: &tagCriterion,
+		}
+
+		tags := queryTags(t, sqb, &tagFilter, nil)
+
+		assert.Len(t, tags, 1)
+
+		// ensure id is correct
+		assert.Equal(t, sceneIDs[tagIdxWithChildTag], tags[0].ID)
+
+		tagCriterion.Modifier = models.CriterionModifierExcludes
+
+		q := getTagStringValue(tagIdxWithChildTag, nameField)
+		findFilter := models.FindFilterType{
+			Q: &q,
+		}
+
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 0)
+
+		depth := -1
+
+		tagCriterion = models.HierarchicalMultiCriterionInput{
+			Value: []string{
+				strconv.Itoa(tagIDs[tagIdxWithGrandParent]),
+			},
+			Modifier: models.CriterionModifierIncludes,
+			Depth:    &depth,
+		}
+
+		tags = queryTags(t, sqb, &tagFilter, nil)
+		assert.Len(t, tags, 2)
+
+		depth = 1
+
+		tags = queryTags(t, sqb, &tagFilter, nil)
+		assert.Len(t, tags, 2)
+
+		tagCriterion = models.HierarchicalMultiCriterionInput{
+			Modifier: models.CriterionModifierIsNull,
+		}
+		q = getTagStringValue(tagIdxWithGallery, nameField)
+
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 1)
+		assert.Equal(t, tagIDs[tagIdxWithGallery], tags[0].ID)
+
+		q = getTagStringValue(tagIdxWithChildTag, nameField)
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 0)
+
+		tagCriterion.Modifier = models.CriterionModifierNotNull
+
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 1)
+		assert.Equal(t, tagIDs[tagIdxWithChildTag], tags[0].ID)
+
+		q = getTagStringValue(tagIdxWithGallery, nameField)
+		tags = queryTags(t, sqb, &tagFilter, &findFilter)
+		assert.Len(t, tags, 0)
+
+		return nil
+	})
+}
+
 func TestTagUpdateTagImage(t *testing.T) {
 	if err := withTxn(func(r models.Repository) error {
 		qb := r.Tag()
@@ -593,6 +890,116 @@ func TestTagUpdateAlias(t *testing.T) {
 			return fmt.Errorf("Error getting aliases: %s", err.Error())
 		}
 		assert.Equal(t, aliases, storedAliases)
+
+		return nil
+	}); err != nil {
+		t.Error(err.Error())
+	}
+}
+
+func TestTagMerge(t *testing.T) {
+	assert := assert.New(t)
+
+	// merge tests - perform these in a transaction that we'll rollback
+	if err := withRollbackTxn(func(r models.Repository) error {
+		qb := r.Tag()
+
+		// try merging into same tag
+		err := qb.Merge([]int{tagIDs[tagIdx1WithScene]}, tagIDs[tagIdx1WithScene])
+		assert.NotNil(err)
+
+		// merge everything into tagIdxWithScene
+		srcIdxs := []int{
+			tagIdx1WithScene,
+			tagIdx2WithScene,
+			tagIdxWithPrimaryMarkers,
+			tagIdxWithMarkers,
+			tagIdxWithCoverImage,
+			tagIdxWithImage,
+			tagIdx1WithImage,
+			tagIdx2WithImage,
+			tagIdxWithPerformer,
+			tagIdx1WithPerformer,
+			tagIdx2WithPerformer,
+			tagIdxWithGallery,
+			tagIdx1WithGallery,
+			tagIdx2WithGallery,
+		}
+		var srcIDs []int
+		for _, idx := range srcIdxs {
+			srcIDs = append(srcIDs, tagIDs[idx])
+		}
+
+		destID := tagIDs[tagIdxWithScene]
+		if err = qb.Merge(srcIDs, destID); err != nil {
+			return err
+		}
+
+		// ensure other tags are deleted
+		for _, tagId := range srcIDs {
+			t, err := qb.Find(tagId)
+			if err != nil {
+				return err
+			}
+
+			assert.Nil(t)
+		}
+
+		// ensure aliases are set on the destination
+		destAliases, err := qb.GetAliases(destID)
+		if err != nil {
+			return err
+		}
+		for _, tagIdx := range srcIdxs {
+			assert.Contains(destAliases, getTagStringValue(tagIdx, "Name"))
+		}
+
+		// ensure scene points to new tag
+		sceneTagIDs, err := r.Scene().GetTagIDs(sceneIDs[sceneIdxWithTwoTags])
+		if err != nil {
+			return err
+		}
+
+		assert.Contains(sceneTagIDs, destID)
+
+		// ensure marker points to new tag
+		marker, err := r.SceneMarker().Find(markerIDs[markerIdxWithTag])
+		if err != nil {
+			return err
+		}
+
+		assert.Equal(destID, marker.PrimaryTagID)
+
+		markerTagIDs, err := r.SceneMarker().GetTagIDs(marker.ID)
+		if err != nil {
+			return err
+		}
+
+		assert.Contains(markerTagIDs, destID)
+
+		// ensure image points to new tag
+		imageTagIDs, err := r.Image().GetTagIDs(imageIDs[imageIdxWithTwoTags])
+		if err != nil {
+			return err
+		}
+
+		assert.Contains(imageTagIDs, destID)
+
+		// ensure gallery points to new tag
+		galleryTagIDs, err := r.Gallery().GetTagIDs(galleryIDs[galleryIdxWithTwoTags])
+		if err != nil {
+			return err
+		}
+
+		assert.Contains(galleryTagIDs, destID)
+
+		// ensure performer points to new tag
+		performerTagIDs, err := r.Gallery().GetTagIDs(performerIDs[performerIdxWithTwoTags])
+		if err != nil {
+			return err
+		}
+
+		assert.Contains(performerTagIDs, destID)
 
 		return nil
 	}); err != nil {

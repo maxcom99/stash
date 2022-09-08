@@ -8,6 +8,7 @@
 @import "src/components/List/styles.scss";
 @import "src/components/Movies/styles.scss";
 @import "src/components/Performers/styles.scss";
+@import "src/components/FrontPage/styles.scss";
 @import "src/components/Scenes/styles.scss";
 @import "src/components/SceneDuplicateChecker/styles.scss";
 @import "src/components/SceneFilenameParser/styles.scss";
@@ -17,9 +18,14 @@
 @import "src/components/Shared/styles.scss";
 @import "src/components/Tags/styles.scss";
 @import "src/components/Wall/styles.scss";
-@import "../node_modules/flag-icon-css/css/flag-icon.min.css";
 @import "src/components/Tagger/styles.scss";
 @import "src/hooks/Lightbox/lightbox.scss";
+@import "src/hooks/Interactive/interactive.scss";
+@import "src/components/Dialogs/IdentifyDialog/styles.scss";
+@import "src/components/Dialogs/styles.scss";
+@import "../node_modules/flag-icon-css/css/flag-icon.min.css";
+@import "video.js/dist/video-js.css";
+@import "videojs-seek-buttons/dist/videojs-seek-buttons.css";
 
 /* stylelint-disable */
 #root {
@@ -37,6 +43,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
   margin: 0;
   padding: 4rem 0 0 0;
+
+  @include media-breakpoint-down(xs) {
+    @media (orientation: portrait) {
+      padding: 1rem 0 5rem;
+    }
+  }
 }
 
 code,
@@ -66,13 +78,6 @@ dd {
   }
 }
 
-.text-input,
-.text-input:focus,
-.text-input[readonly],
-.text-input:disabled {
-  background-color: $textfield-bg;
-}
-
 .input-control,
 .input-control:focus,
 .input-control:disabled {
@@ -83,10 +88,21 @@ dd {
   opacity: 0.8;
 }
 
+.text-input,
+.text-input:focus,
+.text-input[readonly],
+.text-input:disabled {
+  background-color: $textfield-bg;
+}
+
 textarea.text-input {
   line-height: 2.5ex;
   min-height: 12ex;
   overflow-y: scroll;
+}
+
+.table-list {
+  min-width: min-content;
 }
 
 .table-list a {
@@ -204,6 +220,50 @@ textarea.text-input {
   width: 100%;
 }
 
+.preview-button {
+  align-items: center;
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  position: absolute;
+  text-align: center;
+  width: 100%;
+
+  button.btn,
+  button.btn:not(:disabled):not(.disabled):hover,
+  button.btn:not(:disabled):not(.disabled):focus,
+  button.btn:not(:disabled):not(.disabled):active {
+    background: none;
+    border: none;
+    box-shadow: none;
+  }
+
+  .fa-icon {
+    color: $text-color;
+    filter: drop-shadow(2px 4px 6px black);
+    height: 5em;
+    opacity: 0;
+    transition: opacity 0.5s;
+    width: 5em;
+
+    &:hover {
+      opacity: 0.8;
+    }
+  }
+
+  @media (hover: none), (pointer: coarse) {
+    // always show preview button when hovering not supported
+    align-items: flex-end;
+    justify-content: right;
+
+    .fa-icon {
+      height: 3em;
+      opacity: 0.8;
+      width: 3em;
+    }
+  }
+}
+
 /* this is a bit of a hack, because we can't supply direct class names
    to the react-select controls */
 /* stylelint-disable selector-class-pattern */
@@ -213,6 +273,7 @@ div.react-select__control {
   border-color: $secondary;
   color: $text-color;
   cursor: pointer;
+  white-space: nowrap;
 
   .react-select__single-value,
   .react-select__input {
@@ -229,6 +290,7 @@ div.react-select__menu,
 div.dropdown-menu {
   background-color: $secondary;
   color: $text-color;
+  z-index: 16;
 
   .react-select__option,
   .dropdown-item {
@@ -274,6 +336,19 @@ div.dropdown-menu {
 
 .edit-button {
   margin-right: 10px;
+}
+
+.wrap-tags {
+  column-gap: 10px;
+  flex-wrap: wrap;
+  row-gap: 10px;
+
+  /* stylelint-disable */
+  .badge {
+    white-space: normal !important;
+    margin: unset;
+  }
+  /* stylelint-enable */
 }
 
 .tag-item {
@@ -362,12 +437,13 @@ div.dropdown-menu {
   position: absolute;
   text-align: center;
   text-size-adjust: none;
+  text-transform: uppercase;
   top: 14px;
   transform: rotate(-36deg);
 }
 
 .card {
-  background-color: #30404d;
+  background-color: $card-bg;
   border-radius: 3px;
   box-shadow: 0 0 0 1px rgba(16, 22, 26, 0.4), 0 0 0 rgba(16, 22, 26, 0),
     0 0 0 rgba(16, 22, 26, 0);
@@ -406,6 +482,10 @@ div.dropdown-menu {
       color: $text-color;
       text-shadow: none;
     }
+  }
+
+  .toast-body {
+    white-space: pre-wrap;
   }
 }
 
@@ -456,44 +536,122 @@ div.dropdown-menu {
 }
 
 .top-nav {
+  justify-content: start;
   padding: 0.25rem 1rem;
+
+  @include media-breakpoint-down(xs) {
+    padding: 0.25rem 2rem;
+
+    @media (orientation: portrait) {
+      bottom: 0;
+      top: auto;
+    }
+  }
+
+  .navbar-toggler {
+    padding: 0.5em 0;
+    text-align: center;
+    width: 3em;
+
+    svg {
+      margin: auto;
+    }
+  }
+
+  .navbar-collapse {
+    justify-content: space-between;
+    max-height: calc(100vh - 4rem);
+
+    @include media-breakpoint-down(xs) {
+      @media (orientation: landscape) {
+        overflow-y: scroll;
+      }
+    }
+
+    .navbar-nav {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding-bottom: 0.5rem;
+
+      @include media-breakpoint-up(xl) {
+        flex-wrap: nowrap;
+        padding-bottom: 0;
+      }
+
+      &:last-child {
+        display: none;
+      }
+
+      @include media-breakpoint-down(xs) {
+        &:last-child {
+          display: flex;
+          min-height: 3rem;
+        }
+      }
+    }
+  }
+
+  .navbar-buttons .btn {
+    align-items: center;
+    display: flex;
+  }
+
+  @include media-breakpoint-down(xs) {
+    .navbar-buttons .nav-utility {
+      display: none;
+    }
+  }
 
   .nav-link {
     padding: 0;
   }
 
   .fa-icon {
-    margin-left: 0;
+    @include media-breakpoint-down(xs) {
+      margin: 0;
+    }
+
+    &.nav-menu-icon {
+      @include media-breakpoint-down(lg) {
+        height: 100%;
+        max-height: min(10vw, 55px);
+        width: 100%;
+      }
+    }
   }
 
   .btn {
     white-space: nowrap;
   }
 
-  @media (max-width: 576px) {
+  @include media-breakpoint-down(lg) {
+    .navbar-brand {
+      margin-left: -8px;
+    }
+
+    .navbar-buttons {
+      margin: 0 -8px;
+    }
+
     .btn {
-      padding: 6px;
-    }
-
-    .settings-button {
-      padding-left: 1rem;
-      padding-right: 1rem;
-    }
-
-    .donate {
-      span {
-        display: none;
-      }
-
-      svg {
-        margin: 0;
-      }
+      padding: 6px 12px;
     }
   }
 }
 
-.donate svg {
-  color: #ff7373;
+.donate {
+  align-items: center;
+  display: flex;
+  height: 100%;
+
+  svg {
+    color: #ff7373;
+
+    @include media-breakpoint-down(xs) {
+      margin: 0;
+    }
+  }
 }
 
 .error-message {
@@ -575,7 +733,7 @@ div.dropdown-menu {
   }
 
   code {
-    background-color: darken($color: #30404d, $amount: 3);
+    background-color: darken($color: $card-bg, $amount: 3);
     color: $text-color;
     padding: 0.2em 0.4em;
   }
@@ -593,7 +751,7 @@ div.dropdown-menu {
       padding: 0;
     }
 
-    background-color: darken($color: #30404d, $amount: 3);
+    background-color: darken($color: $card-bg, $amount: 3);
     border-radius: 3px;
     padding: 16px;
   }
@@ -615,7 +773,7 @@ div.dropdown-menu {
     }
 
     tr:nth-child(2n) {
-      background-color: darken($color: #30404d, $amount: 2);
+      background-color: darken($color: $card-bg, $amount: 2);
     }
 
     td,
@@ -640,4 +798,33 @@ div.dropdown-menu {
   .btn:last-child {
     border-bottom-right-radius: 0;
   }
+}
+
+// workaround for dropdown button in button group
+.btn-group > .dropdown:not(:last-child) > .btn {
+  border-bottom-right-radius: 0;
+  border-top-right-radius: 0;
+}
+
+dl.details-list {
+  display: grid;
+  grid-column-gap: 10px;
+  grid-template-columns: minmax(16.67%, auto) 1fr;
+}
+
+// middle align checkboxes
+.form-group .form-check .form-check-input {
+  vertical-align: middle;
+}
+
+// Fix Safari styling on dropdowns
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4.95 10' fill='%23fff'><polygon points='1.41 4.67 2.48 3.18 3.54 4.67 1.41 4.67'/><polygon points='3.54 5.33 2.48 6.82 1.41 5.33 3.54 5.33'/></svg>")
+    no-repeat right 2px center;
+}
+
+.left-spacing {
+  margin-left: 0.5em;
 }

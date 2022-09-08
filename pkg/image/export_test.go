@@ -3,8 +3,9 @@ package image
 import (
 	"errors"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/json"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/models/mocks"
 	"github.com/stretchr/testify/assert"
 
@@ -13,8 +14,8 @@ import (
 )
 
 const (
-	imageID    = 1
-	noImageID  = 2
+	imageID = 1
+	// noImageID  = 2
 	errImageID = 3
 
 	studioID        = 4
@@ -24,17 +25,17 @@ const (
 	// noGalleryID  = 7
 	// errGalleryID = 8
 
-	noTagsID  = 11
+	// noTagsID  = 11
 	errTagsID = 12
 
-	noMoviesID     = 13
-	errMoviesID    = 14
-	errFindMovieID = 15
+	// noMoviesID     = 13
+	// errMoviesID    = 14
+	// errFindMovieID = 15
 
-	noMarkersID         = 16
-	errMarkersID        = 17
-	errFindPrimaryTagID = 18
-	errFindByMarkerID   = 19
+	// noMarkersID         = 16
+	// errMarkersID        = 17
+	// errFindPrimaryTagID = 18
+	// errFindByMarkerID   = 19
 )
 
 const (
@@ -50,16 +51,13 @@ const (
 
 const (
 	studioName = "studioName"
-	//galleryChecksum = "galleryChecksum"
+	// galleryChecksum = "galleryChecksum"
 )
 
-var names = []string{
-	"name1",
-	"name2",
-}
-
-var createTime time.Time = time.Date(2001, 01, 01, 0, 0, 0, 0, time.UTC)
-var updateTime time.Time = time.Date(2002, 01, 01, 0, 0, 0, 0, time.UTC)
+var (
+	createTime = time.Date(2001, 01, 01, 0, 0, 0, 0, time.UTC)
+	updateTime = time.Date(2002, 01, 01, 0, 0, 0, 0, time.UTC)
+)
 
 func createFullImage(id int) models.Image {
 	return models.Image{
@@ -81,18 +79,6 @@ func createFullImage(id int) models.Image {
 	}
 }
 
-func createEmptyImage(id int) models.Image {
-	return models.Image{
-		ID: id,
-		CreatedAt: models.SQLiteTimestamp{
-			Timestamp: createTime,
-		},
-		UpdatedAt: models.SQLiteTimestamp{
-			Timestamp: updateTime,
-		},
-	}
-}
-
 func createFullJSONImage() *jsonschema.Image {
 	return &jsonschema.Image{
 		Title:     title,
@@ -105,22 +91,10 @@ func createFullJSONImage() *jsonschema.Image {
 			Size:   size,
 			Width:  width,
 		},
-		CreatedAt: models.JSONTime{
+		CreatedAt: json.JSONTime{
 			Time: createTime,
 		},
-		UpdatedAt: models.JSONTime{
-			Time: updateTime,
-		},
-	}
-}
-
-func createEmptyJSONImage() *jsonschema.Image {
-	return &jsonschema.Image{
-		File: &jsonschema.ImageFile{},
-		CreatedAt: models.JSONTime{
-			Time: createTime,
-		},
-		UpdatedAt: models.JSONTime{
+		UpdatedAt: json.JSONTime{
 			Time: updateTime,
 		},
 	}
@@ -192,11 +166,12 @@ func TestGetStudioName(t *testing.T) {
 		image := s.input
 		json, err := GetStudioName(mockStudioReader, &image)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}

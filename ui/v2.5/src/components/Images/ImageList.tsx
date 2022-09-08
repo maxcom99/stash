@@ -1,5 +1,6 @@
-import React, { useCallback, useState } from "react";
-import _ from "lodash";
+import React, { useCallback, useState, useMemo, MouseEvent } from "react";
+import { useIntl } from "react-intl";
+import cloneDeep from "lodash-es/cloneDeep";
 import { useHistory } from "react-router-dom";
 import Mousetrap from "mousetrap";
 import {
@@ -29,58 +30,10 @@ interface IImageWallProps {
   onChangePage: (page: number) => void;
   currentPage: number;
   pageCount: number;
+  handleImageOpen: (index: number) => void;
 }
 
-const ImageWall: React.FC<IImageWallProps> = ({
-  images,
-  onChangePage,
-  currentPage,
-  pageCount,
-}) => {
-  const [slideshowRunning, setSlideshowRunning] = useState<boolean>(false);
-  const handleLightBoxPage = useCallback(
-    (direction: number) => {
-      if (direction === -1) {
-        if (currentPage === 1) return false;
-        onChangePage(currentPage - 1);
-      } else {
-        if (currentPage === pageCount) {
-          // if the slideshow is running
-          // return to the first page
-          if (slideshowRunning) {
-            onChangePage(0);
-            return true;
-          }
-          return false;
-        }
-        onChangePage(currentPage + 1);
-      }
-      return direction === -1 || direction === 1;
-    },
-    [onChangePage, currentPage, pageCount, slideshowRunning]
-  );
-
-  const handleClose = useCallback(() => {
-    setSlideshowRunning(false);
-  }, [setSlideshowRunning]);
-
-  const showLightbox = useLightbox({
-    images,
-    showNavigation: false,
-    pageCallback: handleLightBoxPage,
-    pageHeader: `Page ${currentPage} / ${pageCount}`,
-    slideshowEnabled: slideshowRunning,
-    onClose: handleClose,
-  });
-
-  const handleImageOpen = useCallback(
-    (index) => {
-      setSlideshowRunning(true);
-      showLightbox(index, true);
-    },
-    [showLightbox]
-  );
-
+const ImageWall: React.FC<IImageWallProps> = ({ images, handleImageOpen }) => {
   const thumbs = images.map((image, index) => (
     <div
       role="link"
@@ -105,6 +58,131 @@ const ImageWall: React.FC<IImageWallProps> = ({
   );
 };
 
+interface IImageListImages {
+  images: SlimImageDataFragment[];
+  filter: ListFilterModel;
+  selectedIds: Set<string>;
+  onChangePage: (page: number) => void;
+  pageCount: number;
+  onSelectChange: (id: string, selected: boolean, shiftKey: boolean) => void;
+  slideshowRunning: boolean;
+  setSlideshowRunning: (running: boolean) => void;
+}
+
+const ImageListImages: React.FC<IImageListImages> = ({
+  images,
+  filter,
+  selectedIds,
+  onChangePage,
+  pageCount,
+  onSelectChange,
+  slideshowRunning,
+  setSlideshowRunning,
+}) => {
+  const handleLightBoxPage = useCallback(
+    (direction: number) => {
+      if (direction === -1) {
+        if (filter.currentPage === 1) {
+          onChangePage(pageCount);
+        } else {
+          onChangePage(filter.currentPage - 1);
+        }
+      } else if (direction === 1) {
+        if (filter.currentPage === pageCount) {
+          // return to the first page
+          onChangePage(1);
+        } else {
+          onChangePage(filter.currentPage + 1);
+        }
+      }
+    },
+    [onChangePage, filter.currentPage, pageCount]
+  );
+
+  const handleClose = useCallback(() => {
+    setSlideshowRunning(false);
+  }, [setSlideshowRunning]);
+
+  const lightboxState = useMemo(() => {
+    return {
+      images,
+      showNavigation: false,
+      pageCallback: pageCount > 1 ? handleLightBoxPage : undefined,
+      pageHeader: `Page ${filter.currentPage} / ${pageCount}`,
+      slideshowEnabled: slideshowRunning,
+      onClose: handleClose,
+    };
+  }, [
+    images,
+    pageCount,
+    filter.currentPage,
+    slideshowRunning,
+    handleClose,
+    handleLightBoxPage,
+  ]);
+
+  const showLightbox = useLightbox(lightboxState);
+
+  const handleImageOpen = useCallback(
+    (index) => {
+      setSlideshowRunning(true);
+      showLightbox(index, true);
+    },
+    [showLightbox, setSlideshowRunning]
+  );
+
+  function onPreview(index: number, ev: MouseEvent) {
+    handleImageOpen(index);
+    ev.preventDefault();
+  }
+
+  function renderImageCard(
+    index: number,
+    image: SlimImageDataFragment,
+    zoomIndex: number
+  ) {
+    return (
+      <ImageCard
+        key={image.id}
+        image={image}
+        zoomIndex={zoomIndex}
+        selecting={selectedIds.size > 0}
+        selected={selectedIds.has(image.id)}
+        onSelectedChanged={(selected: boolean, shiftKey: boolean) =>
+          onSelectChange(image.id, selected, shiftKey)
+        }
+        onPreview={
+          selectedIds.size < 1 ? (ev) => onPreview(index, ev) : undefined
+        }
+      />
+    );
+  }
+
+  if (filter.displayMode === DisplayMode.Grid) {
+    return (
+      <div className="row justify-content-center">
+        {images.map((image, index) =>
+          renderImageCard(index, image, filter.zoomIndex)
+        )}
+      </div>
+    );
+  }
+  if (filter.displayMode === DisplayMode.Wall) {
+    return (
+      <ImageWall
+        images={images}
+        onChangePage={onChangePage}
+        currentPage={filter.currentPage}
+        pageCount={pageCount}
+        handleImageOpen={handleImageOpen}
+      />
+    );
+  }
+
+  // should not happen
+  return <></>;
+};
+
 interface IImageList {
   filterHook?: (filter: ListFilterModel) => ListFilterModel;
   persistState?: PersistanceLevel;
@@ -118,22 +196,24 @@ export const ImageList: React.FC<IImageList> = ({
   persistanceKey,
   extraOperations,
 }) => {
+  const intl = useIntl();
   const history = useHistory();
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExportAll, setIsExportAll] = useState(false);
+  const [slideshowRunning, setSlideshowRunning] = useState<boolean>(false);
 
   const otherOperations = (extraOperations ?? []).concat([
     {
-      text: "View Random",
+      text: intl.formatMessage({ id: "actions.view_random" }),
       onClick: viewRandom,
     },
     {
-      text: "Export...",
+      text: intl.formatMessage({ id: "actions.export" }),
       onClick: onExport,
       isDisplayed: showWhenSelected,
     },
     {
-      text: "Export all...",
+      text: intl.formatMessage({ id: "actions.export_all" }),
       onClick: onExportAll,
     },
   ]);
@@ -173,7 +253,7 @@ export const ImageList: React.FC<IImageList> = ({
       const { count } = result.data.findImages;
 
       const index = Math.floor(Math.random() * count);
-      const filterCopy = _.cloneDeep(filter);
+      const filterCopy = cloneDeep(filter);
       filterCopy.itemsPerPage = 1;
       filterCopy.currentPage = index + 1;
       const singleResult = await queryFindImages(filterCopy);
@@ -237,76 +317,46 @@ export const ImageList: React.FC<IImageList> = ({
     );
   }
 
-  function renderImageCard(
-    image: SlimImageDataFragment,
-    selectedIds: Set<string>,
-    zoomIndex: number
-  ) {
-    return (
-      <ImageCard
-        key={image.id}
-        image={image}
-        zoomIndex={zoomIndex}
-        selecting={selectedIds.size > 0}
-        selected={selectedIds.has(image.id)}
-        onSelectedChanged={(selected: boolean, shiftKey: boolean) =>
-          onSelectChange(image.id, selected, shiftKey)
-        }
-      />
-    );
+  function selectChange(id: string, selected: boolean, shiftKey: boolean) {
+    onSelectChange(id, selected, shiftKey);
   }
 
   function renderImages(
     result: FindImagesQueryResult,
     filter: ListFilterModel,
     selectedIds: Set<string>,
-    zoomIndex: number,
     onChangePage: (page: number) => void,
     pageCount: number
   ) {
     if (!result.data || !result.data.findImages) {
       return;
     }
-    if (filter.displayMode === DisplayMode.Grid) {
-      return (
-        <div className="row justify-content-center">
-          {result.data.findImages.images.map((image) =>
-            renderImageCard(image, selectedIds, zoomIndex)
-          )}
-        </div>
-      );
-    }
-    if (filter.displayMode === DisplayMode.Wall) {
-      return (
-        <ImageWall
-          images={result.data.findImages.images}
-          onChangePage={onChangePage}
-          currentPage={filter.currentPage}
-          pageCount={pageCount}
-        />
-      );
-    }
+
+    return (
+      <ImageListImages
+        filter={filter}
+        images={result.data.findImages.images}
+        onChangePage={onChangePage}
+        onSelectChange={selectChange}
+        pageCount={pageCount}
+        selectedIds={selectedIds}
+        slideshowRunning={slideshowRunning}
+        setSlideshowRunning={setSlideshowRunning}
+      />
+    );
   }
 
   function renderContent(
     result: FindImagesQueryResult,
     filter: ListFilterModel,
     selectedIds: Set<string>,
-    zoomIndex: number,
     onChangePage: (page: number) => void,
     pageCount: number
   ) {
     return (
       <>
         {maybeRenderImageExportDialog(selectedIds)}
-        {renderImages(
-          result,
-          filter,
-          selectedIds,
-          zoomIndex,
-          onChangePage,
-          pageCount
-        )}
+        {renderImages(result, filter, selectedIds, onChangePage, pageCount)}
       </>
     );
   }

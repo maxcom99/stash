@@ -1,16 +1,15 @@
-import React, { useCallback, useState } from "react";
-import * as GQL from "src/core/generated-graphql";
-import { LightboxComponent } from "./Lightbox";
+import React, { lazy, Suspense, useCallback, useState } from "react";
+import { ILightboxImage } from "./types";
 
-type Image = Pick<GQL.Image, "paths">;
+const LightboxComponent = lazy(() => import("./Lightbox"));
 
 export interface IState {
-  images: Image[];
+  images: ILightboxImage[];
   isVisible: boolean;
   isLoading: boolean;
   showNavigation: boolean;
   initialIndex?: number;
-  pageCallback?: (direction: number) => boolean;
+  pageCallback?: (direction: number) => void;
   pageHeader?: string;
   slideshowEnabled: boolean;
   onClose?: () => void;
@@ -51,9 +50,11 @@ const Lightbox: React.FC = ({ children }) => {
   return (
     <LightboxContext.Provider value={{ setLightboxState: setPartialState }}>
       {children}
-      {lightboxState.isVisible && (
-        <LightboxComponent {...lightboxState} hide={onHide} />
-      )}
+      <Suspense fallback={<></>}>
+        {lightboxState.isVisible && (
+          <LightboxComponent {...lightboxState} hide={onHide} />
+        )}
+      </Suspense>
     </LightboxContext.Provider>
   );
 };

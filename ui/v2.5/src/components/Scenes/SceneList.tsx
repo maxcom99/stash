@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import _ from "lodash";
+import cloneDeep from "lodash-es/cloneDeep";
+import { useIntl } from "react-intl";
 import { useHistory } from "react-router-dom";
 import Mousetrap from "mousetrap";
 import {
@@ -17,9 +18,13 @@ import { WallPanel } from "../Wall/WallPanel";
 import { SceneListTable } from "./SceneListTable";
 import { EditScenesDialog } from "./EditScenesDialog";
 import { DeleteScenesDialog } from "./DeleteScenesDialog";
-import { SceneGenerateDialog } from "./SceneGenerateDialog";
+import { GenerateDialog } from "../Dialogs/GenerateDialog";
 import { ExportDialog } from "../Shared/ExportDialog";
 import { SceneCardsGrid } from "./SceneCardsGrid";
+import { TaggerContext } from "../Tagger/context";
+import { IdentifyDialog } from "../Dialogs/IdentifyDialog/IdentifyDialog";
+import { ConfigurationContext } from "src/hooks/Config";
+import { faPlay } from "@fortawesome/free-solid-svg-icons";
 
 interface ISceneList {
   filterHook?: (filter: ListFilterModel) => ListFilterModel;
@@ -32,33 +37,42 @@ export const SceneList: React.FC<ISceneList> = ({
   defaultSort,
   persistState,
 }) => {
+  const intl = useIntl();
   const history = useHistory();
+  const config = React.useContext(ConfigurationContext);
   const [isGenerateDialogOpen, setIsGenerateDialogOpen] = useState(false);
+  const [isIdentifyDialogOpen, setIsIdentifyDialogOpen] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExportAll, setIsExportAll] = useState(false);
 
   const otherOperations = [
     {
-      text: "Play selected",
+      text: intl.formatMessage({ id: "actions.play_selected" }),
       onClick: playSelected,
       isDisplayed: showWhenSelected,
+      icon: faPlay,
     },
     {
-      text: "Play Random",
+      text: intl.formatMessage({ id: "actions.play_random" }),
       onClick: playRandom,
     },
     {
-      text: "Generate...",
+      text: `${intl.formatMessage({ id: "actions.generate" })}…`,
       onClick: generate,
       isDisplayed: showWhenSelected,
     },
     {
-      text: "Export...",
+      text: `${intl.formatMessage({ id: "actions.identify" })}…`,
+      onClick: identify,
+      isDisplayed: showWhenSelected,
+    },
+    {
+      text: intl.formatMessage({ id: "actions.export" }),
       onClick: onExport,
       isDisplayed: showWhenSelected,
     },
     {
-      text: "Export all...",
+      text: intl.formatMessage({ id: "actions.export_all" }),
       onClick: onExportAll,
     },
   ];
@@ -102,7 +116,11 @@ export const SceneList: React.FC<ISceneList> = ({
     // populate queue and go to first scene
     const sceneIDs = Array.from(selectedIds.values());
     const queue = SceneQueue.fromSceneIDList(sceneIDs);
-    queue.playScene(history, sceneIDs[0], { autoPlay: true });
+    const autoPlay =
+      config.configuration?.interface.autostartVideoOnPlaySelected ?? false;
+    const cont =
+      config.configuration?.interface.continuePlaylistDefault ?? false;
+    queue.playScene(history, sceneIDs[0], { autoPlay, continue: cont });
   }
 
   async function playRandom(
@@ -115,8 +133,11 @@ export const SceneList: React.FC<ISceneList> = ({
 
       const pages = Math.ceil(count / filter.itemsPerPage);
       const page = Math.floor(Math.random() * pages) + 1;
-      const index = Math.floor(Math.random() * filter.itemsPerPage);
-      const filterCopy = _.cloneDeep(filter);
+
+      const indexMax =
+        filter.itemsPerPage < count ? filter.itemsPerPage : count;
+      const index = Math.floor(Math.random() * indexMax);
+      const filterCopy = cloneDeep(filter);
       filterCopy.currentPage = page;
       filterCopy.sortBy = "random";
       const queryResults = await queryFindScenes(filterCopy);
@@ -124,13 +145,25 @@ export const SceneList: React.FC<ISceneList> = ({
         const { id } = queryResults!.data!.findScenes!.scenes[index];
         // navigate to the image player page
         const queue = SceneQueue.fromListFilterModel(filterCopy);
-        queue.playScene(history, id, { sceneIndex: index, autoPlay: true });
+        const autoPlay =
+          config.configuration?.interface.autostartVideoOnPlaySelected ?? false;
+        const cont =
+          config.configuration?.interface.continuePlaylistDefault ?? false;
+        queue.playScene(history, id, {
+          sceneIndex: index,
+          autoPlay,
+          continue: cont,
+        });
       }
     }
   }
 
   async function generate() {
     setIsGenerateDialogOpen(true);
+  }
+
+  async function identify() {
+    setIsIdentifyDialogOpen(true);
   }
 
   async function onExport() {
@@ -147,10 +180,25 @@ export const SceneList: React.FC<ISceneList> = ({
     if (isGenerateDialogOpen) {
       return (
         <>
-          <SceneGenerateDialog
+          <GenerateDialog
             selectedIds={Array.from(selectedIds.values())}
             onClose={() => {
               setIsGenerateDialogOpen(false);
+            }}
+          />
+        </>
+      );
+    }
+  }
+
+  function maybeRenderSceneIdentifyDialog(selectedIds: Set<string>) {
+    if (isIdentifyDialogOpen) {
+      return (
+        <>
+          <IdentifyDialog
+            selectedIds={Array.from(selectedIds.values())}
+            onClose={() => {
+              setIsIdentifyDialogOpen(false);
             }}
           />
         </>
@@ -192,8 +240,7 @@ export const SceneList: React.FC<ISceneList> = ({
   function renderScenes(
     result: FindScenesQueryResult,
     filter: ListFilterModel,
-    selectedIds: Set<string>,
-    zoomIndex: number
+    selectedIds: Set<string>
   ) {
     if (!result.data || !result.data.findScenes) {
       return;
@@ -206,7 +253,7 @@ export const SceneList: React.FC<ISceneList> = ({
         <SceneCardsGrid
           scenes={result.data.findScenes.scenes}
           queue={queue}
-          zoomIndex={zoomIndex}
+          zoomIndex={filter.zoomIndex}
           selectedIds={selectedIds}
           onSelectChange={(id, selected, shiftKey) =>
             listData.onSelectChange(id, selected, shiftKey)
@@ -216,7 +263,14 @@ export const SceneList: React.FC<ISceneList> = ({
     }
     if (filter.displayMode === DisplayMode.List) {
       return (
-        <SceneListTable scenes={result.data.findScenes.scenes} queue={queue} />
+        <SceneListTable
+          scenes={result.data.findScenes.scenes}
+          queue={queue}
+          selectedIds={selectedIds}
+          onSelectChange={(id, selected, shiftKey) =>
+            listData.onSelectChange(id, selected, shiftKey)
+          }
+        />
       );
     }
     if (filter.displayMode === DisplayMode.Wall) {
@@ -232,17 +286,19 @@ export const SceneList: React.FC<ISceneList> = ({
   function renderContent(
     result: FindScenesQueryResult,
     filter: ListFilterModel,
-    selectedIds: Set<string>,
-    zoomIndex: number
+    selectedIds: Set<string>
   ) {
     return (
       <>
         {maybeRenderSceneGenerateDialog(selectedIds)}
+        {maybeRenderSceneIdentifyDialog(selectedIds)}
         {maybeRenderSceneExportDialog(selectedIds)}
-        {renderScenes(result, filter, selectedIds, zoomIndex)}
+        {renderScenes(result, filter, selectedIds)}
       </>
     );
   }
 
-  return listData.template;
+  return <TaggerContext>{listData.template}</TaggerContext>;
 };
+
+export default SceneList;

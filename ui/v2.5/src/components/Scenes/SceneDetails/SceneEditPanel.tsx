@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo, lazy } from "react";
+import { FormattedMessage, useIntl } from "react-intl";
 import {
   Button,
   Dropdown,
@@ -6,6 +7,7 @@ import {
   Form,
   Col,
   Row,
+  ButtonGroup,
 } from "react-bootstrap";
 import Mousetrap from "mousetrap";
 import * as GQL from "src/core/generated-graphql";
@@ -16,8 +18,7 @@ import {
   useListSceneScrapers,
   useSceneUpdate,
   mutateReloadScrapers,
-  useConfiguration,
-  queryStashBoxScene,
+  queryScrapeSceneQueryFragment,
 } from "src/core/StashService";
 import {
   PerformerSelect,
@@ -27,15 +28,25 @@ import {
   Icon,
   LoadingIndicator,
   ImageInput,
+  URLField,
 } from "src/components/Shared";
-import { useToast } from "src/hooks";
-import { ImageUtils, FormUtils, TextUtils } from "src/utils";
+import useToast from "src/hooks/Toast";
+import { ImageUtils, FormUtils, TextUtils, getStashIDs } from "src/utils";
 import { MovieSelect } from "src/components/Shared/Select";
 import { useFormik } from "formik";
-import { Prompt } from "react-router";
+import { Prompt } from "react-router-dom";
+import { ConfigurationContext } from "src/hooks/Config";
+import { stashboxDisplayName } from "src/utils/stashbox";
 import { SceneMovieTable } from "./SceneMovieTable";
 import { RatingStars } from "./RatingStars";
-import { SceneScrapeDialog } from "./SceneScrapeDialog";
+import {
+  faSearch,
+  faSyncAlt,
+  faTrashAlt,
+} from "@fortawesome/free-solid-svg-icons";
+
+const SceneScrapeDialog = lazy(() => import("./SceneScrapeDialog"));
+const SceneQueryModal = lazy(() => import("./SceneQueryModal"));
 
 interface IProps {
   scene: GQL.SceneDataFragment;
@@ -49,6 +60,7 @@ export const SceneEditPanel: React.FC<IProps> = ({
   isVisible,
   onDelete,
 }) => {
+  const intl = useIntl();
   const Toast = useToast();
   const [galleries, setGalleries] = useState<{ id: string; title: string }[]>(
     scene.galleries.map((g) => ({
@@ -58,15 +70,26 @@ export const SceneEditPanel: React.FC<IProps> = ({
   );
 
   const Scrapers = useListSceneScrapers();
+  const [fragmentScrapers, setFragmentScrapers] = useState<GQL.Scraper[]>([]);
   const [queryableScrapers, setQueryableScrapers] = useState<GQL.Scraper[]>([]);
 
+  const [scraper, setScraper] = useState<GQL.ScraperSourceInput | undefined>();
+  const [
+    isScraperQueryModalOpen,
+    setIsScraperQueryModalOpen,
+  ] = useState<boolean>(false);
   const [scrapedScene, setScrapedScene] = useState<GQL.ScrapedScene | null>();
+  const [endpoint, setEndpoint] = useState<string | undefined>();
 
   const [coverImagePreview, setCoverImagePreview] = useState<
     string | undefined
-  >(scene.paths.screenshot ?? undefined);
+  >();
 
-  const stashConfig = useConfiguration();
+  useEffect(() => {
+    setCoverImagePreview(scene.paths.screenshot ?? undefined);
+  }, [scene.paths.screenshot]);
+
+  const { configuration: stashConfig } = React.useContext(ConfigurationContext);
 
   // Network state
   const [isLoading, setIsLoading] = useState(false);
@@ -94,36 +117,50 @@ export const SceneEditPanel: React.FC<IProps> = ({
     stash_ids: yup.mixed<GQL.StashIdInput>().optional().nullable(),
   });
 
-  const initialValues = {
-    title: scene.title ?? "",
-    details: scene.details ?? "",
-    url: scene.url ?? "",
-    date: scene.date ?? "",
-    rating: scene.rating ?? null,
-    gallery_ids: (scene.galleries ?? []).map((g) => g.id),
-    studio_id: scene.studio?.id,
-    performer_ids: (scene.performers ?? []).map((p) => p.id),
-    movies: (scene.movies ?? []).map((m) => {
-      return { movie_id: m.movie.id, scene_index: m.scene_index };
+  const initialValues = useMemo(
+    () => ({
+      title: scene.title ?? "",
+      details: scene.details ?? "",
+      url: scene.url ?? "",
+      date: scene.date ?? "",
+      rating: scene.rating ?? null,
+      gallery_ids: (scene.galleries ?? []).map((g) => g.id),
+      studio_id: scene.studio?.id,
+      performer_ids: (scene.performers ?? []).map((p) => p.id),
+      movies: (scene.movies ?? []).map((m) => {
+        return { movie_id: m.movie.id, scene_index: m.scene_index };
+      }),
+      tag_ids: (scene.tags ?? []).map((t) => t.id),
+      cover_image: undefined,
+      stash_ids: getStashIDs(scene.stash_ids),
     }),
-    tag_ids: (scene.tags ?? []).map((t) => t.id),
-    cover_image: undefined,
-    stash_ids: (scene.stash_ids ?? []).map((s) => ({
-      stash_id: s.stash_id,
-      endpoint: s.endpoint,
-    })),
-  };
+    [scene]
+  );
 
   type InputValues = typeof initialValues;
 
   const formik = useFormik({
     initialValues,
+    enableReinitialize: true,
     validationSchema: schema,
     onSubmit: (values) => onSave(getSceneInput(values)),
   });
 
   function setRating(v: number) {
     formik.setFieldValue("rating", v);
+  }
+
+  interface IGallerySelectValue {
+    id: string;
+    title: string;
+  }
+
+  function onSetGalleries(items: IGallerySelectValue[]) {
+    setGalleries(items);
+    formik.setFieldValue(
+      "gallery_ids",
+      items.map((i) => i.id)
+    );
   }
 
   useEffect(() => {
@@ -169,12 +206,16 @@ export const SceneEditPanel: React.FC<IProps> = ({
   });
 
   useEffect(() => {
-    const newQueryableScrapers = (
-      Scrapers?.data?.listSceneScrapers ?? []
-    ).filter((s) =>
+    const toFilter = Scrapers?.data?.listSceneScrapers ?? [];
+
+    const newFragmentScrapers = toFilter.filter((s) =>
       s.scene?.supported_scrapes.includes(GQL.ScrapeType.Fragment)
     );
+    const newQueryableScrapers = toFilter.filter((s) =>
+      s.scene?.supported_scrapes.includes(GQL.ScrapeType.Name)
+    );
 
+    setFragmentScrapers(newFragmentScrapers);
     setQueryableScrapers(newQueryableScrapers);
   }, [Scrapers, stashConfig]);
 
@@ -216,7 +257,12 @@ export const SceneEditPanel: React.FC<IProps> = ({
         },
       });
       if (result.data?.sceneUpdate) {
-        Toast.success({ content: "Updated scene" });
+        Toast.success({
+          content: intl.formatMessage(
+            { id: "toast.updated_entity" },
+            { entity: intl.formatMessage({ id: "scene" }).toLocaleLowerCase() }
+          ),
+        });
         // clear the cover image so that it doesn't appear dirty
         formik.resetForm({ values: formik.values });
       }
@@ -256,21 +302,19 @@ export const SceneEditPanel: React.FC<IProps> = ({
     ImageUtils.onImageChange(event, onImageLoad);
   }
 
-  async function onScrapeStashBoxClicked(stashBoxIndex: number) {
+  async function onScrapeClicked(s: GQL.ScraperSourceInput) {
     setIsLoading(true);
     try {
-      const result = await queryStashBoxScene(stashBoxIndex, scene.id);
-      if (!result.data || !result.data.queryStashBoxScene) {
-        return;
-      }
-
-      if (result.data.queryStashBoxScene.length > 0) {
-        setScrapedScene(result.data.queryStashBoxScene[0]);
-      } else {
+      const result = await queryScrapeScene(s, scene.id);
+      if (!result.data || !result.data.scrapeSingleScene?.length) {
         Toast.success({
           content: "No scenes found",
         });
+        return;
       }
+      // assume one returned scene
+      setScrapedScene(result.data.scrapeSingleScene[0]);
+      setEndpoint(s.stash_box_endpoint ?? undefined);
     } catch (e) {
       Toast.error(e);
     } finally {
@@ -278,25 +322,40 @@ export const SceneEditPanel: React.FC<IProps> = ({
     }
   }
 
-  async function onScrapeClicked(scraper: GQL.Scraper) {
+  async function scrapeFromQuery(
+    s: GQL.ScraperSourceInput,
+    fragment: GQL.ScrapedSceneDataFragment
+  ) {
     setIsLoading(true);
     try {
-      const result = await queryScrapeScene(
-        scraper.id,
-        getSceneInput(formik.values)
-      );
-      if (!result.data || !result.data.scrapeScene) {
+      const input: GQL.ScrapedSceneInput = {
+        date: fragment.date,
+        details: fragment.details,
+        remote_site_id: fragment.remote_site_id,
+        title: fragment.title,
+        url: fragment.url,
+      };
+
+      const result = await queryScrapeSceneQueryFragment(s, input);
+      if (!result.data || !result.data.scrapeSingleScene?.length) {
         Toast.success({
           content: "No scenes found",
         });
         return;
       }
-      setScrapedScene(result.data.scrapeScene);
+      // assume one returned scene
+      setScrapedScene(result.data.scrapeSingleScene[0]);
     } catch (e) {
       Toast.error(e);
     } finally {
       setIsLoading(false);
     }
+  }
+
+  function onScrapeQueryClicked(s: GQL.ScraperSourceInput) {
+    setScraper(s);
+    setEndpoint(s.stash_box_endpoint ?? undefined);
+    setIsScraperQueryModalOpen(true);
   }
 
   async function onReloadScrapers() {
@@ -334,80 +393,127 @@ export const SceneEditPanel: React.FC<IProps> = ({
       <SceneScrapeDialog
         scene={currentScene}
         scraped={scrapedScene}
+        endpoint={endpoint}
         onClose={(s) => onScrapeDialogClosed(s)}
       />
     );
   }
 
-  function renderScraperMenu() {
-    const stashBoxes = stashConfig.data?.configuration.general.stashBoxes ?? [];
+  function renderScrapeQueryMenu() {
+    const stashBoxes = stashConfig?.general.stashBoxes ?? [];
 
-    // TODO - change name based on stashbox configuration
+    if (stashBoxes.length === 0 && queryableScrapers.length === 0) return;
+
+    return (
+      <Dropdown title={intl.formatMessage({ id: "actions.scrape_query" })}>
+        <Dropdown.Toggle variant="secondary">
+          <Icon icon={faSearch} />
+        </Dropdown.Toggle>
+
+        <Dropdown.Menu>
+          {stashBoxes.map((s, index) => (
+            <Dropdown.Item
+              key={s.endpoint}
+              onClick={() =>
+                onScrapeQueryClicked({
+                  stash_box_index: index,
+                  stash_box_endpoint: s.endpoint,
+                })
+              }
+            >
+              {stashboxDisplayName(s.name, index)}
+            </Dropdown.Item>
+          ))}
+          {queryableScrapers.map((s) => (
+            <Dropdown.Item
+              key={s.name}
+              onClick={() => onScrapeQueryClicked({ scraper_id: s.id })}
+            >
+              {s.name}
+            </Dropdown.Item>
+          ))}
+          <Dropdown.Item onClick={() => onReloadScrapers()}>
+            <span className="fa-icon">
+              <Icon icon={faSyncAlt} />
+            </span>
+            <span>
+              <FormattedMessage id="actions.reload_scrapers" />
+            </span>
+          </Dropdown.Item>
+        </Dropdown.Menu>
+      </Dropdown>
+    );
+  }
+
+  function onSceneSelected(s: GQL.ScrapedSceneDataFragment) {
+    if (!scraper) return;
+
+    if (scraper?.stash_box_index !== undefined) {
+      // must be stash-box - assume full scene
+      setScrapedScene(s);
+    } else {
+      // must be scraper
+      scrapeFromQuery(scraper, s);
+    }
+  }
+
+  const renderScrapeQueryModal = () => {
+    if (!isScraperQueryModalOpen || !scraper) return;
+
+    return (
+      <SceneQueryModal
+        scraper={scraper}
+        onHide={() => setScraper(undefined)}
+        onSelectScene={(s) => {
+          setIsScraperQueryModalOpen(false);
+          setScraper(undefined);
+          onSceneSelected(s);
+        }}
+        name={formik.values.title || ""}
+      />
+    );
+  };
+
+  function renderScraperMenu() {
+    const stashBoxes = stashConfig?.general.stashBoxes ?? [];
+
     return (
       <DropdownButton
         className="d-inline-block"
         id="scene-scrape"
-        title="Scrape with..."
+        title={intl.formatMessage({ id: "actions.scrape_with" })}
       >
         {stashBoxes.map((s, index) => (
           <Dropdown.Item
             key={s.endpoint}
-            onClick={() => onScrapeStashBoxClicked(index)}
+            onClick={() =>
+              onScrapeClicked({
+                stash_box_index: index,
+                stash_box_endpoint: s.endpoint,
+              })
+            }
           >
-            {s.name ?? "Stash-Box"}
+            {stashboxDisplayName(s.name, index)}
           </Dropdown.Item>
         ))}
-        {queryableScrapers.map((s) => (
-          <Dropdown.Item key={s.name} onClick={() => onScrapeClicked(s)}>
+        {fragmentScrapers.map((s) => (
+          <Dropdown.Item
+            key={s.name}
+            onClick={() => onScrapeClicked({ scraper_id: s.id })}
+          >
             {s.name}
           </Dropdown.Item>
         ))}
         <Dropdown.Item onClick={() => onReloadScrapers()}>
           <span className="fa-icon">
-            <Icon icon="sync-alt" />
+            <Icon icon={faSyncAlt} />
           </span>
-          <span>Reload scrapers</span>
+          <span>
+            <FormattedMessage id="actions.reload_scrapers" />
+          </span>
         </Dropdown.Item>
       </DropdownButton>
     );
-  }
-
-  function maybeRenderStashboxQueryButton() {
-    // const stashBoxes = stashConfig.data?.configuration.general.stashBoxes ?? [];
-    // if (stashBoxes.length === 0) {
-    //   return;
-    // }
-    // TODO - hide this button for now, with the view to add it when we get
-    // the query dialog going
-    // if (stashBoxes.length === 1) {
-    //   return (
-    //     <Button
-    //       className="mr-1"
-    //       onClick={() => onStashBoxQueryClicked(0)}
-    //       title="Query"
-    //     >
-    //       <Icon className="fa-fw" icon="search" />
-    //     </Button>
-    //   );
-    // }
-    // // TODO - change name based on stashbox configuration
-    // return (
-    //   <Dropdown className="d-inline-block mr-1">
-    //     <Dropdown.Toggle id="stashbox-query-dropdown">
-    //       <Icon className="fa-fw" icon="search" />
-    //     </Dropdown.Toggle>
-    //     <Dropdown.Menu>
-    //       {stashBoxes.map((s, index) => (
-    //         <Dropdown.Item
-    //           key={s.endpoint}
-    //           onClick={() => onStashBoxQueryClicked(index)}
-    //         >
-    //           stash-box
-    //         </Dropdown.Item>
-    //       ))}
-    //     </Dropdown.Menu>
-    //   </Dropdown>
-    // );
   }
 
   function urlScrapable(scrapedUrl: string): boolean {
@@ -477,6 +583,34 @@ export const SceneEditPanel: React.FC<IProps> = ({
       formik.setFieldValue("cover_image", updatedScene.image);
       setCoverImagePreview(updatedScene.image);
     }
+
+    if (updatedScene.remote_site_id && endpoint) {
+      let found = false;
+      formik.setFieldValue(
+        "stash_ids",
+        formik.values.stash_ids.map((s) => {
+          if (s.endpoint === endpoint) {
+            found = true;
+            return {
+              endpoint,
+              stash_id: updatedScene.remote_site_id,
+            };
+          }
+
+          return s;
+        })
+      );
+
+      if (!found) {
+        formik.setFieldValue(
+          "stash_ids",
+          formik.values.stash_ids.concat({
+            endpoint,
+            stash_id: updatedScene.remote_site_id,
+          })
+        );
+      }
+    }
   }
 
   async function onScrapeSceneURL() {
@@ -495,21 +629,6 @@ export const SceneEditPanel: React.FC<IProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }
-
-  function maybeRenderScrapeButton() {
-    if (!formik.values.url || !urlScrapable(formik.values.url)) {
-      return undefined;
-    }
-    return (
-      <Button
-        className="minimal scrape-url-button"
-        onClick={onScrapeSceneURL}
-        title="Scrape"
-      >
-        <Icon className="fa-fw" icon="file-download" />
-      </Button>
-    );
   }
 
   function renderTextField(field: string, title: string, placeholder?: string) {
@@ -536,57 +655,63 @@ export const SceneEditPanel: React.FC<IProps> = ({
     <div id="scene-edit-details">
       <Prompt
         when={formik.dirty}
-        message="Unsaved changes. Are you sure you want to leave?"
+        message={intl.formatMessage({ id: "dialogs.unsaved_changes" })}
       />
 
+      {renderScrapeQueryModal()}
       {maybeRenderScrapeDialog()}
       <Form noValidate onSubmit={formik.handleSubmit}>
-        <div className="form-container row px-3 pt-3">
-          <div className="col-6 edit-buttons mb-3 pl-0">
+        <div className="form-container edit-buttons-container row px-3 pt-3">
+          <div className="edit-buttons mb-3 pl-0">
             <Button
               className="edit-button"
               variant="primary"
               disabled={!formik.dirty}
               onClick={() => formik.submitForm()}
             >
-              Save
+              <FormattedMessage id="actions.save" />
             </Button>
             <Button
               className="edit-button"
               variant="danger"
               onClick={() => onDelete()}
             >
-              Delete
+              <FormattedMessage id="actions.delete" />
             </Button>
           </div>
-          <Col xs={6} className="text-right">
-            {maybeRenderStashboxQueryButton()}
-            {renderScraperMenu()}
-          </Col>
+          <div className="ml-auto pr-3 text-right d-flex">
+            <ButtonGroup className="scraper-group">
+              {renderScraperMenu()}
+              {renderScrapeQueryMenu()}
+            </ButtonGroup>
+          </div>
         </div>
         <div className="form-container row px-3">
-          <div className="col-12 col-lg-6 col-xl-12">
-            {renderTextField("title", "Title")}
+          <div className="col-12 col-lg-7 col-xl-12">
+            {renderTextField("title", intl.formatMessage({ id: "title" }))}
             <Form.Group controlId="url" as={Row}>
               <Col xs={3} className="pr-0 url-label">
-                <Form.Label className="col-form-label">URL</Form.Label>
-                <div className="float-right scrape-button-container">
-                  {maybeRenderScrapeButton()}
-                </div>
+                <Form.Label className="col-form-label">
+                  <FormattedMessage id="url" />
+                </Form.Label>
               </Col>
               <Col xs={9}>
-                <Form.Control
-                  className="text-input"
-                  placeholder="URL"
+                <URLField
                   {...formik.getFieldProps("url")}
+                  onScrapeClick={onScrapeSceneURL}
+                  urlScrapable={urlScrapable}
                   isInvalid={!!formik.getFieldMeta("url").error}
                 />
               </Col>
             </Form.Group>
-            {renderTextField("date", "Date", "YYYY-MM-DD")}
+            {renderTextField(
+              "date",
+              intl.formatMessage({ id: "date" }),
+              "YYYY-MM-DD"
+            )}
             <Form.Group controlId="rating" as={Row}>
               {FormUtils.renderLabel({
-                title: "Rating",
+                title: intl.formatMessage({ id: "rating" }),
               })}
               <Col xs={9}>
                 <RatingStars
@@ -599,26 +724,34 @@ export const SceneEditPanel: React.FC<IProps> = ({
             </Form.Group>
             <Form.Group controlId="galleries" as={Row}>
               {FormUtils.renderLabel({
-                title: "Galleries",
+                title: intl.formatMessage({ id: "galleries" }),
+                labelProps: {
+                  column: true,
+                  sm: 3,
+                },
               })}
-              <Col xs={9}>
+              <Col sm={9}>
                 <GallerySelect
                   galleries={galleries}
-                  onSelect={(items) => setGalleries(items)}
+                  onSelect={(items) => onSetGalleries(items)}
                 />
               </Col>
             </Form.Group>
 
             <Form.Group controlId="studio" as={Row}>
               {FormUtils.renderLabel({
-                title: "Studio",
+                title: intl.formatMessage({ id: "studio" }),
+                labelProps: {
+                  column: true,
+                  sm: 3,
+                },
               })}
-              <Col xs={9}>
+              <Col sm={9}>
                 <StudioSelect
                   onSelect={(items) =>
                     formik.setFieldValue(
                       "studio_id",
-                      items.length > 0 ? items[0]?.id : undefined
+                      items.length > 0 ? items[0]?.id : null
                     )
                   }
                   ids={formik.values.studio_id ? [formik.values.studio_id] : []}
@@ -628,7 +761,7 @@ export const SceneEditPanel: React.FC<IProps> = ({
 
             <Form.Group controlId="performers" as={Row}>
               {FormUtils.renderLabel({
-                title: "Performers",
+                title: intl.formatMessage({ id: "performers" }),
                 labelProps: {
                   column: true,
                   sm: 3,
@@ -651,7 +784,9 @@ export const SceneEditPanel: React.FC<IProps> = ({
 
             <Form.Group controlId="moviesScenes" as={Row}>
               {FormUtils.renderLabel({
-                title: "Movies/Scenes",
+                title: `${intl.formatMessage({
+                  id: "movies",
+                })}/${intl.formatMessage({ id: "scenes" })}`,
                 labelProps: {
                   column: true,
                   sm: 3,
@@ -672,7 +807,7 @@ export const SceneEditPanel: React.FC<IProps> = ({
 
             <Form.Group controlId="tags" as={Row}>
               {FormUtils.renderLabel({
-                title: "Tags",
+                title: intl.formatMessage({ id: "tags" }),
                 labelProps: {
                   column: true,
                   sm: 3,
@@ -692,42 +827,57 @@ export const SceneEditPanel: React.FC<IProps> = ({
                 />
               </Col>
             </Form.Group>
-            <Form.Group controlId="details">
-              <Form.Label>StashIDs</Form.Label>
-              <ul className="pl-0">
-                {formik.values.stash_ids.map((stashID) => {
-                  const base = stashID.endpoint.match(/https?:\/\/.*?\//)?.[0];
-                  const link = base ? (
-                    <a
-                      href={`${base}scenes/${stashID.stash_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {stashID.stash_id}
-                    </a>
-                  ) : (
-                    stashID.stash_id
-                  );
-                  return (
-                    <li key={stashID.stash_id} className="row no-gutters">
-                      <Button
-                        variant="danger"
-                        className="mr-2 py-0"
-                        title="Delete StashID"
-                        onClick={() => removeStashID(stashID)}
+            {formik.values.stash_ids.length ? (
+              <Form.Group controlId="stashIDs">
+                <Form.Label>
+                  <FormattedMessage id="stash_ids" />
+                </Form.Label>
+                <ul className="pl-0">
+                  {formik.values.stash_ids.map((stashID) => {
+                    const base = stashID.endpoint.match(
+                      /https?:\/\/.*?\//
+                    )?.[0];
+                    const link = base ? (
+                      <a
+                        href={`${base}scenes/${stashID.stash_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
-                        <Icon icon="trash-alt" />
-                      </Button>
-                      {link}
-                    </li>
-                  );
-                })}
-              </ul>
-            </Form.Group>
+                        {stashID.stash_id}
+                      </a>
+                    ) : (
+                      stashID.stash_id
+                    );
+                    return (
+                      <li key={stashID.stash_id} className="row no-gutters">
+                        <Button
+                          variant="danger"
+                          className="mr-2 py-0"
+                          title={intl.formatMessage(
+                            { id: "actions.delete_entity" },
+                            {
+                              entityType: intl.formatMessage({
+                                id: "stash_id",
+                              }),
+                            }
+                          )}
+                          onClick={() => removeStashID(stashID)}
+                        >
+                          <Icon icon={faTrashAlt} />
+                        </Button>
+                        {link}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </Form.Group>
+            ) : undefined}
           </div>
-          <div className="col-12 col-lg-6 col-xl-12">
+          <div className="col-12 col-lg-5 col-xl-12">
             <Form.Group controlId="details">
-              <Form.Label>Details</Form.Label>
+              <Form.Label>
+                <FormattedMessage id="details" />
+              </Form.Label>
               <Form.Control
                 as="textarea"
                 className="scene-description text-input"
@@ -739,14 +889,16 @@ export const SceneEditPanel: React.FC<IProps> = ({
             </Form.Group>
             <div>
               <Form.Group controlId="cover">
-                <Form.Label>Cover Image</Form.Label>
+                <Form.Label>
+                  <FormattedMessage id="cover_image" />
+                </Form.Label>
                 {imageEncoding ? (
                   <LoadingIndicator message="Encoding image..." />
                 ) : (
                   <img
                     className="scene-cover"
                     src={coverImagePreview}
-                    alt="Scene cover"
+                    alt={intl.formatMessage({ id: "cover_image" })}
                   />
                 )}
                 <ImageInput
@@ -762,3 +914,5 @@ export const SceneEditPanel: React.FC<IProps> = ({
     </div>
   );
 };
+
+export default SceneEditPanel;

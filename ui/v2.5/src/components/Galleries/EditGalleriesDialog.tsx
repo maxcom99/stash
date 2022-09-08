@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Form, Col, Row } from "react-bootstrap";
-import _ from "lodash";
+import { FormattedMessage, useIntl } from "react-intl";
+import isEqual from "lodash-es/isEqual";
 import { useBulkGalleryUpdate } from "src/core/StashService";
 import * as GQL from "src/core/generated-graphql";
 import { StudioSelect, Modal } from "src/components/Shared";
@@ -8,6 +9,15 @@ import { useToast } from "src/hooks";
 import { FormUtils } from "src/utils";
 import MultiSet from "../Shared/MultiSet";
 import { RatingStars } from "../Scenes/SceneDetails/RatingStars";
+import {
+  getAggregateInputIDs,
+  getAggregateInputValue,
+  getAggregatePerformerIds,
+  getAggregateRating,
+  getAggregateStudioId,
+  getAggregateTagIds,
+} from "src/utils/bulkUpdate";
+import { faPencilAlt } from "@fortawesome/free-solid-svg-icons";
 
 interface IListOperationProps {
   selected: GQL.SlimGalleryDataFragment[];
@@ -17,6 +27,7 @@ interface IListOperationProps {
 export const EditGalleriesDialog: React.FC<IListOperationProps> = (
   props: IListOperationProps
 ) => {
+  const intl = useIntl();
   const Toast = useToast();
   const [rating, setRating] = useState<number>();
   const [studioId, setStudioId] = useState<string>();
@@ -25,10 +36,12 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
     setPerformerMode,
   ] = React.useState<GQL.BulkUpdateIdMode>(GQL.BulkUpdateIdMode.Add);
   const [performerIds, setPerformerIds] = useState<string[]>();
+  const [existingPerformerIds, setExistingPerformerIds] = useState<string[]>();
   const [tagMode, setTagMode] = React.useState<GQL.BulkUpdateIdMode>(
     GQL.BulkUpdateIdMode.Add
   );
   const [tagIds, setTagIds] = useState<string[]>();
+  const [existingTagIds, setExistingTagIds] = useState<string[]>();
   const [organized, setOrganized] = useState<boolean | undefined>();
 
   const [updateGalleries] = useBulkGalleryUpdate();
@@ -38,22 +51,12 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
 
   const checkboxRef = React.createRef<HTMLInputElement>();
 
-  function makeBulkUpdateIds(
-    ids: string[],
-    mode: GQL.BulkUpdateIdMode
-  ): GQL.BulkUpdateIds {
-    return {
-      mode,
-      ids,
-    };
-  }
-
   function getGalleryInput(): GQL.BulkGalleryUpdateInput {
     // need to determine what we are actually setting on each gallery
-    const aggregateRating = getRating(props.selected);
-    const aggregateStudioId = getStudioId(props.selected);
-    const aggregatePerformerIds = getPerformerIds(props.selected);
-    const aggregateTagIds = getTagIds(props.selected);
+    const aggregateRating = getAggregateRating(props.selected);
+    const aggregateStudioId = getAggregateStudioId(props.selected);
+    const aggregatePerformerIds = getAggregatePerformerIds(props.selected);
+    const aggregateTagIds = getAggregateTagIds(props.selected);
 
     const galleryInput: GQL.BulkGalleryUpdateInput = {
       ids: props.selected.map((gallery) => {
@@ -61,67 +64,22 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
       }),
     };
 
-    // if rating is undefined
-    if (rating === undefined) {
-      // and all galleries have the same rating, then we are unsetting the rating.
-      if (aggregateRating) {
-        // null to unset rating
-        galleryInput.rating = null;
-      }
-      // otherwise not setting the rating
-    } else {
-      // if rating is set, then we are setting the rating for all
-      galleryInput.rating = rating;
-    }
+    galleryInput.rating = getAggregateInputValue(rating, aggregateRating);
+    galleryInput.studio_id = getAggregateInputValue(
+      studioId,
+      aggregateStudioId
+    );
 
-    // if studioId is undefined
-    if (studioId === undefined) {
-      // and all galleries have the same studioId,
-      // then unset the studioId, otherwise ignoring studioId
-      if (aggregateStudioId) {
-        // null to unset studio_id
-        galleryInput.studio_id = null;
-      }
-    } else {
-      // if studioId is set, then we are setting it
-      galleryInput.studio_id = studioId;
-    }
-
-    // if performerIds are empty
-    if (
-      performerMode === GQL.BulkUpdateIdMode.Set &&
-      (!performerIds || performerIds.length === 0)
-    ) {
-      // and all galleries have the same ids,
-      if (aggregatePerformerIds.length > 0) {
-        // then unset the performerIds, otherwise ignore
-        galleryInput.performer_ids = makeBulkUpdateIds(
-          performerIds || [],
-          performerMode
-        );
-      }
-    } else {
-      // if performerIds non-empty, then we are setting them
-      galleryInput.performer_ids = makeBulkUpdateIds(
-        performerIds || [],
-        performerMode
-      );
-    }
-
-    // if tagIds non-empty, then we are setting them
-    if (
-      tagMode === GQL.BulkUpdateIdMode.Set &&
-      (!tagIds || tagIds.length === 0)
-    ) {
-      // and all galleries have the same ids,
-      if (aggregateTagIds.length > 0) {
-        // then unset the tagIds, otherwise ignore
-        galleryInput.tag_ids = makeBulkUpdateIds(tagIds || [], tagMode);
-      }
-    } else {
-      // if tagIds non-empty, then we are setting them
-      galleryInput.tag_ids = makeBulkUpdateIds(tagIds || [], tagMode);
-    }
+    galleryInput.performer_ids = getAggregateInputIDs(
+      performerMode,
+      performerIds,
+      aggregatePerformerIds
+    );
+    galleryInput.tag_ids = getAggregateInputIDs(
+      tagMode,
+      tagIds,
+      aggregateTagIds
+    );
 
     if (organized !== undefined) {
       galleryInput.organized = organized;
@@ -138,91 +96,19 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
           input: getGalleryInput(),
         },
       });
-      Toast.success({ content: "Updated galleries" });
+      Toast.success({
+        content: intl.formatMessage(
+          { id: "toast.updated_entity" },
+          {
+            entity: intl.formatMessage({ id: "galleries" }).toLocaleLowerCase(),
+          }
+        ),
+      });
       props.onClose(true);
     } catch (e) {
       Toast.error(e);
     }
     setIsUpdating(false);
-  }
-
-  function getRating(state: GQL.SlimGalleryDataFragment[]) {
-    let ret: number | undefined;
-    let first = true;
-
-    state.forEach((gallery) => {
-      if (first) {
-        ret = gallery.rating ?? undefined;
-        first = false;
-      } else if (ret !== gallery.rating) {
-        ret = undefined;
-      }
-    });
-
-    return ret;
-  }
-
-  function getStudioId(state: GQL.SlimGalleryDataFragment[]) {
-    let ret: string | undefined;
-    let first = true;
-
-    state.forEach((gallery) => {
-      if (first) {
-        ret = gallery?.studio?.id;
-        first = false;
-      } else {
-        const studio = gallery?.studio?.id;
-        if (ret !== studio) {
-          ret = undefined;
-        }
-      }
-    });
-
-    return ret;
-  }
-
-  function getPerformerIds(state: GQL.SlimGalleryDataFragment[]) {
-    let ret: string[] = [];
-    let first = true;
-
-    state.forEach((gallery) => {
-      if (first) {
-        ret = gallery.performers
-          ? gallery.performers.map((p) => p.id).sort()
-          : [];
-        first = false;
-      } else {
-        const perfIds = gallery.performers
-          ? gallery.performers.map((p) => p.id).sort()
-          : [];
-
-        if (!_.isEqual(ret, perfIds)) {
-          ret = [];
-        }
-      }
-    });
-
-    return ret;
-  }
-
-  function getTagIds(state: GQL.SlimGalleryDataFragment[]) {
-    let ret: string[] = [];
-    let first = true;
-
-    state.forEach((gallery) => {
-      if (first) {
-        ret = gallery.tags ? gallery.tags.map((t) => t.id).sort() : [];
-        first = false;
-      } else {
-        const tIds = gallery.tags ? gallery.tags.map((t) => t.id).sort() : [];
-
-        if (!_.isEqual(ret, tIds)) {
-          ret = [];
-        }
-      }
-    });
-
-    return ret;
   }
 
   useEffect(() => {
@@ -256,10 +142,10 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
         if (GalleriestudioID !== updateStudioID) {
           updateStudioID = undefined;
         }
-        if (!_.isEqual(galleryPerformerIDs, updatePerformerIds)) {
+        if (!isEqual(galleryPerformerIDs, updatePerformerIds)) {
           updatePerformerIds = [];
         }
-        if (!_.isEqual(galleryTagIDs, updateTagIds)) {
+        if (!isEqual(galleryTagIDs, updateTagIds)) {
           updateTagIds = [];
         }
         if (gallery.organized !== updateOrganized) {
@@ -270,16 +156,11 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
 
     setRating(updateRating);
     setStudioId(updateStudioID);
-    if (performerMode === GQL.BulkUpdateIdMode.Set) {
-      setPerformerIds(updatePerformerIds);
-    }
-
-    if (tagMode === GQL.BulkUpdateIdMode.Set) {
-      setTagIds(updateTagIds);
-    }
+    setExistingPerformerIds(updatePerformerIds);
+    setExistingTagIds(updateTagIds);
 
     setOrganized(updateOrganized);
-  }, [props.selected, performerMode, tagMode]);
+  }, [props.selected]);
 
   useEffect(() => {
     if (checkboxRef.current) {
@@ -292,12 +173,15 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
     ids: string[] | undefined
   ) {
     let mode = GQL.BulkUpdateIdMode.Add;
+    let existingIds: string[] | undefined = [];
     switch (type) {
       case "performers":
         mode = performerMode;
+        existingIds = existingPerformerIds;
         break;
       case "tags":
         mode = tagMode;
+        existingIds = existingTagIds;
         break;
     }
 
@@ -305,8 +189,7 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
       <MultiSet
         type={type}
         disabled={isUpdating}
-        onUpdate={(items) => {
-          const itemIDs = items.map((i) => i.id);
+        onUpdate={(itemIDs) => {
           switch (type) {
             case "performers":
               setPerformerIds(itemIDs);
@@ -326,6 +209,7 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
               break;
           }
         }}
+        existingIds={existingIds ?? []}
         ids={ids ?? []}
         mode={mode}
       />
@@ -346,12 +230,22 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
     return (
       <Modal
         show
-        icon="pencil-alt"
-        header="Edit Galleries"
-        accept={{ onClick: onSave, text: "Apply" }}
+        icon={faPencilAlt}
+        header={intl.formatMessage(
+          { id: "dialogs.edit_entity_title" },
+          {
+            count: props?.selected?.length ?? 1,
+            singularEntity: intl.formatMessage({ id: "gallery" }),
+            pluralEntity: intl.formatMessage({ id: "galleries" }),
+          }
+        )}
+        accept={{
+          onClick: onSave,
+          text: intl.formatMessage({ id: "actions.apply" }),
+        }}
         cancel={{
           onClick: () => props.onClose(false),
-          text: "Cancel",
+          text: intl.formatMessage({ id: "actions.cancel" }),
           variant: "secondary",
         }}
         isRunning={isUpdating}
@@ -359,7 +253,7 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
         <Form>
           <Form.Group controlId="rating" as={Row}>
             {FormUtils.renderLabel({
-              title: "Rating",
+              title: intl.formatMessage({ id: "rating" }),
             })}
             <Col xs={9}>
               <RatingStars
@@ -372,7 +266,7 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
 
           <Form.Group controlId="studio" as={Row}>
             {FormUtils.renderLabel({
-              title: "Studio",
+              title: intl.formatMessage({ id: "studio" }),
             })}
             <Col xs={9}>
               <StudioSelect
@@ -386,19 +280,23 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
           </Form.Group>
 
           <Form.Group controlId="performers">
-            <Form.Label>Performers</Form.Label>
+            <Form.Label>
+              <FormattedMessage id="performers" />
+            </Form.Label>
             {renderMultiSelect("performers", performerIds)}
           </Form.Group>
 
           <Form.Group controlId="tags">
-            <Form.Label>Tags</Form.Label>
+            <Form.Label>
+              <FormattedMessage id="tags" />
+            </Form.Label>
             {renderMultiSelect("tags", tagIds)}
           </Form.Group>
 
           <Form.Group controlId="organized">
             <Form.Check
               type="checkbox"
-              label="Organized"
+              label={intl.formatMessage({ id: "organized" })}
               checked={organized}
               ref={checkboxRef}
               onChange={() => cycleOrganized()}

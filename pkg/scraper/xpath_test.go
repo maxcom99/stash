@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -53,9 +54,9 @@ const htmlDoc1 = `
 								<b>Country of Origin:</b>
 							</td>
 							<td class="paramvalue">
-								
+
 								<span class="country-us">
-								
+
 									United States
 								<span>
 							</span></span></td>
@@ -312,7 +313,7 @@ func TestScrapePerformerXPath(t *testing.T) {
 		doc: doc,
 	}
 
-	performer, err := scraper.scrapePerformer(q)
+	performer, err := scraper.scrapePerformer(context.Background(), q)
 
 	if err != nil {
 		t.Errorf("Error scraping performer: %s", err.Error())
@@ -407,7 +408,7 @@ func TestConcatXPath(t *testing.T) {
 		doc: doc,
 	}
 
-	performer, err := scraper.scrapePerformer(q)
+	performer, err := scraper.scrapePerformer(context.Background(), q)
 
 	if err != nil {
 		t.Errorf("Error scraping performer: %s", err.Error())
@@ -593,7 +594,7 @@ func makeSceneXPathConfig() mappedScraper {
 	return scraper
 }
 
-func verifyTags(t *testing.T, expectedTagNames []string, actualTags []*models.ScrapedSceneTag) {
+func verifyTags(t *testing.T, expectedTagNames []string, actualTags []*models.ScrapedTag) {
 	t.Helper()
 
 	i := 0
@@ -614,7 +615,7 @@ func verifyTags(t *testing.T, expectedTagNames []string, actualTags []*models.Sc
 	}
 }
 
-func verifyMovies(t *testing.T, expectedMovieNames []string, actualMovies []*models.ScrapedSceneMovie) {
+func verifyMovies(t *testing.T, expectedMovieNames []string, actualMovies []*models.ScrapedMovie) {
 	t.Helper()
 
 	i := 0
@@ -625,7 +626,7 @@ func verifyMovies(t *testing.T, expectedMovieNames []string, actualMovies []*mod
 			expectedMovie = expectedMovieNames[i]
 		}
 		if i < len(actualMovies) {
-			actualMovie = actualMovies[i].Name
+			actualMovie = *actualMovies[i].Name
 		}
 
 		if expectedMovie != actualMovie {
@@ -635,7 +636,7 @@ func verifyMovies(t *testing.T, expectedMovieNames []string, actualMovies []*mod
 	}
 }
 
-func verifyPerformers(t *testing.T, expectedNames []string, expectedURLs []string, actualPerformers []*models.ScrapedScenePerformer) {
+func verifyPerformers(t *testing.T, expectedNames []string, expectedURLs []string, actualPerformers []*models.ScrapedPerformer) {
 	t.Helper()
 
 	i := 0
@@ -651,7 +652,7 @@ func verifyPerformers(t *testing.T, expectedNames []string, expectedURLs []strin
 			expectedURL = expectedURLs[i]
 		}
 		if i < len(actualPerformers) {
-			actualName = actualPerformers[i].Name
+			actualName = *actualPerformers[i].Name
 			if actualPerformers[i].URL != nil {
 				actualURL = *actualPerformers[i].URL
 			}
@@ -661,7 +662,7 @@ func verifyPerformers(t *testing.T, expectedNames []string, expectedURLs []strin
 			t.Errorf("Expected performer name %s, got %s", expectedName, actualName)
 		}
 		if expectedURL != actualURL {
-			t.Errorf("Expected perfromer URL %s, got %s", expectedName, actualName)
+			t.Errorf("Expected performer URL %s, got %s", expectedName, actualName)
 		}
 		i++
 	}
@@ -681,7 +682,7 @@ func TestApplySceneXPathConfig(t *testing.T) {
 	q := &xpathQuery{
 		doc: doc,
 	}
-	scene, err := scraper.scrapeScene(q)
+	scene, err := scraper.scrapeScene(context.Background(), q)
 
 	if err != nil {
 		t.Errorf("Error scraping scene: %s", err.Error())
@@ -741,7 +742,7 @@ func TestLoadXPathScraperFromYAML(t *testing.T) {
 	const yamlStr = `name: Test
 performerByURL:
   - action: scrapeXPath
-    url: 
+    url:
       - test.com
     scraper: performerScraper
 xPathScrapers:
@@ -755,11 +756,11 @@ xPathScrapers:
         postProcess:
           - parseDate: January 2, 2006
       Tags:
-        Name: //tags  
+        Name: //tags
       Movies:
-        Name: //movies  
+        Name: //movies
       Performers:
-        Name: //performers  
+        Name: //performers
       Studio:
         Name: //studio
 `
@@ -804,7 +805,7 @@ func TestLoadInvalidXPath(t *testing.T) {
 		doc: doc,
 	}
 
-	config.process(q, nil)
+	config.process(context.Background(), q, nil)
 }
 
 type mockGlobalConfig struct{}
@@ -823,6 +824,14 @@ func (mockGlobalConfig) GetScraperCDPPath() string {
 
 func (mockGlobalConfig) GetScraperCertCheck() bool {
 	return false
+}
+
+func (mockGlobalConfig) GetScraperExcludeTagPatterns() []string {
+	return nil
+}
+
+func (mockGlobalConfig) GetPythonPath() string {
+	return ""
 }
 
 func TestSubScrape(t *testing.T) {
@@ -848,13 +857,13 @@ func TestSubScrape(t *testing.T) {
 	yamlStr := `name: Test
 performerByURL:
   - action: scrapeXPath
-    url: 
+    url:
       - ` + ts.URL + `
     scraper: performerScraper
 xPathScrapers:
   performerScraper:
     performer:
-      Name: 
+      Name:
         selector: //div/a/@href
         postProcess:
           - replace:
@@ -874,11 +883,23 @@ xPathScrapers:
 
 	globalConfig := mockGlobalConfig{}
 
-	performer, err := c.ScrapePerformerURL(ts.URL, nil, globalConfig)
+	client := &http.Client{}
+	ctx := context.Background()
+	s := newGroupScraper(*c, nil, globalConfig)
+	us, ok := s.(urlScraper)
+	if !ok {
+		t.Error("couldn't convert scraper into url scraper")
+	}
+	content, err := us.viaURL(ctx, client, ts.URL, models.ScrapeContentTypePerformer)
 
 	if err != nil {
 		t.Errorf("Error scraping performer: %s", err.Error())
 		return
+	}
+
+	performer, ok := content.(*models.ScrapedPerformer)
+	if !ok {
+		t.Error("couldn't convert scraped content into a performer")
 	}
 
 	verifyField(t, "The name", performer.Name, "Name")

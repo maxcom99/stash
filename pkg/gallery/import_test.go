@@ -5,16 +5,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/json"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/models/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
 
 const (
-	galleryNameErr      = "galleryNameErr"
-	existingGalleryName = "existingGalleryName"
+	galleryNameErr = "galleryNameErr"
+	// existingGalleryName = "existingGalleryName"
 
 	existingGalleryID   = 100
 	existingStudioID    = 101
@@ -39,8 +40,10 @@ const (
 	errChecksum     = "errChecksum"
 )
 
-var createdAt time.Time = time.Date(2001, time.January, 2, 1, 2, 3, 4, time.Local)
-var updatedAt time.Time = time.Date(2002, time.January, 2, 1, 2, 3, 4, time.Local)
+var (
+	createdAt = time.Date(2001, time.January, 2, 1, 2, 3, 4, time.Local)
+	updatedAt = time.Date(2002, time.January, 2, 1, 2, 3, 4, time.Local)
+)
 
 func TestImporterName(t *testing.T) {
 	i := Importer{
@@ -63,10 +66,10 @@ func TestImporterPreImport(t *testing.T) {
 			Rating:    rating,
 			Organized: organized,
 			URL:       url,
-			CreatedAt: models.JSONTime{
+			CreatedAt: json.JSONTime{
 				Time: createdAt,
 			},
-			UpdatedAt: models.JSONTime{
+			UpdatedAt: json.JSONTime{
 				Time: updatedAt,
 			},
 		},

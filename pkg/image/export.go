@@ -1,8 +1,9 @@
 package image
 
 import (
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/json"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 )
 
 // ToBasicJSON converts a image object into its JSON object equivalent. It
@@ -11,8 +12,8 @@ import (
 func ToBasicJSON(image *models.Image) *jsonschema.Image {
 	newImageJSON := jsonschema.Image{
 		Checksum:  image.Checksum,
-		CreatedAt: models.JSONTime{Time: image.CreatedAt.Timestamp},
-		UpdatedAt: models.JSONTime{Time: image.UpdatedAt.Timestamp},
+		CreatedAt: json.JSONTime{Time: image.CreatedAt.Timestamp},
+		UpdatedAt: json.JSONTime{Time: image.UpdatedAt.Timestamp},
 	}
 
 	if image.Title.Valid {
@@ -35,7 +36,7 @@ func getImageFileJSON(image *models.Image) *jsonschema.ImageFile {
 	ret := &jsonschema.ImageFile{}
 
 	if image.FileModTime.Valid {
-		ret.ModTime = models.JSONTime{Time: image.FileModTime.Timestamp}
+		ret.ModTime = json.JSONTime{Time: image.FileModTime.Timestamp}
 	}
 
 	if image.Size.Valid {
@@ -75,7 +76,7 @@ func GetStudioName(reader models.StudioReader, image *models.Image) (string, err
 // func GetGalleryChecksum(reader models.GalleryReader, image *models.Image) (string, error) {
 // 	gallery, err := reader.FindByImageID(image.ID)
 // 	if err != nil {
-// 		return "", fmt.Errorf("error getting image gallery: %s", err.Error())
+// 		return "", fmt.Errorf("error getting image gallery: %v", err)
 // 	}
 
 // 	if gallery != nil {

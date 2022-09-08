@@ -8,8 +8,18 @@ import {
   FormControl,
   Badge,
 } from "react-bootstrap";
-import { CollapseButton, Icon, Modal } from "src/components/Shared";
-import _ from "lodash";
+import { CollapseButton } from "src/components/Shared/CollapseButton";
+import Icon from "src/components/Shared/Icon";
+import Modal from "src/components/Shared/Modal";
+import isEqual from "lodash-es/isEqual";
+import clone from "lodash-es/clone";
+import { FormattedMessage, useIntl } from "react-intl";
+import {
+  faCheck,
+  faPencilAlt,
+  faPlus,
+  faTimes,
+} from "@fortawesome/free-solid-svg-icons";
 
 export class ScrapeResult<T> {
   public newValue?: T;
@@ -21,7 +31,7 @@ export class ScrapeResult<T> {
     this.originalValue = originalValue ?? undefined;
     this.newValue = newValue ?? undefined;
 
-    const valuesEqual = _.isEqual(originalValue, newValue);
+    const valuesEqual = isEqual(originalValue, newValue);
     this.useNewValue = !!this.newValue && !valuesEqual;
     this.scraped = this.useNewValue;
   }
@@ -32,11 +42,14 @@ export class ScrapeResult<T> {
   }
 
   public cloneWithValue(value?: T) {
-    const ret = _.clone(this);
+    const ret = clone(this);
 
     ret.newValue = value;
-    ret.useNewValue = !_.isEqual(ret.newValue, ret.originalValue);
-    ret.scraped = ret.useNewValue;
+    ret.useNewValue = !isEqual(ret.newValue, ret.originalValue);
+
+    // #2691 - if we're setting the value, assume it should be treated as
+    // scraped
+    ret.scraped = true;
 
     return ret;
   }
@@ -49,7 +62,7 @@ export class ScrapeResult<T> {
 }
 
 interface IHasName {
-  name: string;
+  name: string | undefined;
 }
 
 interface IScrapedFieldProps<T> {
@@ -63,7 +76,7 @@ interface IScrapedRowProps<T, V extends IHasName>
   renderNewField: (result: ScrapeResult<T>) => JSX.Element | undefined;
   onChange: (value: ScrapeResult<T>) => void;
   newValues?: V[];
-  onCreateNew?: (newValue: V) => void;
+  onCreateNew?: (index: number) => void;
 }
 
 function renderButtonIcon(selected: boolean) {
@@ -72,7 +85,7 @@ function renderButtonIcon(selected: boolean) {
   return (
     <Icon
       className={`fa-fw ${className}`}
-      icon={selected ? "check" : "times"}
+      icon={selected ? faCheck : faTimes}
     />
   );
 }
@@ -81,7 +94,7 @@ export const ScrapeDialogRow = <T, V extends IHasName>(
   props: IScrapedRowProps<T, V>
 ) => {
   function handleSelectClick(isNew: boolean) {
-    const ret = _.clone(props.result);
+    const ret = clone(props.result);
     ret.useNewValue = isNew;
     props.onChange(ret);
   }
@@ -101,16 +114,16 @@ export const ScrapeDialogRow = <T, V extends IHasName>(
 
     const ret = (
       <>
-        {props.newValues!.map((t) => (
+        {props.newValues!.map((t, i) => (
           <Badge
             className="tag-item"
             variant="secondary"
             key={t.name}
-            onClick={() => props.onCreateNew!(t)}
+            onClick={() => props.onCreateNew!(i)}
           >
             {t.name}
             <Button className="minimal ml-2">
-              <Icon className="fa-fw" icon="plus" />
+              <Icon className="fa-fw" icon={faPlus} />
             </Button>
           </Badge>
         ))}
@@ -174,6 +187,7 @@ export const ScrapeDialogRow = <T, V extends IHasName>(
 interface IScrapedInputGroupProps {
   isNew?: boolean;
   placeholder?: string;
+  locked?: boolean;
   result: ScrapeResult<string>;
   onChange?: (value: string) => void;
 }
@@ -183,7 +197,7 @@ const ScrapedInputGroup: React.FC<IScrapedInputGroupProps> = (props) => {
     <FormControl
       placeholder={props.placeholder}
       value={props.isNew ? props.result.newValue : props.result.originalValue}
-      readOnly={!props.isNew}
+      readOnly={!props.isNew || props.locked}
       onChange={(e) => {
         if (props.isNew && props.onChange) {
           props.onChange(e.target.value);
@@ -198,6 +212,7 @@ interface IScrapedInputGroupRowProps {
   title: string;
   placeholder?: string;
   result: ScrapeResult<string>;
+  locked?: boolean;
   onChange: (value: ScrapeResult<string>) => void;
 }
 
@@ -219,6 +234,7 @@ export const ScrapedInputGroupRow: React.FC<IScrapedInputGroupRowProps> = (
           placeholder={props.placeholder || props.title}
           result={props.result}
           isNew
+          locked={props.locked}
           onChange={(value) =>
             props.onChange(props.result.cloneWithValue(value))
           }
@@ -336,20 +352,21 @@ interface IScrapeDialogProps {
 export const ScrapeDialog: React.FC<IScrapeDialogProps> = (
   props: IScrapeDialogProps
 ) => {
+  const intl = useIntl();
   return (
     <Modal
       show
-      icon="pencil-alt"
+      icon={faPencilAlt}
       header={props.title}
       accept={{
         onClick: () => {
           props.onClose(true);
         },
-        text: "Apply",
+        text: intl.formatMessage({ id: "actions.apply" }),
       }}
       cancel={{
         onClick: () => props.onClose(),
-        text: "Cancel",
+        text: intl.formatMessage({ id: "actions.cancel" }),
         variant: "secondary",
       }}
       modalProps={{ size: "lg", dialogClassName: "scrape-dialog" }}
@@ -360,10 +377,10 @@ export const ScrapeDialog: React.FC<IScrapeDialogProps> = (
             <Col lg={{ span: 9, offset: 3 }}>
               <Row>
                 <Form.Label column xs="6">
-                  Existing
+                  <FormattedMessage id="dialogs.scrape_results_existing" />
                 </Form.Label>
                 <Form.Label column xs="6">
-                  Scraped
+                  <FormattedMessage id="dialogs.scrape_results_scraped" />
                 </Form.Label>
               </Row>
             </Col>

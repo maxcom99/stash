@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Button, Card, Form, Table } from "react-bootstrap";
-import _ from "lodash";
+import { FormattedMessage, useIntl } from "react-intl";
+import clone from "lodash-es/clone";
 import {
   queryParseSceneFilenames,
   useScenesUpdate,
@@ -23,6 +24,7 @@ const initialParserInput = {
   page: 1,
   pageSize: 20,
   findClicked: false,
+  ignoreOrganized: true,
 };
 
 const initialShowFieldsState = new Map<string, boolean>([
@@ -35,6 +37,7 @@ const initialShowFieldsState = new Map<string, boolean>([
 ]);
 
 export const SceneFilenameParser: React.FC = () => {
+  const intl = useIntl();
   const Toast = useToast();
   const [parserResult, setParserResult] = useState<SceneParserResult[]>([]);
   const [parserInput, setParserInput] = useState<IParserInput>(
@@ -125,6 +128,7 @@ export const SceneFilenameParser: React.FC = () => {
       ignoreWords: parserInput.ignoreWords,
       whitespaceCharacters: parserInput.whitespaceCharacters,
       capitalizeTitle: parserInput.capitalizeTitle,
+      ignoreOrganized: parserInput.ignoreOrganized,
     };
 
     queryParseSceneFilenames(parserFilter, parserInputData)
@@ -151,7 +155,7 @@ export const SceneFilenameParser: React.FC = () => {
   }, [parserInput, parseSceneFilenames, prevParserInput]);
 
   function onPageSizeChanged(newSize: number) {
-    const newInput = _.clone(parserInput);
+    const newInput = clone(parserInput);
     newInput.page = 1;
     newInput.pageSize = newSize;
     setParserInput(newInput);
@@ -159,14 +163,14 @@ export const SceneFilenameParser: React.FC = () => {
 
   function onPageChanged(newPage: number) {
     if (newPage !== parserInput.page) {
-      const newInput = _.clone(parserInput);
+      const newInput = clone(parserInput);
       newInput.page = newPage;
       setParserInput(newInput);
     }
   }
 
   function onFindClicked(input: IParserInput) {
-    const newInput = _.clone(input);
+    const newInput = clone(input);
     newInput.page = 1;
     newInput.findClicked = true;
     setParserInput(newInput);
@@ -184,7 +188,12 @@ export const SceneFilenameParser: React.FC = () => {
 
     try {
       await updateScenes();
-      Toast.success({ content: "Updated scenes" });
+      Toast.success({
+        content: intl.formatMessage(
+          { id: "toast.updated_entity" },
+          { entity: intl.formatMessage({ id: "scenes" }).toLocaleLowerCase() }
+        ),
+      });
     } catch (e) {
       Toast.error(e);
     }
@@ -333,17 +342,41 @@ export const SceneFilenameParser: React.FC = () => {
           <Table>
             <thead>
               <tr className="scene-parser-row">
-                <th className="parser-field-filename">Filename</th>
-                {renderHeader("Title", allTitleSet, onSelectAllTitleSet)}
-                {renderHeader("Date", allDateSet, onSelectAllDateSet)}
-                {renderHeader("Rating", allRatingSet, onSelectAllRatingSet)}
+                <th className="parser-field-filename">
+                  {intl.formatMessage({
+                    id: "config.tools.scene_filename_parser.filename",
+                  })}
+                </th>
                 {renderHeader(
-                  "Performers",
+                  intl.formatMessage({ id: "title" }),
+                  allTitleSet,
+                  onSelectAllTitleSet
+                )}
+                {renderHeader(
+                  intl.formatMessage({ id: "date" }),
+                  allDateSet,
+                  onSelectAllDateSet
+                )}
+                {renderHeader(
+                  intl.formatMessage({ id: "rating" }),
+                  allRatingSet,
+                  onSelectAllRatingSet
+                )}
+                {renderHeader(
+                  intl.formatMessage({ id: "performers" }),
                   allPerformerSet,
                   onSelectAllPerformerSet
                 )}
-                {renderHeader("Tags", allTagSet, onSelectAllTagSet)}
-                {renderHeader("Studio", allStudioSet, onSelectAllStudioSet)}
+                {renderHeader(
+                  intl.formatMessage({ id: "tags" }),
+                  allTagSet,
+                  onSelectAllTagSet
+                )}
+                {renderHeader(
+                  intl.formatMessage({ id: "studio" }),
+                  allStudioSet,
+                  onSelectAllStudioSet
+                )}
               </tr>
             </thead>
             <tbody>
@@ -362,10 +395,11 @@ export const SceneFilenameParser: React.FC = () => {
           currentPage={parserInput.page}
           itemsPerPage={parserInput.pageSize}
           totalItems={totalItems}
+          metadataByline={[]}
           onChangePage={(page) => onPageChanged(page)}
         />
         <Button variant="primary" onClick={onApply}>
-          Apply
+          <FormattedMessage id="actions.apply" />
         </Button>
       </>
     );
@@ -373,7 +407,9 @@ export const SceneFilenameParser: React.FC = () => {
 
   return (
     <Card id="parser-container" className="col col-sm-9 mx-auto">
-      <h4>Scene Filename Parser</h4>
+      <h4>
+        {intl.formatMessage({ id: "config.tools.scene_filename_parser.title" })}
+      </h4>
       <ParserInput
         input={parserInput}
         onFind={(input) => onFindClicked(input)}
@@ -387,3 +423,5 @@ export const SceneFilenameParser: React.FC = () => {
     </Card>
   );
 };
+
+export default SceneFilenameParser;

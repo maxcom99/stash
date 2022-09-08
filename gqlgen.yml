@@ -8,12 +8,16 @@ exec:
 model:
   filename: pkg/models/generated_models.go
 resolver:
-  filename: pkg/api/resolver.go
+  filename: internal/api/resolver.go
   type: Resolver
 
 struct_tag: gqlgen
 
 models:
+  # Scalars
+  Timestamp:
+    model: github.com/stashapp/stash/pkg/models.Timestamp
+  # Objects
   Gallery:
     model: github.com/stashapp/stash/pkg/models.Gallery
   Image:
@@ -34,23 +38,12 @@ models:
     model: github.com/stashapp/stash/pkg/models.Movie
   Tag:
     model: github.com/stashapp/stash/pkg/models.Tag
-  ScrapedPerformer:
-    model: github.com/stashapp/stash/pkg/models.ScrapedPerformer
-  ScrapedScene:
-    model: github.com/stashapp/stash/pkg/models.ScrapedScene
-  ScrapedScenePerformer:
-    model: github.com/stashapp/stash/pkg/models.ScrapedScenePerformer
-  ScrapedSceneStudio:
-    model: github.com/stashapp/stash/pkg/models.ScrapedSceneStudio
-  ScrapedSceneMovie:
-    model: github.com/stashapp/stash/pkg/models.ScrapedSceneMovie  
-  ScrapedSceneTag:
-    model: github.com/stashapp/stash/pkg/models.ScrapedSceneTag
   SceneFileType:
     model: github.com/stashapp/stash/pkg/models.SceneFileType
-  ScrapedMovie:
-    model: github.com/stashapp/stash/pkg/models.ScrapedMovie
-  ScrapedMovieStudio:
-    model: github.com/stashapp/stash/pkg/models.ScrapedMovieStudio
+  SavedFilter:
+    model: github.com/stashapp/stash/pkg/models.SavedFilter
   StashID:
     model: github.com/stashapp/stash/pkg/models.StashID
+  SceneCaption:
+    model: github.com/stashapp/stash/pkg/models.SceneCaption
+

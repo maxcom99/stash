@@ -113,7 +113,8 @@ textarea.scene-description {
   }
 }
 
-.scene-specs-overlay {
+.scene-specs-overlay,
+.scene-interactive-speed-overlay {
   bottom: 1rem;
   color: $text-color;
   display: block;
@@ -122,6 +123,14 @@ textarea.scene-description {
   position: absolute;
   right: 0.7rem;
   text-shadow: 0 0 3px #000;
+}
+
+.scene-specs-overlay {
+  right: 0.7rem;
+}
+
+.scene-interactive-speed-overlay {
+  left: 0.7rem;
 }
 
 .scene-studio-overlay {
@@ -133,7 +142,7 @@ textarea.scene-description {
   position: absolute;
   right: 0.7rem;
   top: 0.7rem;
-  z-index: 9;
+  z-index: 8;
 
   .image-thumbnail {
     height: auto;
@@ -151,6 +160,10 @@ textarea.scene-description {
   }
 }
 
+.extra-scene-info {
+  display: none;
+}
+
 .overlay-resolution {
   font-weight: 900;
   margin-right: 0.3rem;
@@ -162,21 +175,6 @@ textarea.scene-description {
   a {
     color: $text-color;
     text-decoration: none;
-  }
-
-  &-check {
-    left: 0.5rem;
-    margin-top: -12px;
-    opacity: 0;
-    padding-left: 15px;
-    position: absolute;
-    top: 0.7rem;
-    width: 1.2rem;
-    z-index: 1;
-
-    &:checked {
-      opacity: 0.75;
-    }
   }
 
   .scene-specs-overlay,
@@ -212,6 +210,10 @@ textarea.scene-description {
         object-fit: contain;
       }
     }
+  }
+
+  &__details {
+    margin-bottom: 1rem;
   }
 
   &:hover,
@@ -516,13 +518,15 @@ input[type="range"].blue-slider {
     height: calc(1.5em + 0.75rem + 2px);
   }
 
-  .scrape-button-container {
-    margin-right: -15px;
-  }
+  .edit-buttons-container {
+    background-color: #202b33;
+    position: sticky;
+    top: 0;
+    z-index: 3;
 
-  .scrape-url-button {
-    color: $text-color;
-    margin-right: 0;
+    @media (min-width: 575px) and (max-width: 1199px) {
+      top: 3rem;
+    }
   }
 }
 
@@ -567,9 +571,10 @@ input[type="range"].blue-slider {
 
 #queue-viewer {
   .queue-controls {
+    align-items: center;
     display: flex;
     flex: 0 1 auto;
-    justify-content: flex-end;
+    justify-content: space-between;
   }
 
   .thumbnail-container {
@@ -596,5 +601,33 @@ input[type="range"].blue-slider {
 
   .current {
     background-color: $secondary;
+  }
+}
+
+.scrape-query-dialog {
+  max-height: calc(100vh - 10rem);
+}
+
+.scraper-group {
+  & > .dropdown:not(:last-child) .btn {
+    border-bottom-right-radius: 0;
+    border-top-right-radius: 0;
+  }
+
+  & > .dropdown:not(:first-child) .btn {
+    border-bottom-left-radius: 0;
+    border-top-left-radius: 0;
+  }
+}
+
+.SceneScrapeModal-list {
+  list-style: none;
+  max-height: 50vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-inline-start: 0;
+
+  li {
+    cursor: pointer;
   }
 }

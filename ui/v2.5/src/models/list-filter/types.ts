@@ -8,17 +8,6 @@ export enum DisplayMode {
   Tagger,
 }
 
-export enum FilterMode {
-  Scenes,
-  Performers,
-  Studios,
-  Galleries,
-  SceneMarkers,
-  Movies,
-  Tags,
-  Images,
-}
-
 export interface ILabeledId {
   id: string;
   label: string;
@@ -34,6 +23,16 @@ export interface IHierarchicalLabelValue {
   depth: number;
 }
 
+export interface INumberValue {
+  value: number;
+  value2: number | undefined;
+}
+
+export interface IPHashDuplicationValue {
+  duplicated: boolean;
+  distance?: number; // currently not implemented
+}
+
 export function criterionIsHierarchicalLabelValue(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   value: any
@@ -41,10 +40,21 @@ export function criterionIsHierarchicalLabelValue(
   return typeof value === "object" && "items" in value && "depth" in value;
 }
 
-export function encodeILabeledId(o: ILabeledId) {
+export function criterionIsNumberValue(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  value: any
+): value is INumberValue {
+  return typeof value === "object" && "value" in value && "value2" in value;
+}
+
+export function encodeLabel(v: string) {
   // escape " and \ and by encoding to JSON so that it encodes to JSON correctly down the line
-  const adjustedLabel = JSON.stringify(o.label).slice(1, -1);
-  return { ...o, label: encodeURIComponent(adjustedLabel) };
+  const adjustedLabel = JSON.stringify(v).slice(1, -1);
+  return encodeURIComponent(adjustedLabel);
+}
+
+export function encodeILabeledId(o: ILabeledId) {
+  return { ...o, label: encodeLabel(o.label) };
 }
 
 export interface IOptionType {
@@ -74,6 +84,8 @@ export type CriterionType =
   | "tags"
   | "sceneTags"
   | "performerTags"
+  | "parentTags"
+  | "childTags"
   | "tag_count"
   | "performers"
   | "studios"
@@ -103,4 +115,22 @@ export type CriterionType =
   | "death_year"
   | "url"
   | "stash_id"
-  | "interactive";
+  | "interactive"
+  | "interactive_speed"
+  | "captions"
+  | "name"
+  | "details"
+  | "title"
+  | "oshash"
+  | "checksum"
+  | "sceneChecksum"
+  | "galleryChecksum"
+  | "phash"
+  | "director"
+  | "synopsis"
+  | "parent_tag_count"
+  | "child_tag_count"
+  | "performer_favorite"
+  | "performer_age"
+  | "duplicated"
+  | "ignore_auto_tag";

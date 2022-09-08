@@ -4,8 +4,9 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/json"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/models/mocks"
 	"github.com/stashapp/stash/pkg/utils"
 	"github.com/stretchr/testify/assert"
@@ -23,8 +24,8 @@ const (
 	missingStudioID = 5
 	errStudioID     = 6
 
-	noGalleryID  = 7
-	errGalleryID = 8
+	// noGalleryID  = 7
+	// errGalleryID = 8
 
 	noTagsID  = 11
 	errTagsID = 12
@@ -64,8 +65,8 @@ const (
 )
 
 const (
-	studioName      = "studioName"
-	galleryChecksum = "galleryChecksum"
+	studioName = "studioName"
+	// galleryChecksum = "galleryChecksum"
 
 	validMovie1  = 1
 	validMovie2  = 2
@@ -85,10 +86,20 @@ var names = []string{
 
 var imageBytes = []byte("imageBytes")
 
-const image = "aW1hZ2VCeXRlcw=="
+var stashID = models.StashID{
+	StashID:  "StashID",
+	Endpoint: "Endpoint",
+}
+var stashIDs = []*models.StashID{
+	&stashID,
+}
 
-var createTime time.Time = time.Date(2001, 01, 01, 0, 0, 0, 0, time.UTC)
-var updateTime time.Time = time.Date(2002, 01, 01, 0, 0, 0, 0, time.UTC)
+const imageBase64 = "aW1hZ2VCeXRlcw=="
+
+var (
+	createTime = time.Date(2001, 01, 01, 0, 0, 0, 0, time.UTC)
+	updateTime = time.Date(2002, 01, 01, 0, 0, 0, 0, time.UTC)
+)
 
 func createFullScene(id int) models.Scene {
 	return models.Scene{
@@ -165,23 +176,26 @@ func createFullJSONScene(image string) *jsonschema.Scene {
 			VideoCodec: videoCodec,
 			Width:      width,
 		},
-		CreatedAt: models.JSONTime{
+		CreatedAt: json.JSONTime{
 			Time: createTime,
 		},
-		UpdatedAt: models.JSONTime{
+		UpdatedAt: json.JSONTime{
 			Time: updateTime,
 		},
 		Cover: image,
+		StashIDs: []models.StashID{
+			stashID,
+		},
 	}
 }
 
 func createEmptyJSONScene() *jsonschema.Scene {
 	return &jsonschema.Scene{
 		File: &jsonschema.SceneFile{},
-		CreatedAt: models.JSONTime{
+		CreatedAt: json.JSONTime{
 			Time: createTime,
 		},
-		UpdatedAt: models.JSONTime{
+		UpdatedAt: json.JSONTime{
 			Time: updateTime,
 		},
 	}
@@ -196,7 +210,7 @@ type basicTestScenario struct {
 var scenarios = []basicTestScenario{
 	{
 		createFullScene(sceneID),
-		createFullJSONScene(image),
+		createFullJSONScene(imageBase64),
 		false,
 	},
 	{
@@ -220,15 +234,19 @@ func TestToJSON(t *testing.T) {
 	mockSceneReader.On("GetCover", noImageID).Return(nil, nil).Once()
 	mockSceneReader.On("GetCover", errImageID).Return(nil, imageErr).Once()
 
+	mockSceneReader.On("GetStashIDs", sceneID).Return(stashIDs, nil).Once()
+	mockSceneReader.On("GetStashIDs", noImageID).Return(nil, nil).Once()
+
 	for i, s := range scenarios {
 		scene := s.input
 		json, err := ToBasicJSON(mockSceneReader, &scene)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}
@@ -281,34 +299,17 @@ func TestGetStudioName(t *testing.T) {
 		scene := s.input
 		json, err := GetStudioName(mockStudioReader, &scene)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}
 
 	mockStudioReader.AssertExpectations(t)
-}
-
-var getGalleryChecksumScenarios = []stringTestScenario{
-	{
-		createEmptyScene(sceneID),
-		galleryChecksum,
-		false,
-	},
-	{
-		createEmptyScene(noGalleryID),
-		"",
-		false,
-	},
-	{
-		createEmptyScene(errGalleryID),
-		"",
-		true,
-	},
 }
 
 type stringSliceTestScenario struct {
@@ -359,11 +360,12 @@ func TestGetTagNames(t *testing.T) {
 		scene := s.input
 		json, err := GetTagNames(mockTagReader, &scene)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}
@@ -451,11 +453,12 @@ func TestGetSceneMoviesJSON(t *testing.T) {
 		scene := s.input
 		json, err := GetSceneMoviesJSON(mockMovieReader, mockSceneReader, &scene)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}
@@ -506,10 +509,10 @@ var getSceneMarkersJSONScenarios = []sceneMarkersTestScenario{
 					validTagName1,
 					validTagName2,
 				},
-				CreatedAt: models.JSONTime{
+				CreatedAt: json.JSONTime{
 					Time: createTime,
 				},
-				UpdatedAt: models.JSONTime{
+				UpdatedAt: json.JSONTime{
 					Time: updateTime,
 				},
 			},
@@ -520,10 +523,10 @@ var getSceneMarkersJSONScenarios = []sceneMarkersTestScenario{
 				Tags: []string{
 					validTagName2,
 				},
-				CreatedAt: models.JSONTime{
+				CreatedAt: json.JSONTime{
 					Time: createTime,
 				},
-				UpdatedAt: models.JSONTime{
+				UpdatedAt: json.JSONTime{
 					Time: updateTime,
 				},
 			},
@@ -633,11 +636,12 @@ func TestGetSceneMarkersJSON(t *testing.T) {
 		scene := s.input
 		json, err := GetSceneMarkersJSON(mockMarkerReader, mockTagReader, &scene)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}

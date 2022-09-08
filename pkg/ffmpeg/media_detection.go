@@ -2,7 +2,6 @@ package ffmpeg
 
 import (
 	"bytes"
-	"github.com/stashapp/stash/pkg/logger"
 	"os"
 )
 
@@ -37,14 +36,14 @@ func containsMatroskaSignature(buf, subType []byte) bool {
 	return buf[index-3] == 0x42 && buf[index-2] == 0x82
 }
 
-//returns container as string ("" on error or no match)
-//implements only mkv or webm as ffprobe can't distinguish between them
-//and not all browsers support mkv
-func MagicContainer(file_path string) Container {
-	file, err := os.Open(file_path)
+// magicContainer returns the container type of a file path.
+// Returns the zero-value on errors or no-match. Implements mkv or
+// webm only, as ffprobe can't distinguish between them and not all
+// browsers support mkv
+func magicContainer(filePath string) (Container, error) {
+	file, err := os.Open(filePath)
 	if err != nil {
-		logger.Errorf("[magicfile] %v", err)
-		return ""
+		return "", err
 	}
 
 	defer file.Close()
@@ -52,15 +51,14 @@ func MagicContainer(file_path string) Container {
 	buf := make([]byte, 4096)
 	_, err = file.Read(buf)
 	if err != nil {
-		logger.Errorf("[magicfile] %v", err)
-		return ""
+		return "", err
 	}
 
 	if webm(buf) {
-		return Webm
+		return Webm, nil
 	}
 	if mkv(buf) {
-		return Matroska
+		return Matroska, nil
 	}
-	return ""
+	return "", nil
 }

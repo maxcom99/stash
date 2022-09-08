@@ -9,27 +9,31 @@
   top: 0;
   z-index: 1040;
 
-  .fa-icon {
-    path {
-      fill: white;
-    }
-    opacity: 0.4;
-
-    &:hover {
-      opacity: 1;
-    }
-  }
-
   &-header {
     align-items: center;
     display: flex;
     flex-shrink: 0;
     height: 4rem;
 
+    .fa-icon {
+      path {
+        fill: white;
+      }
+      opacity: 0.4;
+
+      &:hover {
+        opacity: 1;
+      }
+    }
+
     &-left-spacer {
       display: flex;
       flex: 1;
       justify-content: center;
+
+      @media (max-width: 575px) {
+        display: none;
+      }
     }
 
     &-indicator {
@@ -40,7 +44,7 @@
       text-align: center;
     }
 
-    &-delay {
+    &-options {
       display: flex;
       flex-direction: column;
       margin-left: 100px;
@@ -52,16 +56,6 @@
 
       &-inline {
         display: none;
-      }
-
-      @media screen and (min-width: 1300px) {
-        &-icon {
-          display: none;
-        }
-
-        &-inline {
-          display: flex;
-        }
       }
     }
 
@@ -78,11 +72,45 @@
     }
   }
 
+  &-footer {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+    height: 4.5rem;
+
+    & > div {
+      flex: 1;
+
+      &:nth-child(2) {
+        overflow-wrap: anywhere;
+        text-align: center;
+      }
+    }
+
+    .rating-stars {
+      display: flex;
+      flex-wrap: nowrap;
+      padding-left: 0.38rem;
+    }
+
+    &-left {
+      display: flex;
+      flex-direction: column;
+      justify-content: start;
+      padding-left: 1em;
+    }
+
+    a {
+      color: $text-color;
+      font-weight: bold;
+      text-decoration: none;
+    }
+  }
+
   &-display {
     display: flex;
     height: 100%;
     justify-content: space-between;
-    margin-bottom: 2rem;
     position: relative;
   }
 
@@ -99,22 +127,31 @@
     &-image {
       content-visibility: auto;
       display: flex;
-      height: 100%;
       width: 100vw;
 
       picture {
         display: flex;
-        height: 100%;
         margin: auto;
+        position: relative;
+
+        > div {
+          display: flex;
+          height: 100%;
+          position: absolute;
+          width: 100%;
+        }
       }
 
       img {
-        margin: auto;
-        max-height: 100%;
-        max-width: 100%;
+        cursor: pointer;
         object-fit: contain;
       }
     }
+  }
+
+  &-navzone {
+    cursor: pointer;
+    width: 50%;
   }
 
   &-navbutton {
@@ -122,7 +159,16 @@
 
     .fa-icon {
       height: 4rem;
+      opacity: 0.4;
       width: 4rem;
+
+      path {
+        fill: white;
+      }
+
+      &:hover {
+        opacity: 1;
+      }
     }
 
     &:focus {

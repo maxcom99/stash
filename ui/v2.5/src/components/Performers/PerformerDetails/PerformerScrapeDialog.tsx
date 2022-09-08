@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useIntl } from "react-intl";
 import * as GQL from "src/core/generated-graphql";
 import {
   ScrapeDialog,
@@ -8,23 +9,24 @@ import {
   ScrapeDialogRow,
   ScrapedTextAreaRow,
 } from "src/components/Shared/ScrapeDialog";
-import {
-  getGenderStrings,
-  genderToString,
-  stringToGender,
-  useTagCreate,
-} from "src/core/StashService";
+import { useTagCreate } from "src/core/StashService";
 import { Form } from "react-bootstrap";
 import { TagSelect } from "src/components/Shared";
 import { useToast } from "src/hooks";
-import _ from "lodash";
+import clone from "lodash-es/clone";
+import {
+  genderStrings,
+  genderToString,
+  stringToGender,
+} from "src/utils/gender";
+import { IStashBox } from "./PerformerStashBoxModal";
 
 function renderScrapedGender(
   result: ScrapeResult<string>,
   isNew?: boolean,
   onChange?: (value: string) => void
 ) {
-  const selectOptions = [""].concat(getGenderStrings());
+  const selectOptions = [""].concat(genderStrings);
 
   return (
     <Form.Control
@@ -49,12 +51,13 @@ function renderScrapedGender(
 }
 
 function renderScrapedGenderRow(
+  title: string,
   result: ScrapeResult<string>,
   onChange: (value: ScrapeResult<string>) => void
 ) {
   return (
     <ScrapeDialogRow
-      title="Gender"
+      title={title}
       result={result}
       renderOriginalField={() => renderScrapedGender(result)}
       renderNewField={() =>
@@ -91,14 +94,15 @@ function renderScrapedTags(
 }
 
 function renderScrapedTagsRow(
+  title: string,
   result: ScrapeResult<string[]>,
   onChange: (value: ScrapeResult<string[]>) => void,
-  newTags: GQL.ScrapedSceneTag[],
-  onCreateNew?: (value: GQL.ScrapedSceneTag) => void
+  newTags: GQL.ScrapedTag[],
+  onCreateNew?: (value: GQL.ScrapedTag) => void
 ) {
   return (
     <ScrapeDialogRow
-      title="Tags"
+      title={title}
       result={result}
       renderOriginalField={() => renderScrapedTags(result)}
       renderNewField={() =>
@@ -108,7 +112,9 @@ function renderScrapedTagsRow(
       }
       newValues={newTags}
       onChange={onChange}
-      onCreateNew={onCreateNew}
+      onCreateNew={(i) => {
+        if (onCreateNew) onCreateNew(newTags[i]);
+      }}
     />
   );
 }
@@ -116,6 +122,7 @@ function renderScrapedTagsRow(
 interface IPerformerScrapeDialogProps {
   performer: Partial<GQL.PerformerUpdateInput>;
   scraped: GQL.ScrapedPerformer;
+  scraper?: GQL.Scraper | IStashBox;
 
   onClose: (scrapedPerformer?: GQL.ScrapedPerformer) => void;
 }
@@ -123,6 +130,19 @@ interface IPerformerScrapeDialogProps {
 export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
   props: IPerformerScrapeDialogProps
 ) => {
+  const intl = useIntl();
+
+  const endpoint = (props.scraper as IStashBox)?.endpoint ?? undefined;
+
+  function getCurrentRemoteSiteID() {
+    if (!endpoint) {
+      return;
+    }
+
+    return props.performer.stash_ids?.find((s) => s.endpoint === endpoint)
+      ?.stash_id;
+  }
+
   function translateScrapedGender(scrapedGender?: string | null) {
     if (!scrapedGender) {
       return;
@@ -222,6 +242,12 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
   const [details, setDetails] = useState<ScrapeResult<string>>(
     new ScrapeResult<string>(props.performer.details, props.scraped.details)
   );
+  const [remoteSiteID, setRemoteSiteID] = useState<ScrapeResult<string>>(
+    new ScrapeResult<string>(
+      getCurrentRemoteSiteID(),
+      props.scraped.remote_site_id
+    )
+  );
 
   const [createTag] = useTagCreate();
   const Toast = useToast();
@@ -259,7 +285,7 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
       return;
     }
 
-    const ret = _.clone(idList);
+    const ret = clone(idList);
     // sort by id numerically
     ret.sort((a, b) => {
       return parseInt(a, 10) - parseInt(b, 10);
@@ -275,12 +301,17 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
     )
   );
 
-  const [newTags, setNewTags] = useState<GQL.ScrapedSceneTag[]>(
+  const [newTags, setNewTags] = useState<GQL.ScrapedTag[]>(
     props.scraped.tags?.filter((t) => !t.stored_id) ?? []
   );
 
   const [image, setImage] = useState<ScrapeResult<string>>(
-    new ScrapeResult<string>(props.performer.image, props.scraped.image)
+    new ScrapeResult<string>(
+      props.performer.image,
+      props.scraped.images && props.scraped.images.length > 0
+        ? props.scraped.images[0]
+        : undefined
+    )
   );
 
   const allFields = [
@@ -306,6 +337,7 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
     deathDate,
     hairColor,
     weight,
+    remoteSiteID,
   ];
   // don't show the dialog if nothing was scraped
   if (allFields.every((r) => !r.scraped)) {
@@ -313,7 +345,7 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
     return <></>;
   }
 
-  async function createNewTag(toCreate: GQL.ScrapedSceneTag) {
+  async function createNewTag(toCreate: GQL.ScrapedTag) {
     const tagInput: GQL.TagCreateInput = { name: toCreate.name ?? "" };
     try {
       const result = await createTag({
@@ -350,8 +382,9 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
   }
 
   function makeNewScrapedItem(): GQL.ScrapedPerformer {
+    const newImage = image.getNewValue();
     return {
-      name: name.getNewValue(),
+      name: name.getNewValue() ?? "",
       aliases: aliases.getNewValue(),
       birthdate: birthdate.getNewValue(),
       ethnicity: ethnicity.getNewValue(),
@@ -373,11 +406,12 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
           name: "",
         };
       }),
-      image: image.getNewValue(),
+      images: newImage ? [newImage] : undefined,
       details: details.getNewValue(),
       death_date: deathDate.getNewValue(),
       hair_color: hairColor.getNewValue(),
       weight: weight.getNewValue(),
+      remote_site_id: remoteSiteID.getNewValue(),
     };
   }
 
@@ -385,112 +419,123 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
     return (
       <>
         <ScrapedInputGroupRow
-          title="Name"
+          title={intl.formatMessage({ id: "name" })}
           result={name}
           onChange={(value) => setName(value)}
         />
         <ScrapedTextAreaRow
-          title="Aliases"
+          title={intl.formatMessage({ id: "aliases" })}
           result={aliases}
           onChange={(value) => setAliases(value)}
         />
-        {renderScrapedGenderRow(gender, (value) => setGender(value))}
+        {renderScrapedGenderRow(
+          intl.formatMessage({ id: "gender" }),
+          gender,
+          (value) => setGender(value)
+        )}
         <ScrapedInputGroupRow
-          title="Birthdate"
+          title={intl.formatMessage({ id: "birthdate" })}
           result={birthdate}
           onChange={(value) => setBirthdate(value)}
         />
         <ScrapedInputGroupRow
-          title="Death Date"
+          title={intl.formatMessage({ id: "death_date" })}
           result={deathDate}
           onChange={(value) => setDeathDate(value)}
         />
         <ScrapedInputGroupRow
-          title="Ethnicity"
+          title={intl.formatMessage({ id: "ethnicity" })}
           result={ethnicity}
           onChange={(value) => setEthnicity(value)}
         />
         <ScrapedInputGroupRow
-          title="Country"
+          title={intl.formatMessage({ id: "country" })}
           result={country}
           onChange={(value) => setCountry(value)}
         />
         <ScrapedInputGroupRow
-          title="Hair Color"
+          title={intl.formatMessage({ id: "hair_color" })}
           result={hairColor}
           onChange={(value) => setHairColor(value)}
         />
         <ScrapedInputGroupRow
-          title="Eye Color"
+          title={intl.formatMessage({ id: "eye_color" })}
           result={eyeColor}
           onChange={(value) => setEyeColor(value)}
         />
         <ScrapedInputGroupRow
-          title="Weight"
+          title={intl.formatMessage({ id: "weight" })}
           result={weight}
           onChange={(value) => setWeight(value)}
         />
         <ScrapedInputGroupRow
-          title="Height"
+          title={intl.formatMessage({ id: "height" })}
           result={height}
           onChange={(value) => setHeight(value)}
         />
         <ScrapedInputGroupRow
-          title="Measurements"
+          title={intl.formatMessage({ id: "measurements" })}
           result={measurements}
           onChange={(value) => setMeasurements(value)}
         />
         <ScrapedInputGroupRow
-          title="Fake Tits"
+          title={intl.formatMessage({ id: "fake_tits" })}
           result={fakeTits}
           onChange={(value) => setFakeTits(value)}
         />
         <ScrapedInputGroupRow
-          title="Career Length"
+          title={intl.formatMessage({ id: "career_length" })}
           result={careerLength}
           onChange={(value) => setCareerLength(value)}
         />
         <ScrapedTextAreaRow
-          title="Tattoos"
+          title={intl.formatMessage({ id: "tattoos" })}
           result={tattoos}
           onChange={(value) => setTattoos(value)}
         />
         <ScrapedTextAreaRow
-          title="Piercings"
+          title={intl.formatMessage({ id: "piercings" })}
           result={piercings}
           onChange={(value) => setPiercings(value)}
         />
         <ScrapedInputGroupRow
-          title="URL"
+          title={intl.formatMessage({ id: "url" })}
           result={url}
           onChange={(value) => setURL(value)}
         />
         <ScrapedInputGroupRow
-          title="Twitter"
+          title={intl.formatMessage({ id: "twitter" })}
           result={twitter}
           onChange={(value) => setTwitter(value)}
         />
         <ScrapedInputGroupRow
-          title="Instagram"
+          title={intl.formatMessage({ id: "instagram" })}
           result={instagram}
           onChange={(value) => setInstagram(value)}
         />
         <ScrapedTextAreaRow
-          title="Details"
+          title={intl.formatMessage({ id: "details" })}
           result={details}
           onChange={(value) => setDetails(value)}
         />
         {renderScrapedTagsRow(
+          intl.formatMessage({ id: "tags" }),
           tags,
           (value) => setTags(value),
           newTags,
           createNewTag
         )}
         <ScrapedImageRow
-          title="Performer Image"
+          title={intl.formatMessage({ id: "performer_image" })}
           className="performer-image"
           result={image}
           onChange={(value) => setImage(value)}
+        />
+        <ScrapedInputGroupRow
+          title={intl.formatMessage({ id: "stash_id" })}
+          result={remoteSiteID}
+          locked
+          onChange={(value) => setRemoteSiteID(value)}
         />
       </>
     );
@@ -498,7 +543,10 @@ export const PerformerScrapeDialog: React.FC<IPerformerScrapeDialogProps> = (
 
   return (
     <ScrapeDialog
-      title="Performer Scrape Results"
+      title={intl.formatMessage(
+        { id: "dialogs.scrape_entity_title" },
+        { entity_type: intl.formatMessage({ id: "performer" }) }
+      )}
       renderScrapeRows={renderScrapeRows}
       onClose={(apply) => {
         props.onClose(apply ? makeNewScrapedItem() : undefined);

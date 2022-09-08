@@ -1,24 +1,27 @@
-import { Tabs, Tab } from "react-bootstrap";
+import { Tabs, Tab, Dropdown, Badge } from "react-bootstrap";
 import React, { useEffect, useState } from "react";
 import { useParams, useHistory } from "react-router-dom";
-import cx from "classnames";
+import { FormattedMessage, useIntl } from "react-intl";
+import { Helmet } from "react-helmet";
 import Mousetrap from "mousetrap";
 
 import * as GQL from "src/core/generated-graphql";
 import {
   useFindTag,
   useTagUpdate,
-  useTagCreate,
   useTagDestroy,
   mutateMetadataAutoTag,
 } from "src/core/StashService";
 import { ImageUtils } from "src/utils";
 import {
   DetailsEditNavbar,
+  ErrorMessage,
   Modal,
   LoadingIndicator,
+  Icon,
 } from "src/components/Shared";
 import { useToast } from "src/hooks";
+import { tagRelationHook } from "src/core/tags";
 import { TagScenesPanel } from "./TagScenesPanel";
 import { TagMarkersPanel } from "./TagMarkersPanel";
 import { TagImagesPanel } from "./TagImagesPanel";
@@ -26,32 +29,37 @@ import { TagPerformersPanel } from "./TagPerformersPanel";
 import { TagGalleriesPanel } from "./TagGalleriesPanel";
 import { TagDetailsPanel } from "./TagDetailsPanel";
 import { TagEditPanel } from "./TagEditPanel";
+import { TagMergeModal } from "./TagMergeDialog";
+import {
+  faSignInAlt,
+  faSignOutAlt,
+  faTrashAlt,
+} from "@fortawesome/free-solid-svg-icons";
+
+interface IProps {
+  tag: GQL.TagDataFragment;
+}
 
 interface ITabParams {
-  id?: string;
   tab?: string;
 }
 
-export const Tag: React.FC = () => {
+const TagPage: React.FC<IProps> = ({ tag }) => {
   const history = useHistory();
   const Toast = useToast();
-  const { tab = "scenes", id = "new" } = useParams<ITabParams>();
-  const isNew = id === "new";
+  const intl = useIntl();
+  const { tab = "scenes" } = useParams<ITabParams>();
 
   // Editing state
-  const [isEditing, setIsEditing] = useState<boolean>(isNew);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
   const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState<boolean>(false);
+  const [mergeType, setMergeType] = useState<"from" | "into" | undefined>();
 
   // Editing tag state
   const [image, setImage] = useState<string | null>();
 
-  // Tag state
-  const { data, error, loading } = useFindTag(id);
-  const tag = data?.findTag;
-
   const [updateTag] = useTagUpdate();
-  const [createTag] = useTagCreate();
-  const [deleteTag] = useTagDestroy({ id });
+  const [deleteTag] = useTagDestroy({ id: tag.id });
 
   const activeTabKey =
     tab === "markers" ||
@@ -63,7 +71,7 @@ export const Tag: React.FC = () => {
   const setActiveTabKey = (newTab: string | null) => {
     if (tab !== newTab) {
       const tabParam = newTab === "scenes" ? "" : `/${newTab}`;
-      history.replace(`/tags/${id}${tabParam}`);
+      history.replace(`/tags/${tag.id}${tabParam}`);
     }
   };
 
@@ -82,22 +90,11 @@ export const Tag: React.FC = () => {
     };
   });
 
-  useEffect(() => {
-    if (data && data.findTag) {
-      setImage(undefined);
-    }
-  }, [data]);
-
   function onImageLoad(imageData: string) {
     setImage(imageData);
   }
 
   const imageEncoding = ImageUtils.usePasteImage(onImageLoad, isEditing);
-
-  if (!isNew && !isEditing) {
-    if (!data?.findTag || loading) return <LoadingIndicator />;
-    if (error) return <div>{error.message}</div>;
-  }
 
   function getTagInput(
     input: Partial<GQL.TagCreateInput | GQL.TagUpdateInput>
@@ -105,11 +102,8 @@ export const Tag: React.FC = () => {
     const ret: Partial<GQL.TagCreateInput | GQL.TagUpdateInput> = {
       ...input,
       image,
+      id: tag.id,
     };
-
-    if (!isNew) {
-      (ret as GQL.TagUpdateInput).id = id;
-    }
 
     return ret;
   }
@@ -118,26 +112,23 @@ export const Tag: React.FC = () => {
     input: Partial<GQL.TagCreateInput | GQL.TagUpdateInput>
   ) {
     try {
-      if (!isNew) {
-        const result = await updateTag({
-          variables: {
-            input: getTagInput(input) as GQL.TagUpdateInput,
-          },
+      const oldRelations = {
+        parents: tag.parents ?? [],
+        children: tag.children ?? [],
+      };
+      const result = await updateTag({
+        variables: {
+          input: getTagInput(input) as GQL.TagUpdateInput,
+        },
+      });
+      if (result.data?.tagUpdate) {
+        setIsEditing(false);
+        const updated = result.data.tagUpdate;
+        tagRelationHook(updated, oldRelations, {
+          parents: updated.parents,
+          children: updated.children,
         });
-        if (result.data?.tagUpdate) {
-          setIsEditing(false);
-          return result.data.tagUpdate.id;
-        }
-      } else {
-        const result = await createTag({
-          variables: {
-            input: getTagInput(input) as GQL.TagCreateInput,
-          },
-        });
-        if (result.data?.tagCreate?.id) {
-          setIsEditing(false);
-          return result.data.tagCreate.id;
-        }
+        return updated.id;
       }
     } catch (e) {
       Toast.error(e);
@@ -145,10 +136,12 @@ export const Tag: React.FC = () => {
   }
 
   async function onAutoTag() {
-    if (!tag?.id) return;
+    if (!tag.id) return;
     try {
       await mutateMetadataAutoTag({ tags: [tag.id] });
-      Toast.success({ content: "Started auto tagging" });
+      Toast.success({
+        content: intl.formatMessage({ id: "toast.started_auto_tagging" }),
+      });
     } catch (e) {
       Toast.error(e);
     }
@@ -156,7 +149,15 @@ export const Tag: React.FC = () => {
 
   async function onDelete() {
     try {
+      const oldRelations = {
+        parents: tag.parents ?? [],
+        children: tag.children ?? [],
+      };
       await deleteTag();
+      tagRelationHook(tag as GQL.TagDataFragment, oldRelations, {
+        parents: [],
+        children: [],
+      });
     } catch (e) {
       Toast.error(e);
     }
@@ -169,11 +170,24 @@ export const Tag: React.FC = () => {
     return (
       <Modal
         show={isDeleteAlertOpen}
-        icon="trash-alt"
-        accept={{ text: "Delete", variant: "danger", onClick: onDelete }}
+        icon={faTrashAlt}
+        accept={{
+          text: intl.formatMessage({ id: "actions.delete" }),
+          variant: "danger",
+          onClick: onDelete,
+        }}
         cancel={{ onClick: () => setIsDeleteAlertOpen(false) }}
       >
-        <p>Are you sure you want to delete {tag?.name ?? "tag"}?</p>
+        <p>
+          <FormattedMessage
+            id="dialogs.delete_confirm"
+            values={{
+              entityName:
+                tag.name ??
+                intl.formatMessage({ id: "tag" }).toLocaleLowerCase(),
+            }}
+          />
+        </p>
       </Modal>
     );
   }
@@ -184,7 +198,7 @@ export const Tag: React.FC = () => {
   }
 
   function renderImage() {
-    let tagImage = tag?.image_path;
+    let tagImage = tag.image_path;
     if (isEditing) {
       if (image === null) {
         tagImage = `${tagImage}&default=true`;
@@ -194,53 +208,94 @@ export const Tag: React.FC = () => {
     }
 
     if (tagImage) {
-      return <img className="logo" alt={tag?.name ?? ""} src={tagImage} />;
+      return <img className="logo" alt={tag.name} src={tagImage} />;
     }
   }
 
+  function renderMergeButton() {
+    return (
+      <Dropdown drop="up">
+        <Dropdown.Toggle variant="secondary">
+          <FormattedMessage id="actions.merge" />
+          ...
+        </Dropdown.Toggle>
+        <Dropdown.Menu className="bg-secondary text-white" id="tag-merge-menu">
+          <Dropdown.Item
+            className="bg-secondary text-white"
+            onClick={() => setMergeType("from")}
+          >
+            <Icon icon={faSignInAlt} />
+            <FormattedMessage id="actions.merge_from" />
+            ...
+          </Dropdown.Item>
+          <Dropdown.Item
+            className="bg-secondary text-white"
+            onClick={() => setMergeType("into")}
+          >
+            <Icon icon={faSignOutAlt} />
+            <FormattedMessage id="actions.merge_into" />
+            ...
+          </Dropdown.Item>
+        </Dropdown.Menu>
+      </Dropdown>
+    );
+  }
+
+  function renderMergeDialog() {
+    if (!tag || !mergeType) return;
+    return (
+      <TagMergeModal
+        tag={tag}
+        onClose={() => setMergeType(undefined)}
+        show={!!mergeType}
+        mergeType={mergeType}
+      />
+    );
+  }
+
   return (
-    <div className="row">
-      <div
-        className={cx("tag-details", {
-          "col-md-4": !isNew,
-          "col-8": isNew,
-        })}
-      >
-        <div className="text-center logo-container">
-          {imageEncoding ? (
-            <LoadingIndicator message="Encoding image..." />
+    <>
+      <Helmet>
+        <title>{tag.name}</title>
+      </Helmet>
+      <div className="row">
+        <div className="tag-details col-md-4">
+          <div className="text-center logo-container">
+            {imageEncoding ? (
+              <LoadingIndicator message="Encoding image..." />
+            ) : (
+              renderImage()
+            )}
+            <h2>{tag.name}</h2>
+          </div>
+          {!isEditing ? (
+            <>
+              <TagDetailsPanel tag={tag} />
+              {/* HACK - this is also rendered in the TagEditPanel */}
+              <DetailsEditNavbar
+                objectName={tag.name}
+                isNew={false}
+                isEditing={isEditing}
+                onToggleEdit={onToggleEdit}
+                onSave={() => {}}
+                onImageChange={() => {}}
+                onClearImage={() => {}}
+                onAutoTag={onAutoTag}
+                onDelete={onDelete}
+                classNames="mb-2"
+                customButtons={renderMergeButton()}
+              />
+            </>
           ) : (
-            renderImage()
-          )}
-          {!isNew && tag && <h2>{tag.name}</h2>}
-        </div>
-        {!isEditing && !isNew && tag ? (
-          <>
-            <TagDetailsPanel tag={tag} />
-            {/* HACK - this is also rendered in the TagEditPanel */}
-            <DetailsEditNavbar
-              objectName={tag.name ?? "tag"}
-              isNew={isNew}
-              isEditing={isEditing}
-              onToggleEdit={onToggleEdit}
-              onSave={() => {}}
-              onImageChange={() => {}}
-              onClearImage={() => {}}
-              onAutoTag={onAutoTag}
+            <TagEditPanel
+              tag={tag}
+              onSubmit={onSave}
+              onCancel={onToggleEdit}
               onDelete={onDelete}
+              setImage={setImage}
             />
-          </>
-        ) : (
-          <TagEditPanel
-            tag={tag ?? undefined}
-            onSubmit={onSave}
-            onCancel={onToggleEdit}
-            onDelete={onDelete}
-            setImage={setImage}
-          />
-        )}
-      </div>
-      {!isNew && tag && (
+          )}
+        </div>
         <div className="col col-md-8">
           <Tabs
             id="tag-tabs"
@@ -248,25 +303,90 @@ export const Tag: React.FC = () => {
             activeKey={activeTabKey}
             onSelect={setActiveTabKey}
           >
-            <Tab eventKey="scenes" title="Scenes">
+            <Tab
+              eventKey="scenes"
+              title={
+                <React.Fragment>
+                  {intl.formatMessage({ id: "scenes" })}
+                  <Badge className="left-spacing" pill variant="secondary">
+                    {intl.formatNumber(tag.scene_count ?? 0)}
+                  </Badge>
+                </React.Fragment>
+              }
+            >
               <TagScenesPanel tag={tag} />
             </Tab>
-            <Tab eventKey="images" title="Images">
+            <Tab
+              eventKey="images"
+              title={
+                <React.Fragment>
+                  {intl.formatMessage({ id: "images" })}
+                  <Badge className="left-spacing" pill variant="secondary">
+                    {intl.formatNumber(tag.image_count ?? 0)}
+                  </Badge>
+                </React.Fragment>
+              }
+            >
               <TagImagesPanel tag={tag} />
             </Tab>
-            <Tab eventKey="galleries" title="Galleries">
+            <Tab
+              eventKey="galleries"
+              title={
+                <React.Fragment>
+                  {intl.formatMessage({ id: "galleries" })}
+                  <Badge className="left-spacing" pill variant="secondary">
+                    {intl.formatNumber(tag.gallery_count ?? 0)}
+                  </Badge>
+                </React.Fragment>
+              }
+            >
               <TagGalleriesPanel tag={tag} />
             </Tab>
-            <Tab eventKey="markers" title="Markers">
+            <Tab
+              eventKey="markers"
+              title={
+                <React.Fragment>
+                  {intl.formatMessage({ id: "markers" })}
+                  <Badge className="left-spacing" pill variant="secondary">
+                    {intl.formatNumber(tag.scene_marker_count ?? 0)}
+                  </Badge>
+                </React.Fragment>
+              }
+            >
               <TagMarkersPanel tag={tag} />
             </Tab>
-            <Tab eventKey="performers" title="Performers">
+            <Tab
+              eventKey="performers"
+              title={
+                <React.Fragment>
+                  {intl.formatMessage({ id: "performers" })}
+                  <Badge className="left-spacing" pill variant="secondary">
+                    {intl.formatNumber(tag.performer_count ?? 0)}
+                  </Badge>
+                </React.Fragment>
+              }
+            >
               <TagPerformersPanel tag={tag} />
             </Tab>
           </Tabs>
         </div>
-      )}
-      {renderDeleteAlert()}
-    </div>
+        {renderDeleteAlert()}
+        {renderMergeDialog()}
+      </div>
+    </>
   );
 };
+
+const TagLoader: React.FC = () => {
+  const { id } = useParams<{ id?: string }>();
+  const { data, loading, error } = useFindTag(id ?? "");
+
+  if (loading) return <LoadingIndicator />;
+  if (error) return <ErrorMessage error={error.message} />;
+  if (!data?.findTag)
+    return <ErrorMessage error={`No tag found with id ${id}.`} />;
+
+  return <TagPage tag={data.findTag} />;
+};
+
+export default TagLoader;

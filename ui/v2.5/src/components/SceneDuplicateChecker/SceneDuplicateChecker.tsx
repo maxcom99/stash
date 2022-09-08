@@ -11,7 +11,7 @@ import {
   Tooltip,
 } from "react-bootstrap";
 import { Link, useHistory } from "react-router-dom";
-import { FormattedNumber } from "react-intl";
+import { FormattedMessage, FormattedNumber, useIntl } from "react-intl";
 import querystring from "query-string";
 
 import * as GQL from "src/core/generated-graphql";
@@ -28,10 +28,21 @@ import { TextUtils } from "src/utils";
 import { DeleteScenesDialog } from "src/components/Scenes/DeleteScenesDialog";
 import { EditScenesDialog } from "../Scenes/EditScenesDialog";
 import { PerformerPopoverButton } from "../Shared/PerformerPopoverButton";
+import {
+  faBox,
+  faExclamationTriangle,
+  faFilm,
+  faImages,
+  faMapMarkerAlt,
+  faPencilAlt,
+  faTag,
+  faTrash,
+} from "@fortawesome/free-solid-svg-icons";
 
 const CLASSNAME = "duplicate-checker";
 
 export const SceneDuplicateChecker: React.FC = () => {
+  const intl = useIntl();
   const history = useHistory();
   const { page, size, distance } = querystring.parse(history.location.search);
   const currentPage = Number.parseInt(
@@ -42,6 +53,7 @@ export const SceneDuplicateChecker: React.FC = () => {
     Array.isArray(size) ? size[0] : size ?? "20",
     10
   );
+  const [currentPageSize, setCurrentPageSize] = useState(pageSize);
   const hashDistance = Number.parseInt(
     Array.isArray(distance) ? distance[0] : distance ?? "0",
     10
@@ -142,7 +154,7 @@ export const SceneDuplicateChecker: React.FC = () => {
     if (missingPhashes > 0) {
       return (
         <p className="lead">
-          <Icon icon="exclamation-triangle" className="text-warning" />
+          <Icon icon={faExclamationTriangle} className="text-warning" />
           Missing phashes for {missingPhashes} scenes. Please run the phash
           generation task.
         </p>
@@ -171,7 +183,7 @@ export const SceneDuplicateChecker: React.FC = () => {
     return (
       <HoverPopover placement="bottom" content={popoverContent}>
         <Button className="minimal">
-          <Icon icon="tag" />
+          <Icon icon={faTag} />
           <span>{scene.tags.length}</span>
         </Button>
       </HoverPopover>
@@ -214,7 +226,7 @@ export const SceneDuplicateChecker: React.FC = () => {
         className="tag-tooltip"
       >
         <Button className="minimal">
-          <Icon icon="film" />
+          <Icon icon={faFilm} />
           <span>{scene.movies.length}</span>
         </Button>
       </HoverPopover>
@@ -234,7 +246,7 @@ export const SceneDuplicateChecker: React.FC = () => {
     return (
       <HoverPopover placement="bottom" content={popoverContent}>
         <Button className="minimal">
-          <Icon icon="map-marker-alt" />
+          <Icon icon={faMapMarkerAlt} />
           <span>{scene.scene_markers.length}</span>
         </Button>
       </HoverPopover>
@@ -266,7 +278,7 @@ export const SceneDuplicateChecker: React.FC = () => {
     return (
       <HoverPopover placement="bottom" content={popoverContent}>
         <Button className="minimal">
-          <Icon icon="images" />
+          <Icon icon={faImages} />
           <span>{scene.galleries.length}</span>
         </Button>
       </HoverPopover>
@@ -278,7 +290,7 @@ export const SceneDuplicateChecker: React.FC = () => {
       return (
         <div>
           <Button className="minimal">
-            <Icon icon="box" />
+            <Icon icon={faBox} />
           </Button>
         </div>
       );
@@ -311,6 +323,75 @@ export const SceneDuplicateChecker: React.FC = () => {
     }
   }
 
+  function renderPagination() {
+    return (
+      <div className="d-flex mt-2 mb-2">
+        <h6 className="mr-auto align-self-center">
+          <FormattedMessage
+            id="dupe_check.found_sets"
+            values={{ setCount: scenes.length }}
+          />
+        </h6>
+        {checkCount > 0 && (
+          <ButtonGroup>
+            <OverlayTrigger
+              overlay={
+                <Tooltip id="edit">
+                  {intl.formatMessage({ id: "actions.edit" })}
+                </Tooltip>
+              }
+            >
+              <Button variant="secondary" onClick={onEdit}>
+                <Icon icon={faPencilAlt} />
+              </Button>
+            </OverlayTrigger>
+            <OverlayTrigger
+              overlay={
+                <Tooltip id="delete">
+                  {intl.formatMessage({ id: "actions.delete" })}
+                </Tooltip>
+              }
+            >
+              <Button variant="danger" onClick={handleDeleteChecked}>
+                <Icon icon={faTrash} />
+              </Button>
+            </OverlayTrigger>
+          </ButtonGroup>
+        )}
+        <Pagination
+          itemsPerPage={pageSize}
+          currentPage={currentPage}
+          totalItems={scenes.length}
+          metadataByline={[]}
+          onChangePage={(newPage) =>
+            setQuery({ page: newPage === 1 ? undefined : newPage })
+          }
+        />
+        <Form.Control
+          as="select"
+          className="w-auto ml-2 btn-secondary"
+          defaultValue={pageSize}
+          value={currentPageSize}
+          onChange={(e) => {
+            setCurrentPageSize(parseInt(e.currentTarget.value, 10));
+            setQuery({
+              size:
+                e.currentTarget.value === "20"
+                  ? undefined
+                  : e.currentTarget.value,
+            });
+          }}
+        >
+          <option value={10}>10</option>
+          <option value={20}>20</option>
+          <option value={40}>40</option>
+          <option value={60}>60</option>
+          <option value={80}>80</option>
+        </Form.Control>
+      </div>
+    );
+  }
+
   return (
     <Card id="scene-duplicate-checker" className="col col-xl-10 mx-auto">
       <div className={CLASSNAME}>
@@ -321,10 +402,14 @@ export const SceneDuplicateChecker: React.FC = () => {
           />
         )}
         {maybeRenderEdit()}
-        <h4>Duplicate Scenes</h4>
+        <h4>
+          <FormattedMessage id="dupe_check.title" />
+        </h4>
         <Form.Group>
           <Row noGutters>
-            <Form.Label>Search Accuracy</Form.Label>
+            <Form.Label>
+              <FormattedMessage id="dupe_check.search_accuracy_label" />
+            </Form.Label>
             <Col xs={2}>
               <Form.Control
                 as="select"
@@ -340,65 +425,29 @@ export const SceneDuplicateChecker: React.FC = () => {
                 defaultValue={distance ?? 0}
                 className="input-control ml-4"
               >
-                <option value={0}>Exact</option>
-                <option value={4}>High</option>
-                <option value={8}>Medium</option>
-                <option value={10}>Low</option>
+                <option value={0}>
+                  {intl.formatMessage({ id: "dupe_check.options.exact" })}
+                </option>
+                <option value={4}>
+                  {intl.formatMessage({ id: "dupe_check.options.high" })}
+                </option>
+                <option value={8}>
+                  {intl.formatMessage({ id: "dupe_check.options.medium" })}
+                </option>
+                <option value={10}>
+                  {intl.formatMessage({ id: "dupe_check.options.low" })}
+                </option>
               </Form.Control>
             </Col>
           </Row>
           <Form.Text>
-            Levels below &ldquo;Exact&rdquo; can take longer to calculate. False
-            positives might also be returned on lower accuracy levels.
+            <FormattedMessage id="dupe_check.description" />
           </Form.Text>
         </Form.Group>
+
         {maybeRenderMissingPhashWarning()}
-        <div className="d-flex mb-2">
-          <h6 className="mr-auto align-self-center">
-            {scenes.length} sets of duplicates found.
-          </h6>
-          {checkCount > 0 && (
-            <ButtonGroup>
-              <OverlayTrigger overlay={<Tooltip id="edit">Edit</Tooltip>}>
-                <Button variant="secondary" onClick={onEdit}>
-                  <Icon icon="pencil-alt" />
-                </Button>
-              </OverlayTrigger>
-              <OverlayTrigger overlay={<Tooltip id="delete">Delete</Tooltip>}>
-                <Button variant="danger" onClick={handleDeleteChecked}>
-                  <Icon icon="trash" />
-                </Button>
-              </OverlayTrigger>
-            </ButtonGroup>
-          )}
-          <Pagination
-            itemsPerPage={pageSize}
-            currentPage={currentPage}
-            totalItems={scenes.length}
-            onChangePage={(newPage) =>
-              setQuery({ page: newPage === 1 ? undefined : newPage })
-            }
-          />
-          <Form.Control
-            as="select"
-            className="w-auto ml-2 btn-secondary"
-            defaultValue={pageSize}
-            onChange={(e) =>
-              setQuery({
-                size:
-                  e.currentTarget.value === "20"
-                    ? undefined
-                    : e.currentTarget.value,
-              })
-            }
-          >
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={40}>40</option>
-            <option value={60}>60</option>
-            <option value={80}>80</option>
-          </Form.Control>
-        </div>
+        {renderPagination()}
+
         <Table responsive striped className={`${CLASSNAME}-table`}>
           <colgroup>
             <col className={`${CLASSNAME}-checkbox`} />
@@ -416,14 +465,14 @@ export const SceneDuplicateChecker: React.FC = () => {
             <tr>
               <th> </th>
               <th> </th>
-              <th>Details</th>
+              <th>{intl.formatMessage({ id: "details" })}</th>
               <th> </th>
-              <th>Duration</th>
-              <th>Filesize</th>
-              <th>Resolution</th>
-              <th>Bitrate</th>
-              <th>Codec</th>
-              <th>Delete</th>
+              <th>{intl.formatMessage({ id: "duration" })}</th>
+              <th>{intl.formatMessage({ id: "filesize" })}</th>
+              <th>{intl.formatMessage({ id: "resolution" })}</th>
+              <th>{intl.formatMessage({ id: "bitrate" })}</th>
+              <th>{intl.formatMessage({ id: "media_info.video_codec" })}</th>
+              <th>{intl.formatMessage({ id: "actions.delete" })}</th>
             </tr>
           </thead>
           <tbody>
@@ -494,7 +543,7 @@ export const SceneDuplicateChecker: React.FC = () => {
                         variant="danger"
                         onClick={() => handleDeleteScene(scene)}
                       >
-                        Delete
+                        <FormattedMessage id="actions.delete" />
                       </Button>
                     </td>
                   </tr>
@@ -506,7 +555,10 @@ export const SceneDuplicateChecker: React.FC = () => {
         {scenes.length === 0 && (
           <h4 className="text-center mt-4">No duplicates found.</h4>
         )}
+        {renderPagination()}
       </div>
     </Card>
   );
 };
+
+export default SceneDuplicateChecker;

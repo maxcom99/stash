@@ -36,7 +36,7 @@ func (t *transaction) Begin() error {
 	var err error
 	t.tx, err = database.DB.BeginTxx(t.Ctx, nil)
 	if err != nil {
-		return fmt.Errorf("error starting transaction: %s", err.Error())
+		return fmt.Errorf("error starting transaction: %v", err)
 	}
 
 	return nil
@@ -49,7 +49,7 @@ func (t *transaction) Rollback() error {
 
 	err := t.tx.Rollback()
 	if err != nil {
-		return fmt.Errorf("error rolling back transaction: %s", err.Error())
+		return fmt.Errorf("error rolling back transaction: %v", err)
 	}
 	t.tx = nil
 
@@ -63,7 +63,7 @@ func (t *transaction) Commit() error {
 
 	err := t.tx.Commit()
 	if err != nil {
-		return fmt.Errorf("error committing transaction: %s", err.Error())
+		return fmt.Errorf("error committing transaction: %v", err)
 	}
 	t.tx = nil
 
@@ -125,6 +125,11 @@ func (t *transaction) Tag() models.TagReaderWriter {
 	return NewTagReaderWriter(t.tx)
 }
 
+func (t *transaction) SavedFilter() models.SavedFilterReaderWriter {
+	t.ensureTx()
+	return NewSavedFilterReaderWriter(t.tx)
+}
+
 type ReadTransaction struct{}
 
 func (t *ReadTransaction) Begin() error {
@@ -181,6 +186,10 @@ func (t *ReadTransaction) Studio() models.StudioReader {
 
 func (t *ReadTransaction) Tag() models.TagReader {
 	return NewTagReaderWriter(database.DB)
+}
+
+func (t *ReadTransaction) SavedFilter() models.SavedFilterReader {
+	return NewSavedFilterReaderWriter(database.DB)
 }
 
 type TransactionManager struct {

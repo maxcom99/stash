@@ -1,9 +1,10 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { FormattedDate } from "react-intl";
+import { FormattedDate, FormattedMessage, useIntl } from "react-intl";
 import * as GQL from "src/core/generated-graphql";
-import { TextUtils } from "src/utils";
-import { TagLink, TruncatedText } from "src/components/Shared";
+import TextUtils from "src/utils/text";
+import { TagLink } from "src/components/Shared/TagLink";
+import TruncatedText from "src/components/Shared/TruncatedText";
 import { PerformerCard } from "src/components/Performers/PerformerCard";
 import { sortPerformers } from "src/core/performers";
 import { RatingStars } from "./RatingStars";
@@ -13,11 +14,15 @@ interface ISceneDetailProps {
 }
 
 export const SceneDetailPanel: React.FC<ISceneDetailProps> = (props) => {
+  const intl = useIntl();
+
   function renderDetails() {
     if (!props.scene.details || props.scene.details === "") return;
     return (
       <>
-        <h6>Details</h6>
+        <h6>
+          <FormattedMessage id="details" />
+        </h6>
         <p className="pre">{props.scene.details}</p>
       </>
     );
@@ -30,7 +35,12 @@ export const SceneDetailPanel: React.FC<ISceneDetailProps> = (props) => {
     ));
     return (
       <>
-        <h6>Tags</h6>
+        <h6>
+          <FormattedMessage
+            id="countables.tags"
+            values={{ count: props.scene.tags.length }}
+          />
+        </h6>
         {tags}
       </>
     );
@@ -49,7 +59,12 @@ export const SceneDetailPanel: React.FC<ISceneDetailProps> = (props) => {
 
     return (
       <>
-        <h6>Performers</h6>
+        <h6>
+          <FormattedMessage
+            id="countables.performers"
+            values={{ count: props.scene.performers.length }}
+          />
+        </h6>
         <div className="row justify-content-center scene-performers">
           {cards}
         </div>
@@ -85,20 +100,29 @@ export const SceneDetailPanel: React.FC<ISceneDetailProps> = (props) => {
           ) : undefined}
           {props.scene.rating ? (
             <h6>
-              Rating: <RatingStars value={props.scene.rating} />
+              <FormattedMessage id="rating" />:{" "}
+              <RatingStars value={props.scene.rating} />
             </h6>
           ) : (
             ""
           )}
           {props.scene.file.width && props.scene.file.height && (
             <h6>
-              Resolution:{" "}
+              <FormattedMessage id="resolution" />:{" "}
               {TextUtils.resolution(
                 props.scene.file.width,
                 props.scene.file.height
               )}
             </h6>
           )}
+          <h6>
+            <FormattedMessage id="created_at" />:{" "}
+            {TextUtils.formatDateTime(intl, props.scene.created_at)}{" "}
+          </h6>
+          <h6>
+            <FormattedMessage id="updated_at" />:{" "}
+            {TextUtils.formatDateTime(intl, props.scene.updated_at)}{" "}
+          </h6>
         </div>
         {props.scene.studio && (
           <div className="col-3 d-xl-none">
@@ -122,3 +146,5 @@ export const SceneDetailPanel: React.FC<ISceneDetailProps> = (props) => {
     </>
   );
 };
+
+export default SceneDetailPanel;

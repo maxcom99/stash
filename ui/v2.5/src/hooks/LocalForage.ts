@@ -1,6 +1,7 @@
 import localForage from "localforage";
-import _ from "lodash";
+import isEqual from "lodash-es/isEqual";
 import React, { Dispatch, SetStateAction, useEffect } from "react";
+import { ConfigImageLightboxInput } from "src/core/generated-graphql";
 
 interface IInterfaceQueryConfig {
   filter: string;
@@ -8,7 +9,12 @@ interface IInterfaceQueryConfig {
   currentPage: number;
 }
 
-type IInterfaceConfig = Record<string, IInterfaceQueryConfig>;
+type IQueryConfig = Record<string, IInterfaceQueryConfig>;
+
+interface IInterfaceConfig {
+  queryConfig: IQueryConfig;
+  imageLightbox: ConfigImageLightboxInput;
+}
 
 export interface IChangelogConfig {
   versions: Record<string, boolean>;
@@ -27,16 +33,18 @@ export function useLocalForage<T>(
   key: string,
   defaultValue: T = {} as T
 ): [ILocalForage<T>, Dispatch<SetStateAction<T>>] {
-  const [error, setError] = React.useState(null);
+  const [error, setError] = React.useState<Error | null>(null);
   const [data, setData] = React.useState<T>(Cache[key] as T);
   const [loading, setLoading] = React.useState(Loading[key]);
 
   useEffect(() => {
     async function runAsync() {
       try {
-        const serialized = await localForage.getItem<string>(key);
-        const parsed = JSON.parse(serialized ?? "null");
-        if (!Object.is(parsed, null)) {
+        let parsed = await localForage.getItem<T>(key);
+        if (typeof parsed === "string") {
+          parsed = JSON.parse(parsed ?? "null");
+        }
+        if (parsed !== null) {
           setData(parsed);
           Cache[key] = parsed;
         } else {
@@ -45,7 +53,7 @@ export function useLocalForage<T>(
         }
         setError(null);
       } catch (err) {
-        setError(err);
+        if (err instanceof Error) setError(err);
         Cache[key] = defaultValue;
       } finally {
         Loading[key] = false;
@@ -61,12 +69,12 @@ export function useLocalForage<T>(
   }, [loading, key, defaultValue]);
 
   useEffect(() => {
-    if (!_.isEqual(Cache[key], data)) {
+    if (!isEqual(Cache[key], data)) {
       Cache[key] = {
         ...Cache[key],
         ...data,
       };
-      localForage.setItem(key, JSON.stringify(Cache[key]));
+      localForage.setItem(key, Cache[key]);
     }
   });
 

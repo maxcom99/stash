@@ -64,18 +64,16 @@ func (t *rpcPluginTask) Start() error {
 		return err
 	}
 
-	go t.handlePluginStderr(pluginErrReader)
+	go t.handlePluginStderr(t.plugin.Name, pluginErrReader)
 
 	iface := rpcPluginClient{
 		Client: t.client,
 	}
 
-	input := t.buildPluginInput()
-
 	t.done = make(chan *rpc.Call, 1)
 	result := common.PluginOutput{}
 	t.waitGroup.Add(1)
-	iface.RunAsync(input, &result, t.done)
+	iface.RunAsync(t.input, &result, t.done)
 	go t.waitToFinish(&result)
 
 	t.started = true

@@ -6,7 +6,7 @@ import { RatingStars } from "src/components/Scenes/SceneDetails/RatingStars";
 import { TextField, URLField } from "src/utils/field";
 
 interface IMovieDetailsPanel {
-  movie: Partial<GQL.MovieDataFragment>;
+  movie: GQL.MovieDataFragment;
 }
 
 export const MovieDetailsPanel: React.FC<IMovieDetailsPanel> = ({ movie }) => {
@@ -17,7 +17,9 @@ export const MovieDetailsPanel: React.FC<IMovieDetailsPanel> = ({ movie }) => {
     if (movie.aliases) {
       return (
         <div>
-          <span className="alias-head">Also known as </span>
+          <span className="alias-head">
+            {intl.formatMessage({ id: "also_known_as" })}{" "}
+          </span>
           <span className="alias">{movie.aliases}</span>
         </div>
       );
@@ -30,12 +32,12 @@ export const MovieDetailsPanel: React.FC<IMovieDetailsPanel> = ({ movie }) => {
     }
 
     return (
-      <dl className="row">
-        <dt className="col-3 col-xl-2">Rating</dt>
-        <dd className="col-9 col-xl-10">
+      <>
+        <dt>{intl.formatMessage({ id: "rating" })}</dt>
+        <dd>
           <RatingStars value={movie.rating} disabled />
         </dd>
-      </dl>
+      </>
     );
   }
 
@@ -48,34 +50,34 @@ export const MovieDetailsPanel: React.FC<IMovieDetailsPanel> = ({ movie }) => {
 
       {maybeRenderAliases()}
 
-      <div>
+      <dl className="details-list">
         <TextField
-          name="Duration"
+          id="duration"
           value={
             movie.duration ? DurationUtils.secondsToString(movie.duration) : ""
           }
         />
         <TextField
-          name="Date"
+          id="date"
           value={movie.date ? TextUtils.formatDate(intl, movie.date) : ""}
         />
         <URLField
-          name="Studio"
+          id="studio"
           value={movie.studio?.name}
           url={`/studios/${movie.studio?.id}`}
         />
-        <TextField name="Director" value={movie.director} />
+        <TextField id="director" value={movie.director} />
 
         {renderRatingField()}
 
         <URLField
-          name="URL"
+          id="url"
           value={movie.url}
           url={TextUtils.sanitiseURL(movie.url ?? "")}
         />
 
-        <TextField name="Synopsis" value={movie.synopsis} />
-      </div>
+        <TextField id="synopsis" value={movie.synopsis} />
+      </dl>
     </div>
   );
 };

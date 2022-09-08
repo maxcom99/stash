@@ -1,34 +1,48 @@
-import React from "react";
-import {
-  Button,
-  ButtonGroup,
-  Dropdown,
-  DropdownButton,
-  Spinner,
-} from "react-bootstrap";
-import { Icon, SweatDrops } from "src/components/Shared";
+import { faBan, faMinus } from "@fortawesome/free-solid-svg-icons";
+import React, { useState } from "react";
+import { Button, ButtonGroup, Dropdown, DropdownButton } from "react-bootstrap";
+import { useIntl } from "react-intl";
+import { Icon, LoadingIndicator, SweatDrops } from "src/components/Shared";
 
 export interface IOCounterButtonProps {
-  loading: boolean;
   value: number;
-  onIncrement: () => void;
-  onDecrement: () => void;
-  onReset: () => void;
-  onMenuOpened?: () => void;
-  onMenuClosed?: () => void;
+  onIncrement: () => Promise<void>;
+  onDecrement: () => Promise<void>;
+  onReset: () => Promise<void>;
 }
 
 export const OCounterButton: React.FC<IOCounterButtonProps> = (
   props: IOCounterButtonProps
 ) => {
-  if (props.loading) return <Spinner animation="border" role="status" />;
+  const intl = useIntl();
+  const [loading, setLoading] = useState(false);
+
+  async function increment() {
+    setLoading(true);
+    await props.onIncrement();
+    setLoading(false);
+  }
+
+  async function decrement() {
+    setLoading(true);
+    await props.onDecrement();
+    setLoading(false);
+  }
+
+  async function reset() {
+    setLoading(true);
+    await props.onReset();
+    setLoading(false);
+  }
+
+  if (loading) return <LoadingIndicator message="" inline small />;
 
   const renderButton = () => (
     <Button
       className="minimal pr-1"
-      onClick={props.onIncrement}
+      onClick={increment}
       variant="secondary"
-      title="O-Counter"
+      title={intl.formatMessage({ id: "o_counter" })}
     >
       <SweatDrops />
       <span className="ml-2">{props.value}</span>
@@ -44,12 +58,12 @@ export const OCounterButton: React.FC<IOCounterButtonProps> = (
           variant="secondary"
           className="pl-0 show-carat"
         >
-          <Dropdown.Item onClick={props.onDecrement}>
-            <Icon icon="minus" />
+          <Dropdown.Item onClick={decrement}>
+            <Icon icon={faMinus} />
             <span>Decrement</span>
           </Dropdown.Item>
-          <Dropdown.Item onClick={props.onReset}>
-            <Icon icon="ban" />
+          <Dropdown.Item onClick={reset}>
+            <Icon icon={faBan} />
             <span>Reset</span>
           </Dropdown.Item>
         </DropdownButton>

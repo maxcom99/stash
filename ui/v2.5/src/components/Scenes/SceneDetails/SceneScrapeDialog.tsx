@@ -10,7 +10,7 @@ import {
   ScrapedTextAreaRow,
   ScrapedImageRow,
 } from "src/components/Shared/ScrapeDialog";
-import _ from "lodash";
+import clone from "lodash-es/clone";
 import {
   useStudioCreate,
   usePerformerCreate,
@@ -18,8 +18,9 @@ import {
   useTagCreate,
   makePerformerCreateInput,
 } from "src/core/StashService";
-import { useToast } from "src/hooks";
-import { DurationUtils } from "src/utils";
+import useToast from "src/hooks/Toast";
+import DurationUtils from "src/utils/duration";
+import { useIntl } from "react-intl";
 
 function renderScrapedStudio(
   result: ScrapeResult<string>,
@@ -44,14 +45,15 @@ function renderScrapedStudio(
 }
 
 function renderScrapedStudioRow(
+  title: string,
   result: ScrapeResult<string>,
   onChange: (value: ScrapeResult<string>) => void,
-  newStudio?: GQL.ScrapedSceneStudio,
-  onCreateNew?: (value: GQL.ScrapedSceneStudio) => void
+  newStudio?: GQL.ScrapedStudio,
+  onCreateNew?: (value: GQL.ScrapedStudio) => void
 ) {
   return (
     <ScrapeDialogRow
-      title="Studio"
+      title={title}
       result={result}
       renderOriginalField={() => renderScrapedStudio(result)}
       renderNewField={() =>
@@ -61,7 +63,9 @@ function renderScrapedStudioRow(
       }
       onChange={onChange}
       newValues={newStudio ? [newStudio] : undefined}
-      onCreateNew={onCreateNew}
+      onCreateNew={() => {
+        if (onCreateNew && newStudio) onCreateNew(newStudio);
+      }}
     />
   );
 }
@@ -90,14 +94,20 @@ function renderScrapedPerformers(
 }
 
 function renderScrapedPerformersRow(
+  title: string,
   result: ScrapeResult<string[]>,
   onChange: (value: ScrapeResult<string[]>) => void,
-  newPerformers: GQL.ScrapedScenePerformer[],
-  onCreateNew?: (value: GQL.ScrapedScenePerformer) => void
+  newPerformers: GQL.ScrapedPerformer[],
+  onCreateNew?: (value: GQL.ScrapedPerformer) => void
 ) {
+  const performersCopy = newPerformers.map((p) => {
+    const name: string = p.name ?? "";
+    return { ...p, name };
+  });
+
   return (
     <ScrapeDialogRow
-      title="Performers"
+      title={title}
       result={result}
       renderOriginalField={() => renderScrapedPerformers(result)}
       renderNewField={() =>
@@ -106,8 +116,10 @@ function renderScrapedPerformersRow(
         )
       }
       onChange={onChange}
-      newValues={newPerformers}
-      onCreateNew={onCreateNew}
+      newValues={performersCopy}
+      onCreateNew={(i) => {
+        if (onCreateNew) onCreateNew(newPerformers[i]);
+      }}
     />
   );
 }
@@ -136,14 +148,20 @@ function renderScrapedMovies(
 }
 
 function renderScrapedMoviesRow(
+  title: string,
   result: ScrapeResult<string[]>,
   onChange: (value: ScrapeResult<string[]>) => void,
-  newMovies: GQL.ScrapedSceneMovie[],
-  onCreateNew?: (value: GQL.ScrapedSceneMovie) => void
+  newMovies: GQL.ScrapedMovie[],
+  onCreateNew?: (value: GQL.ScrapedMovie) => void
 ) {
+  const moviesCopy = newMovies.map((p) => {
+    const name: string = p.name ?? "";
+    return { ...p, name };
+  });
+
   return (
     <ScrapeDialogRow
-      title="Movies"
+      title={title}
       result={result}
       renderOriginalField={() => renderScrapedMovies(result)}
       renderNewField={() =>
@@ -152,8 +170,10 @@ function renderScrapedMoviesRow(
         )
       }
       onChange={onChange}
-      newValues={newMovies}
-      onCreateNew={onCreateNew}
+      newValues={moviesCopy}
+      onCreateNew={(i) => {
+        if (onCreateNew) onCreateNew(newMovies[i]);
+      }}
     />
   );
 }
@@ -182,14 +202,15 @@ function renderScrapedTags(
 }
 
 function renderScrapedTagsRow(
+  title: string,
   result: ScrapeResult<string[]>,
   onChange: (value: ScrapeResult<string[]>) => void,
-  newTags: GQL.ScrapedSceneTag[],
-  onCreateNew?: (value: GQL.ScrapedSceneTag) => void
+  newTags: GQL.ScrapedTag[],
+  onCreateNew?: (value: GQL.ScrapedTag) => void
 ) {
   return (
     <ScrapeDialogRow
-      title="Tags"
+      title={title}
       result={result}
       renderOriginalField={() => renderScrapedTags(result)}
       renderNewField={() =>
@@ -199,7 +220,9 @@ function renderScrapedTagsRow(
       }
       newValues={newTags}
       onChange={onChange}
-      onCreateNew={onCreateNew}
+      onCreateNew={(i) => {
+        if (onCreateNew) onCreateNew(newTags[i]);
+      }}
     />
   );
 }
@@ -207,6 +230,7 @@ function renderScrapedTagsRow(
 interface ISceneScrapeDialogProps {
   scene: Partial<GQL.SceneUpdateInput>;
   scraped: GQL.ScrapedScene;
+  endpoint?: string;
 
   onClose: (scrapedScene?: GQL.ScrapedScene) => void;
 }
@@ -215,30 +239,33 @@ interface IHasStoredID {
   stored_id?: string | null;
 }
 
-export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
-  props: ISceneScrapeDialogProps
-) => {
+export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = ({
+  scene,
+  scraped,
+  onClose,
+  endpoint,
+}) => {
   const [title, setTitle] = useState<ScrapeResult<string>>(
-    new ScrapeResult<string>(props.scene.title, props.scraped.title)
+    new ScrapeResult<string>(scene.title, scraped.title)
   );
   const [url, setURL] = useState<ScrapeResult<string>>(
-    new ScrapeResult<string>(props.scene.url, props.scraped.url)
+    new ScrapeResult<string>(scene.url, scraped.url)
   );
   const [date, setDate] = useState<ScrapeResult<string>>(
-    new ScrapeResult<string>(props.scene.date, props.scraped.date)
+    new ScrapeResult<string>(scene.date, scraped.date)
   );
   const [studio, setStudio] = useState<ScrapeResult<string>>(
-    new ScrapeResult<string>(
-      props.scene.studio_id,
-      props.scraped.studio?.stored_id
-    )
+    new ScrapeResult<string>(scene.studio_id, scraped.studio?.stored_id)
   );
-  const [newStudio, setNewStudio] = useState<
-    GQL.ScrapedSceneStudio | undefined
-  >(
-    props.scraped.studio && !props.scraped.studio.stored_id
-      ? props.scraped.studio
-      : undefined
+  const [newStudio, setNewStudio] = useState<GQL.ScrapedStudio | undefined>(
+    scraped.studio && !scraped.studio.stored_id ? scraped.studio : undefined
+  );
+
+  const [stashID, setStashID] = useState(
+    new ScrapeResult<string>(
+      scene.stash_ids?.find((s) => s.endpoint === endpoint)?.stash_id,
+      scraped.remote_site_id
+    )
   );
 
   function mapStoredIdObjects(
@@ -270,7 +297,7 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
       return;
     }
 
-    const ret = _.clone(idList);
+    const ret = clone(idList);
     // sort by id numerically
     ret.sort((a, b) => {
       return parseInt(a, 10) - parseInt(b, 10);
@@ -281,59 +308,69 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
 
   const [performers, setPerformers] = useState<ScrapeResult<string[]>>(
     new ScrapeResult<string[]>(
-      sortIdList(props.scene.performer_ids),
-      mapStoredIdObjects(props.scraped.performers ?? undefined)
+      sortIdList(scene.performer_ids),
+      mapStoredIdObjects(scraped.performers ?? undefined)
     )
   );
-  const [newPerformers, setNewPerformers] = useState<
-    GQL.ScrapedScenePerformer[]
-  >(props.scraped.performers?.filter((t) => !t.stored_id) ?? []);
+  const [newPerformers, setNewPerformers] = useState<GQL.ScrapedPerformer[]>(
+    scraped.performers?.filter((t) => !t.stored_id) ?? []
+  );
 
   const [movies, setMovies] = useState<ScrapeResult<string[]>>(
     new ScrapeResult<string[]>(
-      sortIdList(props.scene.movies?.map((p) => p.movie_id)),
-      mapStoredIdObjects(props.scraped.movies ?? undefined)
+      sortIdList(scene.movies?.map((p) => p.movie_id)),
+      mapStoredIdObjects(scraped.movies ?? undefined)
     )
   );
-  const [newMovies, setNewMovies] = useState<GQL.ScrapedSceneMovie[]>(
-    props.scraped.movies?.filter((t) => !t.stored_id) ?? []
+  const [newMovies, setNewMovies] = useState<GQL.ScrapedMovie[]>(
+    scraped.movies?.filter((t) => !t.stored_id) ?? []
   );
 
   const [tags, setTags] = useState<ScrapeResult<string[]>>(
     new ScrapeResult<string[]>(
-      sortIdList(props.scene.tag_ids),
-      mapStoredIdObjects(props.scraped.tags ?? undefined)
+      sortIdList(scene.tag_ids),
+      mapStoredIdObjects(scraped.tags ?? undefined)
     )
   );
-  const [newTags, setNewTags] = useState<GQL.ScrapedSceneTag[]>(
-    props.scraped.tags?.filter((t) => !t.stored_id) ?? []
+  const [newTags, setNewTags] = useState<GQL.ScrapedTag[]>(
+    scraped.tags?.filter((t) => !t.stored_id) ?? []
   );
 
   const [details, setDetails] = useState<ScrapeResult<string>>(
-    new ScrapeResult<string>(props.scene.details, props.scraped.details)
+    new ScrapeResult<string>(scene.details, scraped.details)
   );
   const [image, setImage] = useState<ScrapeResult<string>>(
-    new ScrapeResult<string>(props.scene.cover_image, props.scraped.image)
+    new ScrapeResult<string>(scene.cover_image, scraped.image)
   );
 
-  const [createStudio] = useStudioCreate({ name: "" });
+  const [createStudio] = useStudioCreate();
   const [createPerformer] = usePerformerCreate();
   const [createMovie] = useMovieCreate();
   const [createTag] = useTagCreate();
 
+  const intl = useIntl();
   const Toast = useToast();
 
   // don't show the dialog if nothing was scraped
   if (
-    [title, url, date, studio, performers, movies, tags, details, image].every(
-      (r) => !r.scraped
-    )
+    [
+      title,
+      url,
+      date,
+      studio,
+      performers,
+      movies,
+      tags,
+      details,
+      image,
+      stashID,
+    ].every((r) => !r.scraped)
   ) {
-    props.onClose();
+    onClose();
     return <></>;
   }
 
-  async function createNewStudio(toCreate: GQL.ScrapedSceneStudio) {
+  async function createNewStudio(toCreate: GQL.ScrapedStudio) {
     try {
       const result = await createStudio({
         variables: {
@@ -360,7 +397,7 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
     }
   }
 
-  async function createNewPerformer(toCreate: GQL.ScrapedScenePerformer) {
+  async function createNewPerformer(toCreate: GQL.ScrapedPerformer) {
     const input = makePerformerCreateInput(toCreate);
 
     try {
@@ -368,12 +405,12 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
         variables: { input },
       });
 
+      const newValue = [...(performers.newValue ?? [])];
+      if (result.data?.performerCreate)
+        newValue.push(result.data.performerCreate.id);
+
       // add the new performer to the new performers value
-      const performerClone = performers.cloneWithValue(performers.newValue);
-      if (!performerClone.newValue) {
-        performerClone.newValue = [];
-      }
-      performerClone.newValue.push(result.data!.performerCreate!.id);
+      const performerClone = performers.cloneWithValue(newValue);
       setPerformers(performerClone);
 
       // remove the performer from the list
@@ -395,7 +432,7 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
     }
   }
 
-  async function createNewMovie(toCreate: GQL.ScrapedSceneMovie) {
+  async function createNewMovie(toCreate: GQL.ScrapedMovie) {
     let movieInput: GQL.MovieCreateInput = { name: "" };
     try {
       movieInput = Object.assign(movieInput, toCreate);
@@ -444,7 +481,7 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
     }
   }
 
-  async function createNewTag(toCreate: GQL.ScrapedSceneTag) {
+  async function createNewTag(toCreate: GQL.ScrapedTag) {
     const tagInput: GQL.TagCreateInput = { name: toCreate.name ?? "" };
     try {
       const result = await createTag({
@@ -453,12 +490,11 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
         },
       });
 
+      const newValue = [...(tags.newValue ?? [])];
+      if (result.data?.tagCreate) newValue.push(result.data.tagCreate.id);
+
       // add the new tag to the new tags value
-      const tagClone = tags.cloneWithValue(tags.newValue);
-      if (!tagClone.newValue) {
-        tagClone.newValue = [];
-      }
-      tagClone.newValue.push(result.data!.tagCreate!.id);
+      const tagClone = tags.cloneWithValue(newValue);
       setTags(tagClone);
 
       // remove the tag from the list
@@ -513,6 +549,7 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
       }),
       details: details.getNewValue(),
       image: image.getNewValue(),
+      remote_site_id: stashID.getNewValue(),
     };
   }
 
@@ -520,52 +557,62 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
     return (
       <>
         <ScrapedInputGroupRow
-          title="Title"
+          title={intl.formatMessage({ id: "title" })}
           result={title}
           onChange={(value) => setTitle(value)}
         />
         <ScrapedInputGroupRow
-          title="URL"
+          title={intl.formatMessage({ id: "url" })}
           result={url}
           onChange={(value) => setURL(value)}
         />
         <ScrapedInputGroupRow
-          title="Date"
+          title={intl.formatMessage({ id: "date" })}
           placeholder="YYYY-MM-DD"
           result={date}
           onChange={(value) => setDate(value)}
         />
         {renderScrapedStudioRow(
+          intl.formatMessage({ id: "studios" }),
           studio,
           (value) => setStudio(value),
           newStudio,
           createNewStudio
         )}
         {renderScrapedPerformersRow(
+          intl.formatMessage({ id: "performers" }),
           performers,
           (value) => setPerformers(value),
           newPerformers,
           createNewPerformer
         )}
         {renderScrapedMoviesRow(
+          intl.formatMessage({ id: "movies" }),
           movies,
           (value) => setMovies(value),
           newMovies,
           createNewMovie
         )}
         {renderScrapedTagsRow(
+          intl.formatMessage({ id: "tags" }),
           tags,
           (value) => setTags(value),
           newTags,
           createNewTag
         )}
         <ScrapedTextAreaRow
-          title="Details"
+          title={intl.formatMessage({ id: "details" })}
           result={details}
           onChange={(value) => setDetails(value)}
         />
+        <ScrapedInputGroupRow
+          title={intl.formatMessage({ id: "stash_id" })}
+          result={stashID}
+          locked
+          onChange={(value) => setStashID(value)}
+        />
         <ScrapedImageRow
-          title="Cover Image"
+          title={intl.formatMessage({ id: "cover_image" })}
           className="scene-cover"
           result={image}
           onChange={(value) => setImage(value)}
@@ -576,11 +623,16 @@ export const SceneScrapeDialog: React.FC<ISceneScrapeDialogProps> = (
 
   return (
     <ScrapeDialog
-      title="Scene Scrape Results"
+      title={intl.formatMessage(
+        { id: "dialogs.scrape_entity_title" },
+        { entity_type: intl.formatMessage({ id: "scene" }) }
+      )}
       renderScrapeRows={renderScrapeRows}
       onClose={(apply) => {
-        props.onClose(apply ? makeNewScrapedItem() : undefined);
+        onClose(apply ? makeNewScrapedItem() : undefined);
       }}
     />
   );
 };
+
+export default SceneScrapeDialog;

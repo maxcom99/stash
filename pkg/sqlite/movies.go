@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/stashapp/stash/pkg/models"
@@ -58,7 +59,7 @@ func (qb *movieQueryBuilder) Destroy(id int) error {
 func (qb *movieQueryBuilder) Find(id int) (*models.Movie, error) {
 	var ret models.Movie
 	if err := qb.get(id, &ret); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -118,9 +119,15 @@ func (qb *movieQueryBuilder) All() ([]*models.Movie, error) {
 func (qb *movieQueryBuilder) makeFilter(movieFilter *models.MovieFilterType) *filterBuilder {
 	query := &filterBuilder{}
 
-	query.handleCriterionFunc(movieIsMissingCriterionHandler(qb, movieFilter.IsMissing))
-	query.handleCriterionFunc(stringCriterionHandler(movieFilter.URL, "movies.url"))
-	query.handleCriterionFunc(movieStudioCriterionHandler(qb, movieFilter.Studios))
+	query.handleCriterion(stringCriterionHandler(movieFilter.Name, "movies.name"))
+	query.handleCriterion(stringCriterionHandler(movieFilter.Director, "movies.director"))
+	query.handleCriterion(stringCriterionHandler(movieFilter.Synopsis, "movies.synopsis"))
+	query.handleCriterion(intCriterionHandler(movieFilter.Rating, "movies.rating"))
+	query.handleCriterion(durationCriterionHandler(movieFilter.Duration, "movies.duration"))
+	query.handleCriterion(movieIsMissingCriterionHandler(qb, movieFilter.IsMissing))
+	query.handleCriterion(stringCriterionHandler(movieFilter.URL, "movies.url"))
+	query.handleCriterion(movieStudioCriterionHandler(qb, movieFilter.Studios))
+	query.handleCriterion(moviePerformersCriterionHandler(qb, movieFilter.Performers))
 
 	return query
 }
@@ -134,14 +141,11 @@ func (qb *movieQueryBuilder) Query(movieFilter *models.MovieFilterType, findFilt
 	}
 
 	query := qb.newQuery()
-
-	query.body = selectDistinctIDs("movies")
+	distinctIDs(&query, movieTable)
 
 	if q := findFilter.Q; q != nil && *q != "" {
 		searchColumns := []string{"movies.name"}
-		clause, thisArgs := getSearchBinding(searchColumns, *q, false)
-		query.addWhere(clause)
-		query.addArg(thisArgs...)
+		query.parseQueryString(searchColumns, *q)
 	}
 
 	filter := qb.makeFilter(movieFilter)
@@ -172,13 +176,13 @@ func movieIsMissingCriterionHandler(qb *movieQueryBuilder, isMissing *string) cr
 		if isMissing != nil && *isMissing != "" {
 			switch *isMissing {
 			case "front_image":
-				f.addJoin("movies_images", "", "movies_images.movie_id = movies.id")
+				f.addLeftJoin("movies_images", "", "movies_images.movie_id = movies.id")
 				f.addWhere("movies_images.front_image IS NULL")
 			case "back_image":
-				f.addJoin("movies_images", "", "movies_images.movie_id = movies.id")
+				f.addLeftJoin("movies_images", "", "movies_images.movie_id = movies.id")
 				f.addWhere("movies_images.back_image IS NULL")
 			case "scenes":
-				f.addJoin("movies_scenes", "", "movies_scenes.movie_id = movies.id")
+				f.addLeftJoin("movies_scenes", "", "movies_scenes.movie_id = movies.id")
 				f.addWhere("movies_scenes.scene_id IS NULL")
 			default:
 				f.addWhere("(movies." + *isMissing + " IS NULL OR TRIM(movies." + *isMissing + ") = '')")
@@ -189,6 +193,8 @@ func movieIsMissingCriterionHandler(qb *movieQueryBuilder, isMissing *string) cr
 
 func movieStudioCriterionHandler(qb *movieQueryBuilder, studios *models.HierarchicalMultiCriterionInput) criterionHandlerFunc {
 	h := hierarchicalMultiCriterionHandlerBuilder{
+		tx: qb.tx,
+
 		primaryTable: movieTable,
 		foreignTable: studioTable,
 		foreignFK:    studioIDColumn,
@@ -197,6 +203,53 @@ func movieStudioCriterionHandler(qb *movieQueryBuilder, studios *models.Hierarch
 	}
 
 	return h.handler(studios)
+}
+
+func moviePerformersCriterionHandler(qb *movieQueryBuilder, performers *models.MultiCriterionInput) criterionHandlerFunc {
+	return func(f *filterBuilder) {
+		if performers != nil {
+			if performers.Modifier == models.CriterionModifierIsNull || performers.Modifier == models.CriterionModifierNotNull {
+				var notClause string
+				if performers.Modifier == models.CriterionModifierNotNull {
+					notClause = "NOT"
+				}
+
+				f.addLeftJoin("movies_scenes", "", "movies.id = movies_scenes.movie_id")
+				f.addLeftJoin("performers_scenes", "", "movies_scenes.scene_id = performers_scenes.scene_id")
+
+				f.addWhere(fmt.Sprintf("performers_scenes.performer_id IS %s NULL", notClause))
+				return
+			}
+
+			if len(performers.Value) == 0 {
+				return
+			}
+
+			var args []interface{}
+			for _, arg := range performers.Value {
+				args = append(args, arg)
+			}
+
+			// Hack, can't apply args to join, nor inner join on a left join, so use CTE instead
+			f.addWith(`movies_performers AS (
+				SELECT movies_scenes.movie_id, performers_scenes.performer_id
+				FROM movies_scenes
+				INNER JOIN performers_scenes ON movies_scenes.scene_id = performers_scenes.scene_id
+				WHERE performers_scenes.performer_id IN`+getInBinding(len(performers.Value))+`
+			)`, args...)
+			f.addLeftJoin("movies_performers", "", "movies.id = movies_performers.movie_id")
+
+			switch performers.Modifier {
+			case models.CriterionModifierIncludes:
+				f.addWhere("movies_performers.performer_id IS NOT NULL")
+			case models.CriterionModifierIncludesAll:
+				f.addWhere("movies_performers.performer_id IS NOT NULL")
+				f.addHaving("COUNT(DISTINCT movies_performers.performer_id) = ?", len(performers.Value))
+			case models.CriterionModifierExcludes:
+				f.addWhere("movies_performers.performer_id IS NULL")
+			}
+		}
+	}
 }
 
 func (qb *movieQueryBuilder) getMovieSort(findFilter *models.FindFilterType) string {
@@ -210,12 +263,14 @@ func (qb *movieQueryBuilder) getMovieSort(findFilter *models.FindFilterType) str
 		direction = findFilter.GetDirection()
 	}
 
-	// #943 - override name sorting to use natural sort
-	if sort == "name" {
+	switch sort {
+	case "name": // #943 - override name sorting to use natural sort
 		return " ORDER BY " + getColumn("movies", sort) + " COLLATE NATURAL_CS " + direction
+	case "scenes_count": // generic getSort won't work for this
+		return getCountSort(movieTable, moviesScenesTable, movieIDColumn, direction)
+	default:
+		return getSort(sort, direction, "movies")
 	}
-
-	return getSort(sort, direction, "movies")
 }
 
 func (qb *movieQueryBuilder) queryMovie(query string, args []interface{}) (*models.Movie, error) {
@@ -268,4 +323,43 @@ func (qb *movieQueryBuilder) GetFrontImage(movieID int) ([]byte, error) {
 func (qb *movieQueryBuilder) GetBackImage(movieID int) ([]byte, error) {
 	query := `SELECT back_image from movies_images WHERE movie_id = ?`
 	return getImage(qb.tx, query, movieID)
+}
+
+func (qb *movieQueryBuilder) FindByPerformerID(performerID int) ([]*models.Movie, error) {
+	query := `SELECT DISTINCT movies.*
+FROM movies
+INNER JOIN movies_scenes ON movies.id = movies_scenes.movie_id
+INNER JOIN performers_scenes ON performers_scenes.scene_id = movies_scenes.scene_id
+WHERE performers_scenes.performer_id = ?
+`
+	args := []interface{}{performerID}
+	return qb.queryMovies(query, args)
+}
+
+func (qb *movieQueryBuilder) CountByPerformerID(performerID int) (int, error) {
+	query := `SELECT COUNT(DISTINCT movies_scenes.movie_id) AS count
+FROM movies_scenes
+INNER JOIN performers_scenes ON performers_scenes.scene_id = movies_scenes.scene_id
+WHERE performers_scenes.performer_id = ?
+`
+	args := []interface{}{performerID}
+	return qb.runCountQuery(query, args)
+}
+
+func (qb *movieQueryBuilder) FindByStudioID(studioID int) ([]*models.Movie, error) {
+	query := `SELECT movies.*
+FROM movies
+WHERE movies.studio_id = ?
+`
+	args := []interface{}{studioID}
+	return qb.queryMovies(query, args)
+}
+
+func (qb *movieQueryBuilder) CountByStudioID(studioID int) (int, error) {
+	query := `SELECT COUNT(1) AS count
+FROM movies
+WHERE movies.studio_id = ?
+`
+	args := []interface{}{studioID}
+	return qb.runCountQuery(query, args)
 }

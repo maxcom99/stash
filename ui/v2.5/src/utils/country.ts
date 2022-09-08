@@ -15,13 +15,16 @@ const fuzzyDict: Record<string, string> = {
   "Slovak Republic": "SK",
   Iran: "IR",
   Moldova: "MD",
+  Laos: "LA",
 };
 
 const getISOCountry = (country: string | null | undefined) => {
   if (!country) return null;
 
-  const code = fuzzyDict[country] ?? Countries.getAlpha2Code(country, "en");
-  if (!code) return null;
+  const code =
+    fuzzyDict[country] ?? Countries.getAlpha2Code(country, "en") ?? country;
+  // Check if code is valid alpha2 iso
+  if (!Countries.alpha2ToAlpha3(code)) return null;
 
   return {
     code,

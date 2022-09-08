@@ -15,15 +15,9 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Packr2 artifacts
-**/*-packr.go
-
 # GraphQL generated output
 pkg/models/generated_*.go
 ui/v2.5/src/core/generated-*.tsx
-
-# packr generated files
-*-packr.go
 
 ####
 # Jetbrains
@@ -36,6 +30,7 @@ ui/v2.5/src/core/generated-*.tsx
 .idea/**/dictionaries
 .idea/**/shelf
 .vscode
+.devcontainer
 
 # Generated files
 .idea/**/contentModel.xml
@@ -60,6 +55,6 @@ node_modules
 
 *.db
 
-stash
+/stash
 dist
 .DS_Store

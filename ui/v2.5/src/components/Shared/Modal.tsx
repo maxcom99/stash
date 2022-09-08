@@ -1,7 +1,8 @@
 import React from "react";
 import { Button, Modal, Spinner, ModalProps } from "react-bootstrap";
-import { Icon } from "src/components/Shared";
-import { IconName } from "@fortawesome/fontawesome-svg-core";
+import Icon from "src/components/Shared/Icon";
+import { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import { FormattedMessage } from "react-intl";
 
 interface IButton {
   text?: string;
@@ -13,13 +14,15 @@ interface IModal {
   show: boolean;
   onHide?: () => void;
   header?: string;
-  icon?: IconName;
+  icon?: IconDefinition;
   cancel?: IButton;
   accept?: IButton;
   isRunning?: boolean;
   disabled?: boolean;
   modalProps?: ModalProps;
   dialogClassName?: string;
+  footerButtons?: React.ReactNode;
+  leftFooterButtons?: React.ReactNode;
 }
 
 const defaultOnHide = () => {};
@@ -36,8 +39,11 @@ const ModalComponent: React.FC<IModal> = ({
   disabled,
   modalProps,
   dialogClassName,
+  footerButtons,
+  leftFooterButtons,
 }) => (
   <Modal
+    className="ModalComponent"
     keyboard={false}
     onHide={onHide ?? defaultOnHide}
     show={show}
@@ -49,16 +55,24 @@ const ModalComponent: React.FC<IModal> = ({
       <span>{header ?? ""}</span>
     </Modal.Header>
     <Modal.Body>{children}</Modal.Body>
-    <Modal.Footer>
+    <Modal.Footer className="ModalFooter">
+      <div>{leftFooterButtons}</div>
       <div>
+        {footerButtons}
         {cancel ? (
           <Button
             disabled={isRunning}
             variant={cancel.variant ?? "primary"}
             onClick={cancel.onClick}
-            className="mr-2"
+            className="ml-2"
           >
-            {cancel.text ?? "Cancel"}
+            {cancel.text ?? (
+              <FormattedMessage
+                id="actions.cancel"
+                defaultMessage="Cancel"
+                description="Cancels the current action and dismisses the modal."
+              />
+            )}
           </Button>
         ) : (
           ""
@@ -72,7 +86,13 @@ const ModalComponent: React.FC<IModal> = ({
           {isRunning ? (
             <Spinner animation="border" role="status" size="sm" />
           ) : (
-            accept?.text ?? "Close"
+            accept?.text ?? (
+              <FormattedMessage
+                id="actions.close"
+                defaultMessage="Close"
+                description="Closes the current modal."
+              />
+            )
           )}
         </Button>
       </div>

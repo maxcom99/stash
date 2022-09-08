@@ -7,6 +7,8 @@ import { mutateRemoveGalleryImages } from "src/core/StashService";
 import { showWhenSelected, PersistanceLevel } from "src/hooks/ListHook";
 import { useToast } from "src/hooks";
 import { TextUtils } from "src/utils";
+import { useIntl } from "react-intl";
+import { faMinus } from "@fortawesome/free-solid-svg-icons";
 
 interface IGalleryDetailsProps {
   gallery: GQL.GalleryDataFragment;
@@ -15,6 +17,7 @@ interface IGalleryDetailsProps {
 export const GalleryImagesPanel: React.FC<IGalleryDetailsProps> = ({
   gallery,
 }) => {
+  const intl = useIntl();
   const Toast = useToast();
 
   function filterHook(filter: ListFilterModel) {
@@ -24,7 +27,7 @@ export const GalleryImagesPanel: React.FC<IGalleryDetailsProps> = ({
     };
     // if galleries is already present, then we modify it, otherwise add
     let galleryCriterion = filter.criteria.find((c) => {
-      return c.criterionOption.value === "galleries";
+      return c.criterionOption.type === "galleries";
     }) as GalleriesCriterion;
 
     if (
@@ -62,8 +65,16 @@ export const GalleryImagesPanel: React.FC<IGalleryDetailsProps> = ({
         gallery_id: gallery.id!,
         image_ids: Array.from(selectedIds.values()),
       });
+
       Toast.success({
-        content: "Added images",
+        content: intl.formatMessage(
+          { id: "toast.removed_entity" },
+          {
+            count: selectedIds.size,
+            singularEntity: intl.formatMessage({ id: "image" }),
+            pluralEntity: intl.formatMessage({ id: "images" }),
+          }
+        ),
       });
     } catch (e) {
       Toast.error(e);
@@ -72,10 +83,12 @@ export const GalleryImagesPanel: React.FC<IGalleryDetailsProps> = ({
 
   const otherOperations = [
     {
-      text: "Remove from Gallery",
+      text: intl.formatMessage({ id: "actions.remove_from_gallery" }),
       onClick: removeImages,
       isDisplayed: showWhenSelected,
       postRefetch: true,
+      icon: faMinus,
+      buttonVariant: "danger",
     },
   ];
 

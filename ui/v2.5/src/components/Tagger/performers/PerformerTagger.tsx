@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Button, Card, Form, InputGroup, ProgressBar } from "react-bootstrap";
+import { FormattedMessage, useIntl } from "react-intl";
 import { Link } from "react-router-dom";
 import { HashLink } from "react-router-hash-link";
 import { useLocalForage } from "src/hooks";
@@ -8,22 +9,18 @@ import * as GQL from "src/core/generated-graphql";
 import { LoadingIndicator, Modal } from "src/components/Shared";
 import {
   stashBoxPerformerQuery,
-  useConfiguration,
   useJobsSubscribe,
   mutateStashBoxBatchPerformerTag,
 } from "src/core/StashService";
 import { Manual } from "src/components/Help/Manual";
+import { ConfigurationContext } from "src/hooks/Config";
 
 import StashSearchResult from "./StashSearchResult";
 import PerformerConfig from "./Config";
 import { LOCAL_FORAGE_KEY, ITaggerConfig, initialConfig } from "../constants";
-import {
-  IStashBoxPerformer,
-  selectPerformers,
-  filterPerformer,
-} from "../utils";
 import PerformerModal from "../PerformerModal";
 import { useUpdatePerformer } from "../queries";
+import { faStar, faTags } from "@fortawesome/free-solid-svg-icons";
 
 type JobFragment = Pick<
   GQL.Job,
@@ -51,9 +48,10 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
   onBatchAdd,
   onBatchUpdate,
 }) => {
+  const intl = useIntl();
   const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState<
-    Record<string, IStashBoxPerformer[]>
+    Record<string, GQL.ScrapedPerformerDataFragment[]>
   >({});
   const [searchErrors, setSearchErrors] = useState<
     Record<string, string | undefined>
@@ -89,15 +87,13 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
   >({});
   const [loadingUpdate, setLoadingUpdate] = useState<string | undefined>();
   const [modalPerformer, setModalPerformer] = useState<
-    IStashBoxPerformer | undefined
+    GQL.ScrapedPerformerDataFragment | undefined
   >();
 
   const doBoxSearch = (performerID: string, searchVal: string) => {
     stashBoxPerformerQuery(searchVal, selectedEndpoint.index)
       .then((queryData) => {
-        const s = selectPerformers(
-          queryData.data?.queryStashBoxPerformer?.[0].results ?? []
-        );
+        const s = queryData.data?.scrapeSinglePerformer ?? [];
         setSearchResults({
           ...searchResults,
           [performerID]: s,
@@ -115,7 +111,9 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
         setSearchResults(results);
         setSearchErrors({
           ...searchErrors,
-          [performerID]: "Network Error",
+          [performerID]: intl.formatMessage({
+            id: "performer_tagger.network_error",
+          }),
         });
       });
 
@@ -134,13 +132,11 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
     });
     stashBoxPerformerQuery(stashID, endpointIndex)
       .then((queryData) => {
-        const data = selectPerformers(
-          queryData.data?.queryStashBoxPerformer?.[0].results ?? []
-        );
+        const data = queryData.data?.scrapeSinglePerformer ?? [];
         if (data.length > 0) {
           setModalPerformer({
             ...data[0],
-            id: performerID,
+            stored_id: performerID,
           });
         }
       })
@@ -171,36 +167,34 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
 
   const updatePerformer = useUpdatePerformer();
 
-  const handlePerformerUpdate = async (
-    imageIndex: number,
-    excludedFields: string[]
-  ) => {
-    const performerData = modalPerformer;
+  const handlePerformerUpdate = async (input: GQL.PerformerCreateInput) => {
     setModalPerformer(undefined);
-    if (performerData?.id) {
-      const filteredData = filterPerformer(performerData, excludedFields);
+    const performerID = modalPerformer?.stored_id;
+    if (performerID) {
+      const updateData: GQL.PerformerUpdateInput = {
+        ...input,
+        id: performerID,
+      };
 
-      const res = await updatePerformer({
-        ...filteredData,
-        image: excludedFields.includes("image")
-          ? undefined
-          : performerData.images[imageIndex],
-        id: performerData.id,
-      });
+      const res = await updatePerformer(updateData);
       if (!res.data?.performerUpdate)
         setError({
           ...error,
-          [performerData.id]: {
-            message: `Failed to save performer "${performerData.name}"`,
+          [performerID]: {
+            message: intl.formatMessage(
+              { id: "performer_tagger.failed_to_save_performer" },
+              { performer: modalPerformer?.name }
+            ),
             details:
               res?.errors?.[0].message ===
               "UNIQUE constraint failed: performers.checksum"
-                ? "Name already exists"
+                ? intl.formatMessage({
+                    id: "performer_tagger.name_already_exists",
+                  })
                 : res?.errors?.[0].message,
           },
         });
     }
-    setModalPerformer(undefined);
   };
 
   const renderPerformers = () =>
@@ -212,7 +206,9 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
       if (!isTagged && hasStashIDs) {
         mainContent = (
           <div className="text-left">
-            <h5 className="text-bold">Performer already tagged</h5>
+            <h5 className="text-bold">
+              <FormattedMessage id="performer_tagger.performer_already_tagged" />
+            </h5>
           </div>
         );
       } else if (!isTagged && !hasStashIDs) {
@@ -245,7 +241,7 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
                   )
                 }
               >
-                Search
+                <FormattedMessage id="actions.search" />
               </Button>
             </InputGroup.Append>
           </InputGroup>
@@ -253,7 +249,9 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
       } else if (isTagged) {
         mainContent = (
           <div className="d-flex flex-column text-left">
-            <h5>Performer successfully tagged:</h5>
+            <h5>
+              <FormattedMessage id="performer_tagger.performer_successfully_tagged" />
+            </h5>
             <h6>
               <Link className="bold" to={`/performers/${performer.id}`}>
                 {taggedPerformers[performer.id].name}
@@ -285,7 +283,7 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
             -1;
 
           return (
-            <div>
+            <div key={performer.id}>
               <InputGroup className="PerformerTagger-box-link">
                 <InputGroup.Text>{link}</InputGroup.Text>
                 <InputGroup.Append>
@@ -299,7 +297,7 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
                       {loadingUpdate === stashID.stash_id ? (
                         <LoadingIndicator inline small message="" />
                       ) : (
-                        "Refresh"
+                        <FormattedMessage id="actions.refresh" />
                       )}
                     </Button>
                   )}
@@ -326,7 +324,9 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
         );
       } else if (searchResults[performer.id]?.length === 0) {
         subContent = (
-          <div className="text-danger font-weight-bold">No results found.</div>
+          <div className="text-danger font-weight-bold">
+            <FormattedMessage id="performer_tagger.no_results_found" />
+          </div>
         );
       }
 
@@ -349,12 +349,14 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
           {modalPerformer && (
             <PerformerModal
               closeModal={() => setModalPerformer(undefined)}
-              modalVisible={modalPerformer !== undefined}
+              modalVisible={modalPerformer.stored_id === performer.id}
               performer={modalPerformer}
-              handlePerformerCreate={handlePerformerUpdate}
+              onSave={handlePerformerUpdate}
               excludedPerformerFields={config.excludedPerformerFields}
-              icon="tags"
-              header="Update Performer"
+              icon={faTags}
+              header={intl.formatMessage({
+                id: "performer_tagger.update_performer",
+              })}
               endpoint={selectedEndpoint.endpoint}
             />
           )}
@@ -380,11 +382,18 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
     <Card>
       <Modal
         show={showBatchUpdate}
-        icon="tags"
-        header="Update Performers"
-        accept={{ text: "Update Performers", onClick: handleBatchUpdate }}
+        icon={faTags}
+        header={intl.formatMessage({
+          id: "performer_tagger.update_performers",
+        })}
+        accept={{
+          text: intl.formatMessage({
+            id: "performer_tagger.update_performers",
+          }),
+          onClick: handleBatchUpdate,
+        }}
         cancel={{
-          text: "Cancel",
+          text: intl.formatMessage({ id: "actions.cancel" }),
           variant: "danger",
           onClick: () => setShowBatchUpdate(false),
         }}
@@ -392,13 +401,15 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
       >
         <Form.Group>
           <Form.Label>
-            <h6>Performer selection</h6>
+            <h6>
+              <FormattedMessage id="performer_tagger.performer_selection" />
+            </h6>
           </Form.Label>
           <Form.Check
             id="query-page"
             type="radio"
             name="performer-query"
-            label="Current page"
+            label={<FormattedMessage id="performer_tagger.current_page" />}
             defaultChecked
             onChange={() => setQueryAll(false)}
           />
@@ -406,55 +417,73 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
             id="query-all"
             type="radio"
             name="performer-query"
-            label="All performers in the database"
+            label={intl.formatMessage({
+              id: "performer_tagger.query_all_performers_in_the_database",
+            })}
             defaultChecked={false}
             onChange={() => setQueryAll(true)}
           />
         </Form.Group>
         <Form.Group>
           <Form.Label>
-            <h6>Tag Status</h6>
+            <h6>
+              <FormattedMessage id="performer_tagger.tag_status" />
+            </h6>
           </Form.Label>
           <Form.Check
             id="untagged-performers"
             type="radio"
             name="performer-refresh"
-            label="Untagged performers"
+            label={intl.formatMessage({
+              id: "performer_tagger.untagged_performers",
+            })}
             defaultChecked
             onChange={() => setRefresh(false)}
           />
           <Form.Text>
-            Updating untagged performers will try to match any performers that
-            lack a stashid and update the metadata.
+            <FormattedMessage id="performer_tagger.updating_untagged_performers_description" />
           </Form.Text>
           <Form.Check
             id="tagged-performers"
             type="radio"
             name="performer-refresh"
-            label="Refresh tagged performers"
+            label={intl.formatMessage({
+              id: "performer_tagger.refresh_tagged_performers",
+            })}
             defaultChecked={false}
             onChange={() => setRefresh(true)}
           />
           <Form.Text>
-            Refreshing will update the data of any tagged performers from the
-            stash-box instance.
+            <FormattedMessage id="performer_tagger.refreshing_will_update_the_data" />
           </Form.Text>
         </Form.Group>
-        <b>{`${
-          queryAll
-            ? allPerformers?.findPerformers.count
-            : performers.filter((p) =>
-                refresh ? p.stash_ids.length > 0 : p.stash_ids.length === 0
-              ).length
-        } performers will be processed`}</b>
+        <b>
+          <FormattedMessage
+            id="performer_tagger.number_of_performers_will_be_processed"
+            values={{
+              performer_count: queryAll
+                ? allPerformers?.findPerformers.count
+                : performers.filter((p) =>
+                    refresh ? p.stash_ids.length > 0 : p.stash_ids.length === 0
+                  ).length,
+            }}
+          />
+        </b>
       </Modal>
       <Modal
         show={showBatchAdd}
-        icon="star"
-        header="Add New Performers"
-        accept={{ text: "Add Performers", onClick: handleBatchAdd }}
+        icon={faStar}
+        header={intl.formatMessage({
+          id: "performer_tagger.add_new_performers",
+        })}
+        accept={{
+          text: intl.formatMessage({
+            id: "performer_tagger.add_new_performers",
+          }),
+          onClick: handleBatchAdd,
+        }}
         cancel={{
-          text: "Cancel",
+          text: intl.formatMessage({ id: "actions.cancel" }),
           variant: "danger",
           onClick: () => setShowBatchAdd(false),
         }}
@@ -464,20 +493,21 @@ const PerformerTaggerList: React.FC<IPerformerTaggerListProps> = ({
           className="text-input"
           as="textarea"
           ref={performerInput}
-          placeholder="Performer names separated by comma"
+          placeholder={intl.formatMessage({
+            id: "performer_tagger.performer_names_separated_by_comma",
+          })}
           rows={6}
         />
         <Form.Text>
-          Any names entered will be queried from the remote Stash-Box instance
-          and added if found. Only exact matches will be considered a match.
+          <FormattedMessage id="performer_tagger.any_names_entered_will_be_queried" />
         </Form.Text>
       </Modal>
       <div className="ml-auto mb-3">
         <Button onClick={() => setShowBatchAdd(true)}>
-          Batch Add Performers
+          <FormattedMessage id="performer_tagger.batch_add_performers" />
         </Button>
         <Button className="ml-3" onClick={() => setShowBatchUpdate(true)}>
-          Batch Update Performers
+          <FormattedMessage id="performer_tagger.batch_update_performers" />
         </Button>
       </div>
       <div className={CLASSNAME}>{renderPerformers()}</div>
@@ -491,7 +521,8 @@ interface ITaggerProps {
 
 export const PerformerTagger: React.FC<ITaggerProps> = ({ performers }) => {
   const jobsSubscribe = useJobsSubscribe();
-  const stashConfig = useConfiguration();
+  const intl = useIntl();
+  const { configuration: stashConfig } = React.useContext(ConfigurationContext);
   const [{ data: config }, setConfig] = useLocalForage<ITaggerConfig>(
     LOCAL_FORAGE_KEY,
     initialConfig
@@ -524,16 +555,15 @@ export const PerformerTagger: React.FC<ITaggerProps> = ({ performers }) => {
   if (!config) return <LoadingIndicator />;
 
   const savedEndpointIndex =
-    stashConfig.data?.configuration.general.stashBoxes.findIndex(
+    stashConfig?.general.stashBoxes.findIndex(
       (s) => s.endpoint === config.selectedEndpoint
     ) ?? -1;
   const selectedEndpointIndex =
-    savedEndpointIndex === -1 &&
-    stashConfig.data?.configuration.general.stashBoxes.length
+    savedEndpointIndex === -1 && stashConfig?.general.stashBoxes.length
       ? 0
       : savedEndpointIndex;
   const selectedEndpoint =
-    stashConfig.data?.configuration.general.stashBoxes[selectedEndpointIndex];
+    stashConfig?.general.stashBoxes[selectedEndpointIndex];
 
   async function batchAdd(performerInput: string) {
     if (performerInput && selectedEndpoint) {
@@ -582,7 +612,9 @@ export const PerformerTagger: React.FC<ITaggerProps> = ({ performers }) => {
           : undefined;
       return (
         <Form.Group className="px-4">
-          <h5>Status: Tagging performers</h5>
+          <h5>
+            <FormattedMessage id="performer_tagger.status_tagging_performers" />
+          </h5>
           {progress !== undefined && (
             <ProgressBar
               animated
@@ -597,11 +629,17 @@ export const PerformerTagger: React.FC<ITaggerProps> = ({ performers }) => {
     if (batchJobID !== undefined) {
       return (
         <Form.Group className="px-4">
-          <h5>Status: Tagging job queued</h5>
+          <h5>
+            <FormattedMessage id="performer_tagger.status_tagging_job_queued" />
+          </h5>
         </Form.Group>
       );
     }
   }
+
+  const showHideConfigId = showConfig
+    ? "actions.hide_configuration"
+    : "actions.show_configuration";
 
   return (
     <>
@@ -616,15 +654,15 @@ export const PerformerTagger: React.FC<ITaggerProps> = ({ performers }) => {
           <>
             <div className="row mb-2 no-gutters">
               <Button onClick={() => setShowConfig(!showConfig)} variant="link">
-                {showConfig ? "Hide" : "Show"} Configuration
+                {intl.formatMessage({ id: showHideConfigId })}
               </Button>
               <Button
                 className="ml-auto"
                 onClick={() => setShowManual(true)}
-                title="Help"
+                title={intl.formatMessage({ id: "help" })}
                 variant="link"
               >
-                Help
+                <FormattedMessage id="help" />
               </Button>
             </div>
 
@@ -641,7 +679,7 @@ export const PerformerTagger: React.FC<ITaggerProps> = ({ performers }) => {
               }}
               isIdle={batchJobID === undefined}
               config={config}
-              stashBoxes={stashConfig.data?.configuration.general.stashBoxes}
+              stashBoxes={stashConfig?.general.stashBoxes}
               onBatchAdd={batchAdd}
               onBatchUpdate={batchUpdate}
             />
@@ -649,13 +687,12 @@ export const PerformerTagger: React.FC<ITaggerProps> = ({ performers }) => {
         ) : (
           <div className="my-4">
             <h3 className="text-center mt-4">
-              To use the performer tagger a stash-box instance needs to be
-              configured.
+              <FormattedMessage id="performer_tagger.to_use_the_performer_tagger" />
             </h3>
             <h5 className="text-center">
               Please see{" "}
               <HashLink
-                to="/settings?tab=configuration#stashbox"
+                to="/settings?tab=metadata-providers#stash-boxes"
                 scroll={(el) =>
                   el.scrollIntoView({ behavior: "smooth", block: "center" })
                 }

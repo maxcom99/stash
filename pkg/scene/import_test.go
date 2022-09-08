@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/models/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -16,8 +16,8 @@ const invalidImage = "aW1hZ2VCeXRlcw&&"
 const (
 	path = "path"
 
-	sceneNameErr      = "sceneNameErr"
-	existingSceneName = "existingSceneName"
+	sceneNameErr = "sceneNameErr"
+	// existingSceneName = "existingSceneName"
 
 	existingSceneID     = 100
 	existingStudioID    = 101
@@ -75,7 +75,7 @@ func TestImporterPreImport(t *testing.T) {
 	err := i.PreImport()
 	assert.NotNil(t, err)
 
-	i.Input.Cover = image
+	i.Input.Cover = imageBase64
 
 	err = i.PreImport()
 	assert.Nil(t, err)

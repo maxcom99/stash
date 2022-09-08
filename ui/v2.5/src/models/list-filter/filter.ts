@@ -1,5 +1,9 @@
 import queryString, { ParsedQuery } from "query-string";
-import { FindFilterType, SortDirectionEnum } from "src/core/generated-graphql";
+import {
+  FilterMode,
+  FindFilterType,
+  SortDirectionEnum,
+} from "src/core/generated-graphql";
 import { Criterion, CriterionValue } from "./criteria/criterion";
 import { makeCriteria } from "./criteria/factory";
 import { DisplayMode } from "./types";
@@ -12,6 +16,7 @@ interface IQueryParameters {
   q?: string;
   p?: string;
   c?: string[];
+  z?: string;
 }
 
 const DEFAULT_PARAMS = {
@@ -23,19 +28,38 @@ const DEFAULT_PARAMS = {
 
 // TODO: handle customCriteria
 export class ListFilterModel {
+  public mode: FilterMode;
   public searchTerm?: string;
   public currentPage = DEFAULT_PARAMS.currentPage;
   public itemsPerPage = DEFAULT_PARAMS.itemsPerPage;
   public sortDirection: SortDirectionEnum = SortDirectionEnum.Asc;
   public sortBy?: string;
   public displayMode: DisplayMode = DEFAULT_PARAMS.displayMode;
+  public zoomIndex: number = 1;
   public criteria: Array<Criterion<CriterionValue>> = [];
   public randomSeed = -1;
+  private defaultZoomIndex: number = 1;
 
-  public constructor(rawParms?: ParsedQuery<string>, defaultSort?: string) {
+  public constructor(
+    mode: FilterMode,
+    rawParms?: ParsedQuery<string>,
+    defaultSort?: string,
+    defaultDisplayMode?: DisplayMode,
+    defaultZoomIndex?: number
+  ) {
+    this.mode = mode;
     const params = rawParms as IQueryParameters;
     this.sortBy = defaultSort;
+    if (defaultDisplayMode !== undefined) this.displayMode = defaultDisplayMode;
+    if (defaultZoomIndex !== undefined) {
+      this.defaultZoomIndex = defaultZoomIndex;
+      this.zoomIndex = defaultZoomIndex;
+    }
     if (params) this.configureFromQueryParameters(params);
+  }
+
+  public clone() {
+    return Object.assign(new ListFilterModel(this.mode), this);
   }
 
   public configureFromQueryParameters(params: IQueryParameters) {
@@ -55,24 +79,29 @@ export class ListFilterModel {
         }
       }
     }
-    this.sortDirection =
-      params.sortdir === "desc"
-        ? SortDirectionEnum.Desc
-        : SortDirectionEnum.Asc;
-    if (params.disp) {
+    if (params.sortdir !== undefined) {
+      this.sortDirection =
+        params.sortdir === "desc"
+          ? SortDirectionEnum.Desc
+          : SortDirectionEnum.Asc;
+    }
+    if (params.disp !== undefined) {
       this.displayMode = Number.parseInt(params.disp, 10);
     }
     if (params.q) {
       this.searchTerm = params.q.trim();
     }
-    if (params.p) {
-      this.currentPage = Number.parseInt(params.p, 10);
-    }
+    this.currentPage = params.p ? Number.parseInt(params.p, 10) : 1;
     if (params.perPage) this.itemsPerPage = Number.parseInt(params.perPage, 10);
+    if (params.z !== undefined) {
+      const zoomIndex = Number.parseInt(params.z, 10);
+      if (zoomIndex >= 0 && !Number.isNaN(zoomIndex)) {
+        this.zoomIndex = zoomIndex;
+      }
+    }
 
+    this.criteria = [];
     if (params.c !== undefined) {
-      this.criteria = [];
-
       let jsonParameters: string[];
       if (params.c instanceof Array) {
         jsonParameters = params.c;
@@ -86,7 +115,7 @@ export class ListFilterModel {
           const criterion = makeCriteria(encodedCriterion.type);
           // it's possible that we have unsupported criteria. Just skip if so.
           if (criterion) {
-            criterion.value = encodedCriterion.value;
+            criterion.decodeValue(encodedCriterion.value);
             criterion.modifier = encodedCriterion.modifier;
             this.criteria.push(criterion);
           }
@@ -137,11 +166,31 @@ export class ListFilterModel {
         this.displayMode !== DEFAULT_PARAMS.displayMode
           ? this.displayMode
           : undefined,
-      q: this.searchTerm,
+      q: this.searchTerm ? encodeURIComponent(this.searchTerm) : undefined,
       p:
         this.currentPage !== DEFAULT_PARAMS.currentPage
           ? this.currentPage
           : undefined,
+      z: this.zoomIndex !== this.defaultZoomIndex ? this.zoomIndex : undefined,
+      c: encodedCriteria,
+    };
+
+    return result;
+  }
+
+  public getSavedQueryParameters() {
+    const encodedCriteria: string[] = this.criteria.map((criterion) =>
+      criterion.toJSON()
+    );
+
+    const result = {
+      perPage: this.itemsPerPage,
+      sortby: this.getSortBy() ?? undefined,
+      sortdir:
+        this.sortDirection === SortDirectionEnum.Desc ? "desc" : undefined,
+      disp: this.displayMode,
+      q: this.searchTerm,
+      z: this.zoomIndex,
       c: encodedCriteria,
     };
 

@@ -2,15 +2,25 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import cx from "classnames";
 import * as GQL from "src/core/generated-graphql";
-import { TextUtils } from "src/utils";
-import { Button, Spinner } from "react-bootstrap";
-import { Icon } from "src/components/Shared";
+import TextUtils from "src/utils/text";
+import { Button, Form, Spinner } from "react-bootstrap";
+import Icon from "src/components/Shared/Icon";
+import { useIntl } from "react-intl";
+import {
+  faChevronDown,
+  faChevronUp,
+  faRandom,
+  faStepBackward,
+  faStepForward,
+} from "@fortawesome/free-solid-svg-icons";
 
 export interface IPlaylistViewer {
   scenes?: GQL.SlimSceneDataFragment[];
   currentID?: string;
   start?: number;
+  continue?: boolean;
   hasMoreScenes: boolean;
+  setContinue: (v: boolean) => void;
   onSceneClicked: (id: string) => void;
   onNext: () => void;
   onPrevious: () => void;
@@ -23,7 +33,9 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
   scenes,
   currentID,
   start,
+  continue: continuePlaylist = false,
   hasMoreScenes,
+  setContinue,
   onNext,
   onPrevious,
   onRandom,
@@ -31,6 +43,7 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
   onMoreScenes,
   onLessScenes,
 }) => {
+  const intl = useIntl();
   const [lessLoading, setLessLoading] = useState(false);
   const [moreLoading, setMoreLoading] = useState(false);
 
@@ -78,7 +91,7 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
               <img alt={scene.title ?? ""} src={scene.paths.screenshot ?? ""} />
             </div>
             <div>
-              <span className="align-middle">
+              <span className="align-middle text-break">
                 {scene.title ?? TextUtils.fileNameFromPath(scene.path)}
               </span>
             </div>
@@ -92,13 +105,22 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
     <div id="queue-viewer">
       <div className="queue-controls">
         <div>
+          <Form.Check
+            checked={continuePlaylist}
+            label={intl.formatMessage({ id: "actions.continue" })}
+            onChange={() => {
+              setContinue(!continuePlaylist);
+            }}
+          />
+        </div>
+        <div>
           {(currentIndex ?? 0) > 0 ? (
             <Button
               className="minimal"
               variant="secondary"
               onClick={() => onPrevious()}
             >
-              <Icon icon="step-backward" />
+              <Icon icon={faStepBackward} />
             </Button>
           ) : (
             ""
@@ -109,7 +131,7 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
               variant="secondary"
               onClick={() => onNext()}
             >
-              <Icon icon="step-forward" />
+              <Icon icon={faStepForward} />
             </Button>
           ) : (
             ""
@@ -119,7 +141,7 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
             variant="secondary"
             onClick={() => onRandom()}
           >
-            <Icon icon="random" />
+            <Icon icon={faRandom} />
           </Button>
         </div>
       </div>
@@ -128,7 +150,7 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
           <div className="d-flex justify-content-center">
             <Button onClick={() => lessClicked()} disabled={lessLoading}>
               {!lessLoading ? (
-                <Icon icon="chevron-up" />
+                <Icon icon={faChevronUp} />
               ) : (
                 <Spinner animation="border" role="status" />
               )}
@@ -140,7 +162,7 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
           <div className="d-flex justify-content-center">
             <Button onClick={() => moreClicked()} disabled={moreLoading}>
               {!moreLoading ? (
-                <Icon icon="chevron-down" />
+                <Icon icon={faChevronDown} />
               ) : (
                 <Spinner animation="border" role="status" />
               )}
@@ -151,3 +173,5 @@ export const QueueViewer: React.FC<IPlaylistViewer> = ({
     </div>
   );
 };
+
+export default QueueViewer;

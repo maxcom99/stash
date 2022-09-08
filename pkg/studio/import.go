@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
+	"github.com/stashapp/stash/pkg/hash/md5"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/utils"
 )
 
@@ -22,16 +23,17 @@ type Importer struct {
 }
 
 func (i *Importer) PreImport() error {
-	checksum := utils.MD5FromString(i.Input.Name)
+	checksum := md5.FromString(i.Input.Name)
 
 	i.studio = models.Studio{
-		Checksum:  checksum,
-		Name:      sql.NullString{String: i.Input.Name, Valid: true},
-		URL:       sql.NullString{String: i.Input.URL, Valid: true},
-		Details:   sql.NullString{String: i.Input.Details, Valid: true},
-		CreatedAt: models.SQLiteTimestamp{Timestamp: i.Input.CreatedAt.GetTime()},
-		UpdatedAt: models.SQLiteTimestamp{Timestamp: i.Input.UpdatedAt.GetTime()},
-		Rating:    sql.NullInt64{Int64: int64(i.Input.Rating), Valid: true},
+		Checksum:      checksum,
+		Name:          sql.NullString{String: i.Input.Name, Valid: true},
+		URL:           sql.NullString{String: i.Input.URL, Valid: true},
+		Details:       sql.NullString{String: i.Input.Details, Valid: true},
+		IgnoreAutoTag: i.Input.IgnoreAutoTag,
+		CreatedAt:     models.SQLiteTimestamp{Timestamp: i.Input.CreatedAt.GetTime()},
+		UpdatedAt:     models.SQLiteTimestamp{Timestamp: i.Input.UpdatedAt.GetTime()},
+		Rating:        sql.NullInt64{Int64: int64(i.Input.Rating), Valid: true},
 	}
 
 	if err := i.populateParentStudio(); err != nil {
@@ -40,9 +42,9 @@ func (i *Importer) PreImport() error {
 
 	var err error
 	if len(i.Input.Image) > 0 {
-		_, i.imageData, err = utils.ProcessBase64Image(i.Input.Image)
+		i.imageData, err = utils.ProcessBase64Image(i.Input.Image)
 		if err != nil {
-			return fmt.Errorf("invalid image: %s", err.Error())
+			return fmt.Errorf("invalid image: %v", err)
 		}
 	}
 
@@ -53,7 +55,7 @@ func (i *Importer) populateParentStudio() error {
 	if i.Input.ParentStudio != "" {
 		studio, err := i.ReaderWriter.FindByName(i.Input.ParentStudio, false)
 		if err != nil {
-			return fmt.Errorf("error finding studio by name: %s", err.Error())
+			return fmt.Errorf("error finding studio by name: %v", err)
 		}
 
 		if studio == nil {
@@ -97,8 +99,18 @@ func (i *Importer) createParentStudio(name string) (int, error) {
 func (i *Importer) PostImport(id int) error {
 	if len(i.imageData) > 0 {
 		if err := i.ReaderWriter.UpdateImage(id, i.imageData); err != nil {
-			return fmt.Errorf("error setting studio image: %s", err.Error())
+			return fmt.Errorf("error setting studio image: %v", err)
 		}
+	}
+
+	if len(i.Input.StashIDs) > 0 {
+		if err := i.ReaderWriter.UpdateStashIDs(id, i.Input.StashIDs); err != nil {
+			return fmt.Errorf("error setting stash id: %v", err)
+		}
+	}
+
+	if err := i.ReaderWriter.UpdateAliases(id, i.Input.Aliases); err != nil {
+		return fmt.Errorf("error setting tag aliases: %v", err)
 	}
 
 	return nil
@@ -126,7 +138,7 @@ func (i *Importer) FindExistingID() (*int, error) {
 func (i *Importer) Create() (*int, error) {
 	created, err := i.ReaderWriter.Create(i.studio)
 	if err != nil {
-		return nil, fmt.Errorf("error creating studio: %s", err.Error())
+		return nil, fmt.Errorf("error creating studio: %v", err)
 	}
 
 	id := created.ID
@@ -138,7 +150,7 @@ func (i *Importer) Update(id int) error {
 	studio.ID = id
 	_, err := i.ReaderWriter.UpdateFull(studio)
 	if err != nil {
-		return fmt.Errorf("error updating existing studio: %s", err.Error())
+		return fmt.Errorf("error updating existing studio: %v", err)
 	}
 
 	return nil

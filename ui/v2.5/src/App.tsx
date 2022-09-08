@@ -1,48 +1,60 @@
-import React, { useEffect } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
 import { Route, Switch, useRouteMatch } from "react-router-dom";
-import { IntlProvider } from "react-intl";
+import { IntlProvider, CustomFormats } from "react-intl";
+import { Helmet } from "react-helmet";
+import cloneDeep from "lodash-es/cloneDeep";
+import mergeWith from "lodash-es/mergeWith";
 import { ToastProvider } from "src/hooks/Toast";
 import LightboxProvider from "src/hooks/Lightbox/context";
-import { library } from "@fortawesome/fontawesome-svg-core";
-import { fas } from "@fortawesome/free-solid-svg-icons";
 import { initPolyfills } from "src/polyfills";
 
-import locales from "src/locale";
+import locales from "src/locales";
 import { useConfiguration, useSystemStatus } from "src/core/StashService";
 import { flattenMessages } from "src/utils";
 import Mousetrap from "mousetrap";
 import MousetrapPause from "mousetrap-pause";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import Galleries from "./components/Galleries/Galleries";
 import { MainNavbar } from "./components/MainNavbar";
 import { PageNotFound } from "./components/PageNotFound";
-import Performers from "./components/Performers/Performers";
-import Scenes from "./components/Scenes/Scenes";
-import { Settings } from "./components/Settings/Settings";
-import { Stats } from "./components/Stats";
-import Studios from "./components/Studios/Studios";
-import { SceneFilenameParser } from "./components/SceneFilenameParser/SceneFilenameParser";
-import { SceneDuplicateChecker } from "./components/SceneDuplicateChecker/SceneDuplicateChecker";
-import Movies from "./components/Movies/Movies";
-import Tags from "./components/Tags/Tags";
-import Images from "./components/Images/Images";
-import { Setup } from "./components/Setup/Setup";
-import { Migrate } from "./components/Setup/Migrate";
 import * as GQL from "./core/generated-graphql";
-import { LoadingIndicator } from "./components/Shared";
+import { LoadingIndicator, TITLE_SUFFIX } from "./components/Shared";
+
+import { ConfigurationProvider } from "./hooks/Config";
+import { ManualProvider } from "./components/Help/context";
+import { InteractiveProvider } from "./hooks/Interactive/context";
+
+const Performers = lazy(() => import("./components/Performers/Performers"));
+const FrontPage = lazy(() => import("./components/FrontPage/FrontPage"));
+const Scenes = lazy(() => import("./components/Scenes/Scenes"));
+const Settings = lazy(() => import("./components/Settings/Settings"));
+const Stats = lazy(() => import("./components/Stats"));
+const Studios = lazy(() => import("./components/Studios/Studios"));
+const Galleries = lazy(() => import("./components/Galleries/Galleries"));
+
+const Movies = lazy(() => import("./components/Movies/Movies"));
+const Tags = lazy(() => import("./components/Tags/Tags"));
+const Images = lazy(() => import("./components/Images/Images"));
+const Setup = lazy(() => import("./components/Setup/Setup"));
+const Migrate = lazy(() => import("./components/Setup/Migrate"));
+
+const SceneFilenameParser = lazy(
+  () => import("./components/SceneFilenameParser/SceneFilenameParser")
+);
+const SceneDuplicateChecker = lazy(
+  () => import("./components/SceneDuplicateChecker/SceneDuplicateChecker")
+);
 
 initPolyfills();
 
 MousetrapPause(Mousetrap);
 
-// Set fontawesome/free-solid-svg as default fontawesome icons
-library.add(fas);
-
-const intlFormats = {
+const intlFormats: CustomFormats = {
   date: {
     long: { year: "numeric", month: "long", day: "numeric" },
   },
 };
+
+const defaultLocale = "en-GB";
 
 function languageMessageString(language: string) {
   return language.replace(/-/, "");
@@ -51,20 +63,32 @@ function languageMessageString(language: string) {
 export const App: React.FC = () => {
   const config = useConfiguration();
   const { data: systemStatusData } = useSystemStatus();
-  const defaultLocale = "en-GB";
+
   const language =
     config.data?.configuration?.interface?.language ?? defaultLocale;
-  const defaultMessageLanguage = languageMessageString(defaultLocale);
-  const messageLanguage = languageMessageString(language);
 
   // use en-GB as default messages if any messages aren't found in the chosen language
-  const mergedMessages = {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...(locales as any)[defaultMessageLanguage],
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...(locales as any)[messageLanguage],
-  };
-  const messages = flattenMessages(mergedMessages);
+  const [messages, setMessages] = useState<{}>();
+
+  useEffect(() => {
+    const setLocale = async () => {
+      const defaultMessageLanguage = languageMessageString(defaultLocale);
+      const messageLanguage = languageMessageString(language);
+
+      const defaultMessages = (await locales[defaultMessageLanguage]()).default;
+      const mergedMessages = cloneDeep(Object.assign({}, defaultMessages));
+      const chosenMessages = (await locales[messageLanguage]()).default;
+      mergeWith(mergedMessages, chosenMessages, (objVal, srcVal) => {
+        if (srcVal === "") {
+          return objVal;
+        }
+      });
+
+      setMessages(flattenMessages(mergedMessages));
+    };
+
+    setLocale();
+  }, [language]);
 
   const setupMatch = useRouteMatch(["/setup", "/migrate"]);
 
@@ -107,38 +131,69 @@ export const App: React.FC = () => {
     }
 
     return (
-      <Switch>
-        <Route exact path="/" component={Stats} />
-        <Route path="/scenes" component={Scenes} />
-        <Route path="/images" component={Images} />
-        <Route path="/galleries" component={Galleries} />
-        <Route path="/performers" component={Performers} />
-        <Route path="/tags" component={Tags} />
-        <Route path="/studios" component={Studios} />
-        <Route path="/movies" component={Movies} />
-        <Route path="/settings" component={Settings} />
-        <Route path="/sceneFilenameParser" component={SceneFilenameParser} />
-        <Route
-          path="/sceneDuplicateChecker"
-          component={SceneDuplicateChecker}
-        />
-        <Route path="/setup" component={Setup} />
-        <Route path="/migrate" component={Migrate} />
-        <Route component={PageNotFound} />
-      </Switch>
+      <ErrorBoundary>
+        <Suspense fallback={<LoadingIndicator />}>
+          <Switch>
+            <Route exact path="/" component={FrontPage} />
+            <Route path="/scenes" component={Scenes} />
+            <Route path="/images" component={Images} />
+            <Route path="/galleries" component={Galleries} />
+            <Route path="/performers" component={Performers} />
+            <Route path="/tags" component={Tags} />
+            <Route path="/studios" component={Studios} />
+            <Route path="/movies" component={Movies} />
+            <Route path="/stats" component={Stats} />
+            <Route path="/settings" component={Settings} />
+            <Route
+              path="/sceneFilenameParser"
+              component={SceneFilenameParser}
+            />
+            <Route
+              path="/sceneDuplicateChecker"
+              component={SceneDuplicateChecker}
+            />
+            <Route path="/setup" component={Setup} />
+            <Route path="/migrate" component={Migrate} />
+            <Route component={PageNotFound} />
+          </Switch>
+        </Suspense>
+      </ErrorBoundary>
     );
   }
 
   return (
     <ErrorBoundary>
-      <IntlProvider locale={language} messages={messages} formats={intlFormats}>
-        <ToastProvider>
-          <LightboxProvider>
-            {maybeRenderNavbar()}
-            <div className="main container-fluid">{renderContent()}</div>
-          </LightboxProvider>
-        </ToastProvider>
-      </IntlProvider>
+      {messages ? (
+        <IntlProvider
+          locale={language}
+          messages={messages}
+          formats={intlFormats}
+        >
+          <ConfigurationProvider
+            configuration={config.data?.configuration}
+            loading={config.loading}
+          >
+            <ToastProvider>
+              <Suspense fallback={<LoadingIndicator />}>
+                <LightboxProvider>
+                  <ManualProvider>
+                    <InteractiveProvider>
+                      <Helmet
+                        titleTemplate={`%s ${TITLE_SUFFIX}`}
+                        defaultTitle="Stash"
+                      />
+                      {maybeRenderNavbar()}
+                      <div className="main container-fluid">
+                        {renderContent()}
+                      </div>
+                    </InteractiveProvider>
+                  </ManualProvider>
+                </LightboxProvider>
+              </Suspense>
+            </ToastProvider>
+          </ConfigurationProvider>
+        </IntlProvider>
+      ) : null}
     </ErrorBoundary>
   );
 };

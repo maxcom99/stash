@@ -1,6 +1,8 @@
 import { Tab, Nav, Dropdown } from "react-bootstrap";
 import React, { useEffect, useState } from "react";
+import { FormattedMessage, useIntl } from "react-intl";
 import { useParams, useHistory, Link } from "react-router-dom";
+import { Helmet } from "react-helmet";
 import {
   useFindImage,
   useImageIncrementO,
@@ -19,6 +21,7 @@ import { ImageFileInfoPanel } from "./ImageFileInfoPanel";
 import { ImageEditPanel } from "./ImageEditPanel";
 import { ImageDetailPanel } from "./ImageDetailPanel";
 import { DeleteImagesDialog } from "../DeleteImagesDialog";
+import { faEllipsisV } from "@fortawesome/free-solid-svg-icons";
 
 interface IImageParams {
   id?: string;
@@ -28,10 +31,10 @@ export const Image: React.FC = () => {
   const { id = "new" } = useParams<IImageParams>();
   const history = useHistory();
   const Toast = useToast();
+  const intl = useIntl();
 
   const { data, error, loading } = useFindImage(id);
   const image = data?.findImage;
-  const [oLoading, setOLoading] = useState(false);
   const [incrementO] = useImageIncrementO(image?.id ?? "0");
   const [decrementO] = useImageDecrementO(image?.id ?? "0");
   const [resetO] = useImageResetO(image?.id ?? "0");
@@ -53,7 +56,15 @@ export const Image: React.FC = () => {
       paths: [image.path],
     });
 
-    Toast.success({ content: "Rescanning image" });
+    Toast.success({
+      content: intl.formatMessage(
+        { id: "toast.rescanning_entity" },
+        {
+          count: 1,
+          singularEntity: intl.formatMessage({ id: "image" }),
+        }
+      ),
+    });
   }
 
   const onOrganizedClick = async () => {
@@ -76,34 +87,25 @@ export const Image: React.FC = () => {
 
   const onIncrementClick = async () => {
     try {
-      setOLoading(true);
       await incrementO();
     } catch (e) {
       Toast.error(e);
-    } finally {
-      setOLoading(false);
     }
   };
 
   const onDecrementClick = async () => {
     try {
-      setOLoading(true);
       await decrementO();
     } catch (e) {
       Toast.error(e);
-    } finally {
-      setOLoading(false);
     }
   };
 
   const onResetClick = async () => {
     try {
-      setOLoading(true);
       await resetO();
     } catch (e) {
       Toast.error(e);
-    } finally {
-      setOLoading(false);
     }
   };
 
@@ -131,7 +133,7 @@ export const Image: React.FC = () => {
           className="minimal"
           title="Operations"
         >
-          <Icon icon="ellipsis-v" />
+          <Icon icon={faEllipsisV} />
         </Dropdown.Toggle>
         <Dropdown.Menu className="bg-secondary text-white">
           <Dropdown.Item
@@ -139,14 +141,17 @@ export const Image: React.FC = () => {
             className="bg-secondary text-white"
             onClick={() => onRescan()}
           >
-            Rescan
+            <FormattedMessage id="actions.rescan" />
           </Dropdown.Item>
           <Dropdown.Item
             key="delete-image"
             className="bg-secondary text-white"
             onClick={() => setIsDeleteAlertOpen(true)}
           >
-            Delete Image
+            <FormattedMessage
+              id="actions.delete_entity"
+              values={{ entityType: intl.formatMessage({ id: "image" }) }}
+            />
           </Dropdown.Item>
         </Dropdown.Menu>
       </Dropdown>
@@ -166,17 +171,22 @@ export const Image: React.FC = () => {
         <div>
           <Nav variant="tabs" className="mr-auto">
             <Nav.Item>
-              <Nav.Link eventKey="image-details-panel">Details</Nav.Link>
+              <Nav.Link eventKey="image-details-panel">
+                <FormattedMessage id="details" />
+              </Nav.Link>
             </Nav.Item>
             <Nav.Item>
-              <Nav.Link eventKey="image-file-info-panel">File Info</Nav.Link>
+              <Nav.Link eventKey="image-file-info-panel">
+                <FormattedMessage id="file_info" />
+              </Nav.Link>
             </Nav.Item>
             <Nav.Item>
-              <Nav.Link eventKey="image-edit-panel">Edit</Nav.Link>
+              <Nav.Link eventKey="image-edit-panel">
+                <FormattedMessage id="actions.edit" />
+              </Nav.Link>
             </Nav.Item>
             <Nav.Item className="ml-auto">
               <OCounterButton
-                loading={oLoading}
                 value={image.o_counter || 0}
                 onIncrement={onIncrementClick}
                 onDecrement={onDecrementClick}
@@ -243,6 +253,10 @@ export const Image: React.FC = () => {
 
   return (
     <div className="row">
+      <Helmet>
+        <title>{image.title ?? TextUtils.fileNameFromPath(image.path)}</title>
+      </Helmet>
+
       {maybeRenderDeleteDialog()}
       <div className="image-tabs order-xl-first order-last">
         <div className="d-none d-xl-block">

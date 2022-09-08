@@ -1,17 +1,20 @@
-import { createCriterionOption } from "./criteria/criterion";
+import {
+  createBooleanCriterionOption,
+  createMandatoryNumberCriterionOption,
+  createMandatoryStringCriterionOption,
+  createStringCriterionOption,
+  MandatoryNumberCriterionOption,
+} from "./criteria/criterion";
 import { TagIsMissingCriterionOption } from "./criteria/is-missing";
-import { NoneCriterionOption } from "./criteria/none";
 import { ListFilterOptions } from "./filter-options";
 import { DisplayMode } from "./types";
+import {
+  ChildTagsCriterionOption,
+  ParentTagsCriterionOption,
+} from "./criteria/tags";
 
 const defaultSortBy = "name";
-// scene markers count has been disabled for now due to performance
-// issues
-const sortByOptions = [
-  "name",
-  "random",
-  /* "scene_markers_count" */
-]
+const sortByOptions = ["name", "random"]
   .map(ListFilterOptions.createSortBy)
   .concat([
     {
@@ -30,18 +33,35 @@ const sortByOptions = [
       messageID: "scene_count",
       value: "scenes_count",
     },
+    {
+      messageID: "marker_count",
+      value: "scene_markers_count",
+    },
   ]);
 
 const displayModeOptions = [DisplayMode.Grid, DisplayMode.List];
 const criterionOptions = [
-  NoneCriterionOption,
+  createMandatoryStringCriterionOption("name"),
   TagIsMissingCriterionOption,
-  createCriterionOption("scene_count"),
-  createCriterionOption("image_count"),
-  createCriterionOption("gallery_count"),
-  createCriterionOption("performer_count"),
-  // marker count has been disabled for now due to performance issues
-  // ListFilterModel.createCriterionOption("marker_count"),
+  createStringCriterionOption("aliases"),
+  createBooleanCriterionOption("ignore_auto_tag"),
+  createMandatoryNumberCriterionOption("scene_count"),
+  createMandatoryNumberCriterionOption("image_count"),
+  createMandatoryNumberCriterionOption("gallery_count"),
+  createMandatoryNumberCriterionOption("performer_count"),
+  createMandatoryNumberCriterionOption("marker_count"),
+  ParentTagsCriterionOption,
+  new MandatoryNumberCriterionOption(
+    "parent_tag_count",
+    "parent_tag_count",
+    "parent_count"
+  ),
+  ChildTagsCriterionOption,
+  new MandatoryNumberCriterionOption(
+    "sub_tag_count",
+    "child_tag_count",
+    "child_count"
+  ),
 ];
 
 export const TagListFilterOptions = new ListFilterOptions(

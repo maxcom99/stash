@@ -10,7 +10,8 @@ import {
   SceneDataFragment,
   GalleryDataFragment,
 } from "src/core/generated-graphql";
-import { NavUtils, TextUtils } from "src/utils";
+import NavUtils from "src/utils/navigation";
+import TextUtils from "src/utils/text";
 
 interface IProps {
   tag?: Partial<TagDataFragment>;
@@ -51,9 +52,9 @@ export const TagLink: React.FC<IProps> = (props: IProps) => {
     title = props.movie.name || "";
   } else if (props.marker) {
     link = NavUtils.makeSceneMarkerUrl(props.marker);
-    title = `${props.marker.title} - ${TextUtils.secondsToTimestamp(
-      props.marker.seconds || 0
-    )}`;
+    title = `${
+      props.marker.title || props.marker.primary_tag?.name || ""
+    } - ${TextUtils.secondsToTimestamp(props.marker.seconds || 0)}`;
   } else if (props.gallery) {
     link = `/galleries/${props.gallery.id}`;
     title = props.gallery.title

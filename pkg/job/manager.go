@@ -7,7 +7,7 @@ import (
 )
 
 const maxGraveyardSize = 10
-const defaultThrottleLimit = time.Second
+const defaultThrottleLimit = 100 * time.Millisecond
 
 // Manager maintains a queue of jobs. Jobs are executed one at a time.
 type Manager struct {
@@ -46,7 +46,7 @@ func (m *Manager) Stop() {
 }
 
 // Add queues a job.
-func (m *Manager) Add(description string, e JobExec) int {
+func (m *Manager) Add(ctx context.Context, description string, e JobExec) int {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -58,6 +58,7 @@ func (m *Manager) Add(description string, e JobExec) int {
 		Description: description,
 		AddTime:     t,
 		exec:        e,
+		outerCtx:    ctx,
 	}
 
 	m.queue = append(m.queue, &j)
@@ -74,7 +75,7 @@ func (m *Manager) Add(description string, e JobExec) int {
 
 // Start adds a job and starts it immediately, concurrently with any other
 // jobs.
-func (m *Manager) Start(description string, e JobExec) int {
+func (m *Manager) Start(ctx context.Context, description string, e JobExec) int {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -86,11 +87,12 @@ func (m *Manager) Start(description string, e JobExec) int {
 		Description: description,
 		AddTime:     t,
 		exec:        e,
+		outerCtx:    ctx,
 	}
 
 	m.queue = append(m.queue, &j)
 
-	m.dispatch(&j)
+	m.dispatch(ctx, &j)
 
 	return j.ID
 }
@@ -107,7 +109,7 @@ func (m *Manager) notifyNewJob(j *Job) {
 }
 
 func (m *Manager) nextID() int {
-	m.lastID += 1
+	m.lastID++
 	return m.lastID
 }
 
@@ -143,7 +145,7 @@ func (m *Manager) dispatcher() {
 			}
 		}
 
-		done := m.dispatch(j)
+		done := m.dispatch(j.outerCtx, j)
 
 		// unlock the mutex and wait for the job to finish
 		m.mutex.Unlock()
@@ -167,13 +169,13 @@ func (m *Manager) newProgress(j *Job) *Progress {
 	}
 }
 
-func (m *Manager) dispatch(j *Job) (done chan struct{}) {
+func (m *Manager) dispatch(ctx context.Context, j *Job) (done chan struct{}) {
 	// assumes lock held
 	t := time.Now()
 	j.StartTime = &t
 	j.Status = StatusRunning
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
+	ctx, cancelFunc := context.WithCancel(valueOnlyContext{ctx})
 	j.cancelFunc = cancelFunc
 
 	done = make(chan struct{})
@@ -200,7 +202,6 @@ func (m *Manager) onJobFinish(job *Job) {
 	} else {
 		job.Status = StatusFinished
 	}
-
 	t := time.Now()
 	job.EndTime = &t
 }

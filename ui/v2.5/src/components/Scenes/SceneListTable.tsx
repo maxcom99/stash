@@ -1,15 +1,18 @@
 // @ts-nocheck
 /* eslint-disable jsx-a11y/control-has-associated-label */
 import React from "react";
-import { Table, Button } from "react-bootstrap";
+import { Table, Button, Form } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import * as GQL from "src/core/generated-graphql";
 import { NavUtils, TextUtils } from "src/utils";
-import { Icon, TruncatedText } from "src/components/Shared";
+import { Icon } from "src/components/Shared";
+import { FormattedMessage } from "react-intl";
 
 interface ISceneListTableProps {
   scenes: GQL.SlimSceneDataFragment[];
   queue?: SceneQueue;
+  selectedIds: Set<string>;
+  onSelectChange: (id: string, selected: boolean, shiftKey: boolean) => void;
 }
 
 export const SceneListTable: React.FC<ISceneListTableProps> = (
@@ -43,8 +46,29 @@ export const SceneListTable: React.FC<ISceneListTableProps> = (
       ? props.queue.makeLink(scene.id, { sceneIndex: index })
       : `/scenes/${scene.id}`;
 
+    let shiftKey = false;
     return (
       <tr key={scene.id}>
+        <td>
+          <Form.Control
+            type="checkbox"
+            checked={props.selectedIds.has(scene.id)}
+            onChange={() =>
+              props.onSelectChange!(
+                scene.id,
+                !props.selectedIds.has(scene.id),
+                shiftKey
+              )
+            }
+            onClick={(
+              event: React.MouseEvent<HTMLInputElement, MouseEvent>
+            ) => {
+              // eslint-disable-next-line prefer-destructuring
+              shiftKey = event.shiftKey;
+              event.stopPropagation();
+            }}
+          />
+        </td>
         <td>
           <Link to={sceneLink}>
             <img
@@ -56,11 +80,7 @@ export const SceneListTable: React.FC<ISceneListTableProps> = (
         </td>
         <td className="text-left">
           <Link to={sceneLink}>
-            <h5>
-              <TruncatedText
-                text={scene.title ?? TextUtils.fileNameFromPath(scene.path)}
-              />
-            </h5>
+            <h5>{scene.title ?? TextUtils.fileNameFromPath(scene.path)}</h5>
           </Link>
         </td>
         <td>{scene.rating ? scene.rating : ""}</td>
@@ -82,7 +102,7 @@ export const SceneListTable: React.FC<ISceneListTableProps> = (
           {scene.gallery && (
             <Button className="minimal">
               <Link to={`/galleries/${scene.gallery.id}`}>
-                <Icon icon="image" />
+                <Icon icon={faImage} />
               </Link>
             </Button>
           )}
@@ -97,14 +117,31 @@ export const SceneListTable: React.FC<ISceneListTableProps> = (
         <thead>
           <tr>
             <th />
-            <th className="text-left">Title</th>
-            <th>Rating</th>
-            <th>Duration</th>
-            <th>Tags</th>
-            <th>Performers</th>
-            <th>Studio</th>
-            <th>Movies</th>
-            <th>Gallery</th>
+            <th />
+            <th className="text-left">
+              <FormattedMessage id="title" />
+            </th>
+            <th>
+              <FormattedMessage id="rating" />
+            </th>
+            <th>
+              <FormattedMessage id="duration" />
+            </th>
+            <th>
+              <FormattedMessage id="tags" />
+            </th>
+            <th>
+              <FormattedMessage id="performers" />
+            </th>
+            <th>
+              <FormattedMessage id="studio" />
+            </th>
+            <th>
+              <FormattedMessage id="movies" />
+            </th>
+            <th>
+              <FormattedMessage id="gallery" />
+            </th>
           </tr>
         </thead>
         <tbody>{props.scenes.map(renderSceneRow)}</tbody>

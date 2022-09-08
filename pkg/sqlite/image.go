@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/stashapp/stash/pkg/models"
@@ -13,7 +14,7 @@ const performersImagesTable = "performers_images"
 const imagesTagsTable = "images_tags"
 
 var imagesForGalleryQuery = selectAll(imageTable) + `
-LEFT JOIN galleries_images as galleries_join on galleries_join.image_id = images.id
+INNER JOIN galleries_images as galleries_join on galleries_join.image_id = images.id
 WHERE galleries_join.gallery_id = ?
 GROUP BY images.id
 `
@@ -145,7 +146,7 @@ func (qb *imageQueryBuilder) FindMany(ids []int) ([]*models.Image, error) {
 func (qb *imageQueryBuilder) find(id int) (*models.Image, error) {
 	var ret models.Image
 	if err := qb.get(id, &ret); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -167,7 +168,12 @@ func (qb *imageQueryBuilder) FindByPath(path string) (*models.Image, error) {
 
 func (qb *imageQueryBuilder) FindByGalleryID(galleryID int) ([]*models.Image, error) {
 	args := []interface{}{galleryID}
-	return qb.queryImages(imagesForGalleryQuery+qb.getImageSort(nil), args)
+	sort := "path"
+	sortDir := models.SortDirectionEnumAsc
+	return qb.queryImages(imagesForGalleryQuery+qb.getImageSort(&models.FindFilterType{
+		Sort:      &sort,
+		Direction: &sortDir,
+	}), args)
 }
 
 func (qb *imageQueryBuilder) CountByGalleryID(galleryID int) (int, error) {
@@ -231,20 +237,23 @@ func (qb *imageQueryBuilder) makeFilter(imageFilter *models.ImageFilterType) *fi
 		query.not(qb.makeFilter(imageFilter.Not))
 	}
 
-	query.handleCriterionFunc(stringCriterionHandler(imageFilter.Path, "images.path"))
-	query.handleCriterionFunc(intCriterionHandler(imageFilter.Rating, "images.rating"))
-	query.handleCriterionFunc(intCriterionHandler(imageFilter.OCounter, "images.o_counter"))
-	query.handleCriterionFunc(boolCriterionHandler(imageFilter.Organized, "images.organized"))
-	query.handleCriterionFunc(resolutionCriterionHandler(imageFilter.Resolution, "images.height", "images.width"))
-	query.handleCriterionFunc(imageIsMissingCriterionHandler(qb, imageFilter.IsMissing))
+	query.handleCriterion(stringCriterionHandler(imageFilter.Checksum, "images.checksum"))
+	query.handleCriterion(stringCriterionHandler(imageFilter.Title, "images.title"))
+	query.handleCriterion(stringCriterionHandler(imageFilter.Path, "images.path"))
+	query.handleCriterion(intCriterionHandler(imageFilter.Rating, "images.rating"))
+	query.handleCriterion(intCriterionHandler(imageFilter.OCounter, "images.o_counter"))
+	query.handleCriterion(boolCriterionHandler(imageFilter.Organized, "images.organized"))
+	query.handleCriterion(resolutionCriterionHandler(imageFilter.Resolution, "images.height", "images.width"))
+	query.handleCriterion(imageIsMissingCriterionHandler(qb, imageFilter.IsMissing))
 
-	query.handleCriterionFunc(imageTagsCriterionHandler(qb, imageFilter.Tags))
-	query.handleCriterionFunc(imageTagCountCriterionHandler(qb, imageFilter.TagCount))
-	query.handleCriterionFunc(imageGalleriesCriterionHandler(qb, imageFilter.Galleries))
-	query.handleCriterionFunc(imagePerformersCriterionHandler(qb, imageFilter.Performers))
-	query.handleCriterionFunc(imagePerformerCountCriterionHandler(qb, imageFilter.PerformerCount))
-	query.handleCriterionFunc(imageStudioCriterionHandler(qb, imageFilter.Studios))
-	query.handleCriterionFunc(imagePerformerTagsCriterionHandler(qb, imageFilter.PerformerTags))
+	query.handleCriterion(imageTagsCriterionHandler(qb, imageFilter.Tags))
+	query.handleCriterion(imageTagCountCriterionHandler(qb, imageFilter.TagCount))
+	query.handleCriterion(imageGalleriesCriterionHandler(qb, imageFilter.Galleries))
+	query.handleCriterion(imagePerformersCriterionHandler(qb, imageFilter.Performers))
+	query.handleCriterion(imagePerformerCountCriterionHandler(qb, imageFilter.PerformerCount))
+	query.handleCriterion(imageStudioCriterionHandler(qb, imageFilter.Studios))
+	query.handleCriterion(imagePerformerTagsCriterionHandler(qb, imageFilter.PerformerTags))
+	query.handleCriterion(imagePerformerFavoriteCriterionHandler(imageFilter.PerformerFavorite))
 
 	return query
 }
@@ -258,14 +267,11 @@ func (qb *imageQueryBuilder) makeQuery(imageFilter *models.ImageFilterType, find
 	}
 
 	query := qb.newQuery()
-
-	query.body = selectDistinctIDs(imageTable)
+	distinctIDs(&query, imageTable)
 
 	if q := findFilter.Q; q != nil && *q != "" {
 		searchColumns := []string{"images.title", "images.path", "images.checksum"}
-		clause, thisArgs := getSearchBinding(searchColumns, *q, false)
-		query.addWhere(clause)
-		query.addArg(thisArgs...)
+		query.parseQueryString(searchColumns, *q)
 	}
 
 	if err := qb.validateFilter(imageFilter); err != nil {
@@ -280,28 +286,65 @@ func (qb *imageQueryBuilder) makeQuery(imageFilter *models.ImageFilterType, find
 	return &query, nil
 }
 
-func (qb *imageQueryBuilder) Query(imageFilter *models.ImageFilterType, findFilter *models.FindFilterType) ([]*models.Image, int, error) {
-	query, err := qb.makeQuery(imageFilter, findFilter)
+func (qb *imageQueryBuilder) Query(options models.ImageQueryOptions) (*models.ImageQueryResult, error) {
+	query, err := qb.makeQuery(options.ImageFilter, options.FindFilter)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	idsResult, countResult, err := query.executeFind()
+	result, err := qb.queryGroupedFields(options, *query)
 	if err != nil {
-		return nil, 0, err
+		return nil, fmt.Errorf("error querying aggregate fields: %w", err)
 	}
 
-	var images []*models.Image
-	for _, id := range idsResult {
-		image, err := qb.Find(id)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		images = append(images, image)
+	idsResult, err := query.findIDs()
+	if err != nil {
+		return nil, fmt.Errorf("error finding IDs: %w", err)
 	}
 
-	return images, countResult, nil
+	result.IDs = idsResult
+	return result, nil
+}
+
+func (qb *imageQueryBuilder) queryGroupedFields(options models.ImageQueryOptions, query queryBuilder) (*models.ImageQueryResult, error) {
+	if !options.Count && !options.Megapixels && !options.TotalSize {
+		// nothing to do - return empty result
+		return models.NewImageQueryResult(qb), nil
+	}
+
+	aggregateQuery := qb.newQuery()
+
+	if options.Count {
+		aggregateQuery.addColumn("COUNT(temp.id) as total")
+	}
+
+	if options.Megapixels {
+		query.addColumn("COALESCE(images.width, 0) * COALESCE(images.height, 0) / 1000000 as megapixels")
+		aggregateQuery.addColumn("COALESCE(SUM(temp.megapixels), 0) as megapixels")
+	}
+
+	if options.TotalSize {
+		query.addColumn("COALESCE(images.size, 0) as size")
+		aggregateQuery.addColumn("COALESCE(SUM(temp.size), 0) as size")
+	}
+
+	const includeSortPagination = false
+	aggregateQuery.from = fmt.Sprintf("(%s) as temp", query.toSQL(includeSortPagination))
+
+	out := struct {
+		Total      int
+		Megapixels float64
+		Size       float64
+	}{}
+	if err := qb.repository.queryStruct(aggregateQuery.toSQL(includeSortPagination), query.args, &out); err != nil {
+		return nil, err
+	}
+
+	ret := models.NewImageQueryResult(qb)
+	ret.Count = out.Total
+	ret.Megapixels = out.Megapixels
+	ret.TotalSize = out.Size
+	return ret, nil
 }
 
 func (qb *imageQueryBuilder) QueryCount(imageFilter *models.ImageFilterType, findFilter *models.FindFilterType) (int, error) {
@@ -346,17 +389,18 @@ func (qb *imageQueryBuilder) getMultiCriterionHandlerBuilder(foreignTable, joinT
 	}
 }
 
-func imageTagsCriterionHandler(qb *imageQueryBuilder, tags *models.MultiCriterionInput) criterionHandlerFunc {
-	h := joinedMultiCriterionHandlerBuilder{
-		primaryTable: imageTable,
-		joinTable:    imagesTagsTable,
-		joinAs:       "tags_join",
-		primaryFK:    imageIDColumn,
-		foreignFK:    tagIDColumn,
+func imageTagsCriterionHandler(qb *imageQueryBuilder, tags *models.HierarchicalMultiCriterionInput) criterionHandlerFunc {
+	h := joinedHierarchicalMultiCriterionHandlerBuilder{
+		tx: qb.tx,
 
-		addJoinTable: func(f *filterBuilder) {
-			qb.tagsRepository().join(f, "tags_join", "images.id")
-		},
+		primaryTable: imageTable,
+		foreignTable: tagTable,
+		foreignFK:    "tag_id",
+
+		relationsTable: "tags_relations",
+		joinAs:         "image_tag",
+		joinTable:      imagesTagsTable,
+		primaryFK:      imageIDColumn,
 	}
 
 	return h.handler(tags)
@@ -374,8 +418,8 @@ func imageTagCountCriterionHandler(qb *imageQueryBuilder, tagCount *models.IntCr
 
 func imageGalleriesCriterionHandler(qb *imageQueryBuilder, galleries *models.MultiCriterionInput) criterionHandlerFunc {
 	addJoinsFunc := func(f *filterBuilder) {
-		qb.galleriesRepository().join(f, "galleries_join", "images.id")
-		f.addJoin(galleryTable, "", "galleries_join.gallery_id = galleries.id")
+		qb.galleriesRepository().join(f, "", "images.id")
+		f.addLeftJoin(galleryTable, "", "galleries_images.gallery_id = galleries.id")
 	}
 	h := qb.getMultiCriterionHandlerBuilder(galleryTable, galleriesImagesTable, galleryIDColumn, addJoinsFunc)
 
@@ -408,8 +452,30 @@ func imagePerformerCountCriterionHandler(qb *imageQueryBuilder, performerCount *
 	return h.handler(performerCount)
 }
 
+func imagePerformerFavoriteCriterionHandler(performerfavorite *bool) criterionHandlerFunc {
+	return func(f *filterBuilder) {
+		if performerfavorite != nil {
+			f.addLeftJoin("performers_images", "", "images.id = performers_images.image_id")
+
+			if *performerfavorite {
+				// contains at least one favorite
+				f.addLeftJoin("performers", "", "performers.id = performers_images.performer_id")
+				f.addWhere("performers.favorite = 1")
+			} else {
+				// contains zero favorites
+				f.addLeftJoin(`(SELECT performers_images.image_id as id FROM performers_images
+JOIN performers ON performers.id = performers_images.performer_id
+GROUP BY performers_images.image_id HAVING SUM(performers.favorite) = 0)`, "nofaves", "images.id = nofaves.id")
+				f.addWhere("performers_images.image_id IS NULL OR nofaves.id IS NOT NULL")
+			}
+		}
+	}
+}
+
 func imageStudioCriterionHandler(qb *imageQueryBuilder, studios *models.HierarchicalMultiCriterionInput) criterionHandlerFunc {
 	h := hierarchicalMultiCriterionHandlerBuilder{
+		tx: qb.tx,
+
 		primaryTable: imageTable,
 		foreignTable: studioTable,
 		foreignFK:    studioIDColumn,
@@ -420,38 +486,44 @@ func imageStudioCriterionHandler(qb *imageQueryBuilder, studios *models.Hierarch
 	return h.handler(studios)
 }
 
-func imagePerformerTagsCriterionHandler(qb *imageQueryBuilder, performerTagsFilter *models.MultiCriterionInput) criterionHandlerFunc {
+func imagePerformerTagsCriterionHandler(qb *imageQueryBuilder, tags *models.HierarchicalMultiCriterionInput) criterionHandlerFunc {
 	return func(f *filterBuilder) {
-		if performerTagsFilter != nil && len(performerTagsFilter.Value) > 0 {
-			qb.performersRepository().join(f, "performers_join", "images.id")
-			f.addJoin("performers_tags", "performer_tags_join", "performers_join.performer_id = performer_tags_join.performer_id")
+		if tags != nil {
+			if tags.Modifier == models.CriterionModifierIsNull || tags.Modifier == models.CriterionModifierNotNull {
+				var notClause string
+				if tags.Modifier == models.CriterionModifierNotNull {
+					notClause = "NOT"
+				}
 
-			var args []interface{}
-			for _, tagID := range performerTagsFilter.Value {
-				args = append(args, tagID)
+				f.addLeftJoin("performers_images", "", "images.id = performers_images.image_id")
+				f.addLeftJoin("performers_tags", "", "performers_images.performer_id = performers_tags.performer_id")
+
+				f.addWhere(fmt.Sprintf("performers_tags.tag_id IS %s NULL", notClause))
+				return
 			}
 
-			if performerTagsFilter.Modifier == models.CriterionModifierIncludes {
-				// includes any of the provided ids
-				f.addWhere("performer_tags_join.tag_id IN "+getInBinding(len(performerTagsFilter.Value)), args...)
-			} else if performerTagsFilter.Modifier == models.CriterionModifierIncludesAll {
-				// includes all of the provided ids
-				f.addWhere("performer_tags_join.tag_id IN "+getInBinding(len(performerTagsFilter.Value)), args...)
-				f.addHaving(fmt.Sprintf("count(distinct performer_tags_join.tag_id) IS %d", len(performerTagsFilter.Value)))
-			} else if performerTagsFilter.Modifier == models.CriterionModifierExcludes {
-				f.addWhere(fmt.Sprintf(`not exists
-					(select performers_images.performer_id from performers_images
-						left join performers_tags on performers_tags.performer_id = performers_images.performer_id where
-						performers_images.image_id = images.id AND
-						performers_tags.tag_id in %s)`, getInBinding(len(performerTagsFilter.Value))), args...)
+			if len(tags.Value) == 0 {
+				return
 			}
+
+			valuesClause := getHierarchicalValues(qb.tx, tags.Value, tagTable, "tags_relations", "", tags.Depth)
+
+			f.addWith(`performer_tags AS (
+SELECT pi.image_id, t.column1 AS root_tag_id FROM performers_images pi
+INNER JOIN performers_tags pt ON pt.performer_id = pi.performer_id
+INNER JOIN (` + valuesClause + `) t ON t.column2 = pt.tag_id
+)`)
+
+			f.addLeftJoin("performer_tags", "", "performer_tags.image_id = images.id")
+
+			addHierarchicalConditionClauses(f, tags, "performer_tags", "root_tag_id")
 		}
 	}
 }
 
 func (qb *imageQueryBuilder) getImageSort(findFilter *models.FindFilterType) string {
-	if findFilter == nil {
-		return " ORDER BY images.path ASC "
+	if findFilter == nil || findFilter.Sort == nil || *findFilter.Sort == "" {
+		return ""
 	}
 	sort := findFilter.GetSort("title")
 	direction := findFilter.GetDirection()

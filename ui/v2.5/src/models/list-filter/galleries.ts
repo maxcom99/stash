@@ -1,6 +1,9 @@
-import { createCriterionOption } from "./criteria/criterion";
+import {
+  createMandatoryNumberCriterionOption,
+  createStringCriterionOption,
+} from "./criteria/criterion";
+import { PerformerFavoriteCriterionOption } from "./criteria/favorite";
 import { GalleryIsMissingCriterionOption } from "./criteria/is-missing";
-import { NoneCriterionOption } from "./criteria/none";
 import { OrganizedCriterionOption } from "./criteria/organized";
 import { PerformersCriterionOption } from "./criteria/performers";
 import { RatingCriterionOption } from "./criteria/rating";
@@ -10,20 +13,12 @@ import {
   PerformerTagsCriterionOption,
   TagsCriterionOption,
 } from "./criteria/tags";
-import { ListFilterOptions } from "./filter-options";
+import { ListFilterOptions, MediaSortByOptions } from "./filter-options";
 import { DisplayMode } from "./types";
 
 const defaultSortBy = "path";
 
-const sortByOptions = [
-  "date",
-  "path",
-  "file_mod_time",
-  "tag_count",
-  "performer_count",
-  "title",
-  "random",
-]
+const sortByOptions = ["date", ...MediaSortByOptions]
   .map(ListFilterOptions.createSortBy)
   .concat([
     {
@@ -39,20 +34,28 @@ const displayModeOptions = [
 ];
 
 const criterionOptions = [
-  NoneCriterionOption,
-  createCriterionOption("path"),
+  createStringCriterionOption("title"),
+  createStringCriterionOption("details"),
+  createStringCriterionOption("path"),
+  createStringCriterionOption(
+    "galleryChecksum",
+    "media_info.checksum",
+    "checksum"
+  ),
   RatingCriterionOption,
   OrganizedCriterionOption,
   AverageResolutionCriterionOption,
   GalleryIsMissingCriterionOption,
   TagsCriterionOption,
-  createCriterionOption("tag_count"),
+  createStringCriterionOption("tag_count"),
   PerformerTagsCriterionOption,
   PerformersCriterionOption,
-  createCriterionOption("performer_count"),
-  createCriterionOption("image_count"),
+  createStringCriterionOption("performer_count"),
+  createMandatoryNumberCriterionOption("performer_age"),
+  PerformerFavoriteCriterionOption,
+  createStringCriterionOption("image_count"),
   StudiosCriterionOption,
-  createCriterionOption("url"),
+  createStringCriterionOption("url"),
 ];
 
 export const GalleryListFilterOptions = new ListFilterOptions(

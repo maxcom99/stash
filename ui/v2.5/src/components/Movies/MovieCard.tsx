@@ -1,7 +1,16 @@
 import React, { FunctionComponent } from "react";
-import { FormattedPlural } from "react-intl";
+import { Button, ButtonGroup } from "react-bootstrap";
 import * as GQL from "src/core/generated-graphql";
-import { BasicCard, TruncatedText } from "src/components/Shared";
+import {
+  GridCard,
+  HoverPopover,
+  Icon,
+  TagLink,
+  TruncatedText,
+} from "src/components/Shared";
+import { FormattedMessage } from "react-intl";
+import { RatingBanner } from "../Shared/RatingBanner";
+import { faPlayCircle } from "@fortawesome/free-solid-svg-icons";
 
 interface IProps {
   movie: GQL.MovieDataFragment;
@@ -12,42 +21,59 @@ interface IProps {
 }
 
 export const MovieCard: FunctionComponent<IProps> = (props: IProps) => {
-  function maybeRenderRatingBanner() {
-    if (!props.movie.rating) {
-      return;
-    }
+  function maybeRenderSceneNumber() {
+    if (!props.sceneIndex) return;
+
     return (
-      <div
-        className={`rating-banner ${
-          props.movie.rating ? `rating-${props.movie.rating}` : ""
-        }`}
-      >
-        RATING: {props.movie.rating}
-      </div>
+      <>
+        <hr />
+        <span className="movie-scene-number">
+          <FormattedMessage id="scene" /> #{props.sceneIndex}
+        </span>
+      </>
     );
   }
 
-  function maybeRenderSceneNumber() {
-    if (!props.sceneIndex) {
+  function maybeRenderScenesPopoverButton() {
+    if (props.movie.scenes.length === 0) return;
+
+    const popoverContent = props.movie.scenes.map((scene) => (
+      <TagLink key={scene.id} scene={scene} />
+    ));
+
+    return (
+      <HoverPopover
+        className="scene-count"
+        placement="bottom"
+        content={popoverContent}
+      >
+        <Button className="minimal">
+          <Icon icon={faPlayCircle} />
+          <span>{props.movie.scenes.length}</span>
+        </Button>
+      </HoverPopover>
+    );
+  }
+
+  function maybeRenderPopoverButtonGroup() {
+    if (props.sceneIndex || props.movie.scenes.length > 0) {
       return (
-        <span>
-          {props.movie.scene_count}&nbsp;
-          <FormattedPlural
-            value={props.movie.scene_count ?? 0}
-            one="scene"
-            other="scenes"
-          />
-        </span>
+        <>
+          {maybeRenderSceneNumber()}
+          <hr />
+          <ButtonGroup className="card-popovers">
+            {maybeRenderScenesPopoverButton()}
+          </ButtonGroup>
+        </>
       );
     }
-
-    return <span>Scene number: {props.sceneIndex}</span>;
   }
 
   return (
-    <BasicCard
+    <GridCard
       className="movie-card"
       url={`/movies/${props.movie.id}`}
+      title={props.movie.name}
       linkClassName="movie-card-header"
       image={
         <>
@@ -56,20 +82,23 @@ export const MovieCard: FunctionComponent<IProps> = (props: IProps) => {
             alt={props.movie.name ?? ""}
             src={props.movie.front_image_path ?? ""}
           />
-          {maybeRenderRatingBanner()}
+          <RatingBanner rating={props.movie.rating} />
         </>
       }
       details={
-        <>
-          <h5>
-            <TruncatedText text={props.movie.name} lineCount={2} />
-          </h5>
-          {maybeRenderSceneNumber()}
-        </>
+        <div className="movie-card__details">
+          <span className="movie-card__date">{props.movie.date}</span>
+          <TruncatedText
+            className="movie-card__description"
+            text={props.movie.synopsis}
+            lineCount={3}
+          />
+        </div>
       }
       selected={props.selected}
       selecting={props.selecting}
       onSelectedChanged={props.onSelectedChanged}
+      popovers={maybeRenderPopoverButtonGroup()}
     />
   );
 };

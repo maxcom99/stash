@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
+	"github.com/stashapp/stash/pkg/hash/md5"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
+	"github.com/stashapp/stash/pkg/sliceutil/stringslice"
 	"github.com/stashapp/stash/pkg/utils"
 )
 
@@ -32,9 +34,9 @@ func (i *Importer) PreImport() error {
 
 	var err error
 	if len(i.Input.Image) > 0 {
-		_, i.imageData, err = utils.ProcessBase64Image(i.Input.Image)
+		i.imageData, err = utils.ProcessBase64Image(i.Input.Image)
 		if err != nil {
-			return fmt.Errorf("invalid image: %s", err.Error())
+			return fmt.Errorf("invalid image: %v", err)
 		}
 	}
 
@@ -66,8 +68,8 @@ func importTags(tagWriter models.TagReaderWriter, names []string, missingRefBeha
 		pluckedNames = append(pluckedNames, tag.Name)
 	}
 
-	missingTags := utils.StrFilter(names, func(name string) bool {
-		return !utils.StrInclude(pluckedNames, name)
+	missingTags := stringslice.StrFilter(names, func(name string) bool {
+		return !stringslice.StrInclude(pluckedNames, name)
 	})
 
 	if len(missingTags) > 0 {
@@ -78,7 +80,7 @@ func importTags(tagWriter models.TagReaderWriter, names []string, missingRefBeha
 		if missingRefBehaviour == models.ImportMissingRefEnumCreate {
 			createdTags, err := createTags(tagWriter, missingTags)
 			if err != nil {
-				return nil, fmt.Errorf("error creating tags: %s", err.Error())
+				return nil, fmt.Errorf("error creating tags: %v", err)
 			}
 
 			tags = append(tags, createdTags...)
@@ -113,13 +115,19 @@ func (i *Importer) PostImport(id int) error {
 			tagIDs = append(tagIDs, t.ID)
 		}
 		if err := i.ReaderWriter.UpdateTags(id, tagIDs); err != nil {
-			return fmt.Errorf("failed to associate tags: %s", err.Error())
+			return fmt.Errorf("failed to associate tags: %v", err)
 		}
 	}
 
 	if len(i.imageData) > 0 {
 		if err := i.ReaderWriter.UpdateImage(id, i.imageData); err != nil {
-			return fmt.Errorf("error setting performer image: %s", err.Error())
+			return fmt.Errorf("error setting performer image: %v", err)
+		}
+	}
+
+	if len(i.Input.StashIDs) > 0 {
+		if err := i.ReaderWriter.UpdateStashIDs(id, i.Input.StashIDs); err != nil {
+			return fmt.Errorf("error setting stash id: %v", err)
 		}
 	}
 
@@ -148,7 +156,7 @@ func (i *Importer) FindExistingID() (*int, error) {
 func (i *Importer) Create() (*int, error) {
 	created, err := i.ReaderWriter.Create(i.performer)
 	if err != nil {
-		return nil, fmt.Errorf("error creating performer: %s", err.Error())
+		return nil, fmt.Errorf("error creating performer: %v", err)
 	}
 
 	id := created.ID
@@ -160,20 +168,21 @@ func (i *Importer) Update(id int) error {
 	performer.ID = id
 	_, err := i.ReaderWriter.UpdateFull(performer)
 	if err != nil {
-		return fmt.Errorf("error updating existing performer: %s", err.Error())
+		return fmt.Errorf("error updating existing performer: %v", err)
 	}
 
 	return nil
 }
 
 func performerJSONToPerformer(performerJSON jsonschema.Performer) models.Performer {
-	checksum := utils.MD5FromString(performerJSON.Name)
+	checksum := md5.FromString(performerJSON.Name)
 
 	newPerformer := models.Performer{
-		Checksum:  checksum,
-		Favorite:  sql.NullBool{Bool: performerJSON.Favorite, Valid: true},
-		CreatedAt: models.SQLiteTimestamp{Timestamp: performerJSON.CreatedAt.GetTime()},
-		UpdatedAt: models.SQLiteTimestamp{Timestamp: performerJSON.UpdatedAt.GetTime()},
+		Checksum:      checksum,
+		Favorite:      sql.NullBool{Bool: performerJSON.Favorite, Valid: true},
+		IgnoreAutoTag: performerJSON.IgnoreAutoTag,
+		CreatedAt:     models.SQLiteTimestamp{Timestamp: performerJSON.CreatedAt.GetTime()},
+		UpdatedAt:     models.SQLiteTimestamp{Timestamp: performerJSON.UpdatedAt.GetTime()},
 	}
 
 	if performerJSON.Name != "" {

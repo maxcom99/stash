@@ -5,8 +5,10 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/json"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
+	"github.com/stashapp/stash/pkg/sliceutil/intslice"
 	"github.com/stashapp/stash/pkg/utils"
 )
 
@@ -15,8 +17,8 @@ import (
 // of cover image.
 func ToBasicJSON(reader models.SceneReader, scene *models.Scene) (*jsonschema.Scene, error) {
 	newSceneJSON := jsonschema.Scene{
-		CreatedAt: models.JSONTime{Time: scene.CreatedAt.Timestamp},
-		UpdatedAt: models.JSONTime{Time: scene.UpdatedAt.Timestamp},
+		CreatedAt: json.JSONTime{Time: scene.CreatedAt.Timestamp},
+		UpdatedAt: json.JSONTime{Time: scene.UpdatedAt.Timestamp},
 	}
 
 	if scene.Checksum.Valid {
@@ -58,12 +60,24 @@ func ToBasicJSON(reader models.SceneReader, scene *models.Scene) (*jsonschema.Sc
 
 	cover, err := reader.GetCover(scene.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting scene cover: %s", err.Error())
+		return nil, fmt.Errorf("error getting scene cover: %v", err)
 	}
 
 	if len(cover) > 0 {
 		newSceneJSON.Cover = utils.GetBase64StringFromData(cover)
 	}
+
+	stashIDs, _ := reader.GetStashIDs(scene.ID)
+	var ret []models.StashID
+	for _, stashID := range stashIDs {
+		newJoin := models.StashID{
+			StashID:  stashID.StashID,
+			Endpoint: stashID.Endpoint,
+		}
+		ret = append(ret, newJoin)
+	}
+
+	newSceneJSON.StashIDs = ret
 
 	return &newSceneJSON, nil
 }
@@ -72,7 +86,7 @@ func getSceneFileJSON(scene *models.Scene) *jsonschema.SceneFile {
 	ret := &jsonschema.SceneFile{}
 
 	if scene.FileModTime.Valid {
-		ret.ModTime = models.JSONTime{Time: scene.FileModTime.Timestamp}
+		ret.ModTime = json.JSONTime{Time: scene.FileModTime.Timestamp}
 	}
 
 	if scene.Size.Valid {
@@ -136,7 +150,7 @@ func GetStudioName(reader models.StudioReader, scene *models.Scene) (string, err
 func GetTagNames(reader models.TagReader, scene *models.Scene) ([]string, error) {
 	tags, err := reader.FindBySceneID(scene.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting scene tags: %s", err.Error())
+		return nil, fmt.Errorf("error getting scene tags: %v", err)
 	}
 
 	return getTagNames(tags), nil
@@ -163,7 +177,7 @@ func GetDependentTagIDs(tags models.TagReader, markerReader models.SceneMarkerRe
 	}
 
 	for _, tt := range t {
-		ret = utils.IntAppendUnique(ret, tt.ID)
+		ret = intslice.IntAppendUnique(ret, tt.ID)
 	}
 
 	sm, err := markerReader.FindBySceneID(scene.ID)
@@ -172,14 +186,14 @@ func GetDependentTagIDs(tags models.TagReader, markerReader models.SceneMarkerRe
 	}
 
 	for _, smm := range sm {
-		ret = utils.IntAppendUnique(ret, smm.PrimaryTagID)
+		ret = intslice.IntAppendUnique(ret, smm.PrimaryTagID)
 		smmt, err := tags.FindBySceneMarkerID(smm.ID)
 		if err != nil {
-			return nil, fmt.Errorf("invalid tags for scene marker: %s", err.Error())
+			return nil, fmt.Errorf("invalid tags for scene marker: %v", err)
 		}
 
 		for _, smmtt := range smmt {
-			ret = utils.IntAppendUnique(ret, smmtt.ID)
+			ret = intslice.IntAppendUnique(ret, smmtt.ID)
 		}
 	}
 
@@ -191,14 +205,14 @@ func GetDependentTagIDs(tags models.TagReader, markerReader models.SceneMarkerRe
 func GetSceneMoviesJSON(movieReader models.MovieReader, sceneReader models.SceneReader, scene *models.Scene) ([]jsonschema.SceneMovie, error) {
 	sceneMovies, err := sceneReader.GetMovies(scene.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting scene movies: %s", err.Error())
+		return nil, fmt.Errorf("error getting scene movies: %v", err)
 	}
 
 	var results []jsonschema.SceneMovie
 	for _, sceneMovie := range sceneMovies {
 		movie, err := movieReader.Find(sceneMovie.MovieID)
 		if err != nil {
-			return nil, fmt.Errorf("error getting movie: %s", err.Error())
+			return nil, fmt.Errorf("error getting movie: %v", err)
 		}
 
 		if movie.Name.Valid {
@@ -234,7 +248,7 @@ func GetDependentMovieIDs(sceneReader models.SceneReader, scene *models.Scene) (
 func GetSceneMarkersJSON(markerReader models.SceneMarkerReader, tagReader models.TagReader, scene *models.Scene) ([]jsonschema.SceneMarker, error) {
 	sceneMarkers, err := markerReader.FindBySceneID(scene.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting scene markers: %s", err.Error())
+		return nil, fmt.Errorf("error getting scene markers: %v", err)
 	}
 
 	var results []jsonschema.SceneMarker
@@ -242,12 +256,12 @@ func GetSceneMarkersJSON(markerReader models.SceneMarkerReader, tagReader models
 	for _, sceneMarker := range sceneMarkers {
 		primaryTag, err := tagReader.Find(sceneMarker.PrimaryTagID)
 		if err != nil {
-			return nil, fmt.Errorf("invalid primary tag for scene marker: %s", err.Error())
+			return nil, fmt.Errorf("invalid primary tag for scene marker: %v", err)
 		}
 
 		sceneMarkerTags, err := tagReader.FindBySceneMarkerID(sceneMarker.ID)
 		if err != nil {
-			return nil, fmt.Errorf("invalid tags for scene marker: %s", err.Error())
+			return nil, fmt.Errorf("invalid tags for scene marker: %v", err)
 		}
 
 		sceneMarkerJSON := jsonschema.SceneMarker{
@@ -255,8 +269,8 @@ func GetSceneMarkersJSON(markerReader models.SceneMarkerReader, tagReader models
 			Seconds:    getDecimalString(sceneMarker.Seconds),
 			PrimaryTag: primaryTag.Name,
 			Tags:       getTagNames(sceneMarkerTags),
-			CreatedAt:  models.JSONTime{Time: sceneMarker.CreatedAt.Timestamp},
-			UpdatedAt:  models.JSONTime{Time: sceneMarker.UpdatedAt.Timestamp},
+			CreatedAt:  json.JSONTime{Time: sceneMarker.CreatedAt.Timestamp},
+			UpdatedAt:  json.JSONTime{Time: sceneMarker.UpdatedAt.Timestamp},
 		}
 
 		results = append(results, sceneMarkerJSON)

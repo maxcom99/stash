@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package sqlite_test
@@ -11,8 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/stashapp/stash/pkg/hash/md5"
 	"github.com/stashapp/stash/pkg/models"
-	"github.com/stashapp/stash/pkg/utils"
 )
 
 func TestMovieFindByName(t *testing.T) {
@@ -81,7 +82,6 @@ func TestMovieQueryStudio(t *testing.T) {
 				strconv.Itoa(studioIDs[studioIdxWithMovie]),
 			},
 			Modifier: models.CriterionModifierIncludes,
-			Depth:    0,
 		}
 
 		movieFilter := models.MovieFilterType{
@@ -103,7 +103,6 @@ func TestMovieQueryStudio(t *testing.T) {
 				strconv.Itoa(studioIDs[studioIdxWithMovie]),
 			},
 			Modifier: models.CriterionModifierExcludes,
-			Depth:    0,
 		}
 
 		q := getMovieStringValue(movieIdxWithStudio, titleField)
@@ -186,6 +185,35 @@ func queryMovie(t *testing.T, sqb models.MovieReader, movieFilter *models.MovieF
 	return movies
 }
 
+func TestMovieQuerySorting(t *testing.T) {
+	sort := "scenes_count"
+	direction := models.SortDirectionEnumDesc
+	findFilter := models.FindFilterType{
+		Sort:      &sort,
+		Direction: &direction,
+	}
+
+	withTxn(func(r models.Repository) error {
+		sqb := r.Movie()
+		movies := queryMovie(t, sqb, nil, &findFilter)
+
+		// scenes should be in same order as indexes
+		firstMovie := movies[0]
+
+		assert.Equal(t, movieIDs[movieIdxWithScene], firstMovie.ID)
+
+		// sort in descending order
+		direction = models.SortDirectionEnumAsc
+
+		movies = queryMovie(t, sqb, nil, &findFilter)
+		lastMovie := movies[len(movies)-1]
+
+		assert.Equal(t, movieIDs[movieIdxWithScene], lastMovie.ID)
+
+		return nil
+	})
+}
+
 func TestMovieUpdateMovieImages(t *testing.T) {
 	if err := withTxn(func(r models.Repository) error {
 		mqb := r.Movie()
@@ -194,7 +222,7 @@ func TestMovieUpdateMovieImages(t *testing.T) {
 		const name = "TestMovieUpdateMovieImages"
 		movie := models.Movie{
 			Name:     sql.NullString{String: name, Valid: true},
-			Checksum: utils.MD5FromString(name),
+			Checksum: md5.FromString(name),
 		}
 		created, err := mqb.Create(movie)
 		if err != nil {
@@ -261,7 +289,7 @@ func TestMovieDestroyMovieImages(t *testing.T) {
 		const name = "TestMovieDestroyMovieImages"
 		movie := models.Movie{
 			Name:     sql.NullString{String: name, Valid: true},
-			Checksum: utils.MD5FromString(name),
+			Checksum: md5.FromString(name),
 		}
 		created, err := mqb.Create(movie)
 		if err != nil {

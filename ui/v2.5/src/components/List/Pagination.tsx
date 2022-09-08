@@ -1,11 +1,12 @@
 import React from "react";
 import { Button, ButtonGroup } from "react-bootstrap";
-import { FormattedNumber, useIntl } from "react-intl";
+import { FormattedMessage, FormattedNumber, useIntl } from "react-intl";
 
 interface IPaginationProps {
   itemsPerPage: number;
   currentPage: number;
   totalItems: number;
+  metadataByline?: React.ReactNode;
   onChangePage: (page: number) => void;
 }
 
@@ -13,6 +14,7 @@ interface IPaginationIndexProps {
   itemsPerPage: number;
   currentPage: number;
   totalItems: number;
+  metadataByline?: React.ReactNode;
 }
 
 export const Pagination: React.FC<IPaginationProps> = ({
@@ -75,7 +77,9 @@ export const Pagination: React.FC<IPaginationProps> = ({
         disabled={currentPage === 1}
         onClick={() => onChangePage(1)}
       >
-        <span className="d-none d-sm-inline">First</span>
+        <span className="d-none d-sm-inline">
+          <FormattedMessage id="pagination.first" />
+        </span>
         <span className="d-inline d-sm-none">&#x300a;</span>
       </Button>
       <Button
@@ -84,7 +88,7 @@ export const Pagination: React.FC<IPaginationProps> = ({
         disabled={currentPage === 1}
         onClick={() => onChangePage(currentPage - 1)}
       >
-        Previous
+        <FormattedMessage id="pagination.previous" />
       </Button>
       {pageButtons}
       <Button
@@ -93,14 +97,16 @@ export const Pagination: React.FC<IPaginationProps> = ({
         disabled={currentPage === totalPages}
         onClick={() => onChangePage(currentPage + 1)}
       >
-        Next
+        <FormattedMessage id="pagination.next" />
       </Button>
       <Button
         variant="secondary"
         disabled={currentPage === totalPages}
         onClick={() => onChangePage(totalPages)}
       >
-        <span className="d-none d-sm-inline">Last</span>
+        <span className="d-none d-sm-inline">
+          <FormattedMessage id="pagination.last" />
+        </span>
         <span className="d-inline d-sm-none">&#x300b;</span>
       </Button>
     </ButtonGroup>
@@ -111,6 +117,7 @@ export const PaginationIndex: React.FC<IPaginationIndexProps> = ({
   itemsPerPage,
   currentPage,
   totalItems,
+  metadataByline,
 }) => {
   const intl = useIntl();
 
@@ -128,8 +135,10 @@ export const PaginationIndex: React.FC<IPaginationIndexProps> = ({
   )}-${intl.formatNumber(lastItemCount)} of ${intl.formatNumber(totalItems)}`;
 
   return (
-    <span className="filter-container text-muted paginationIndex">
+    <span className="filter-container text-muted paginationIndex center-text">
       {indexText}
+      <br />
+      {metadataByline}
     </span>
   );
 };

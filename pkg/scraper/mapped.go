@@ -1,6 +1,7 @@
 package scraper
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -12,13 +13,15 @@ import (
 
 	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
-	"github.com/stashapp/stash/pkg/utils"
+	"github.com/stashapp/stash/pkg/sliceutil/stringslice"
 	"gopkg.in/yaml.v2"
 )
 
 type mappedQuery interface {
-	runQuery(selector string) []string
-	subScrape(value string) mappedQuery
+	runQuery(selector string) ([]string, error)
+	getType() QueryType
+	setType(QueryType)
+	subScrape(ctx context.Context, value string) mappedQuery
 }
 
 type commonMappedConfig map[string]string
@@ -32,15 +35,13 @@ func (s mappedConfig) applyCommon(c commonMappedConfig, src string) string {
 
 	ret := src
 	for commonKey, commonVal := range c {
-		if strings.Contains(ret, commonKey) {
-			ret = strings.Replace(ret, commonKey, commonVal, -1)
-		}
+		ret = strings.ReplaceAll(ret, commonKey, commonVal)
 	}
 
 	return ret
 }
 
-func (s mappedConfig) process(q mappedQuery, common commonMappedConfig) mappedResults {
+func (s mappedConfig) process(ctx context.Context, q mappedQuery, common commonMappedConfig) mappedResults {
 	var ret mappedResults
 
 	for k, attrConfig := range s {
@@ -53,10 +54,13 @@ func (s mappedConfig) process(q mappedQuery, common commonMappedConfig) mappedRe
 			selector := attrConfig.Selector
 			selector = s.applyCommon(common, selector)
 
-			found := q.runQuery(selector)
+			found, err := q.runQuery(selector)
+			if err != nil {
+				logger.Warnf("key '%v': %v", k, err)
+			}
 
 			if len(found) > 0 {
-				result := s.postProcess(q, attrConfig, found)
+				result := s.postProcess(ctx, q, attrConfig, found)
 				for i, text := range result {
 					ret = ret.setKey(i, k, text)
 				}
@@ -67,14 +71,18 @@ func (s mappedConfig) process(q mappedQuery, common commonMappedConfig) mappedRe
 	return ret
 }
 
-func (s mappedConfig) postProcess(q mappedQuery, attrConfig mappedScraperAttrConfig, found []string) []string {
+func (s mappedConfig) postProcess(ctx context.Context, q mappedQuery, attrConfig mappedScraperAttrConfig, found []string) []string {
 	// check if we're concatenating the results into a single result
 	var ret []string
 	if attrConfig.hasConcat() {
 		result := attrConfig.concatenateResults(found)
-		result = attrConfig.postProcess(result, q)
+		result = attrConfig.postProcess(ctx, result, q)
 		if attrConfig.hasSplit() {
 			results := attrConfig.splitString(result)
+			// skip cleaning when the query is used for searching
+			if q.getType() == SearchQuery {
+				return results
+			}
 			results = attrConfig.cleanResults(results)
 			return results
 		}
@@ -82,14 +90,19 @@ func (s mappedConfig) postProcess(q mappedQuery, attrConfig mappedScraperAttrCon
 		ret = []string{result}
 	} else {
 		for _, text := range found {
-			text = attrConfig.postProcess(text, q)
+			text = attrConfig.postProcess(ctx, text, q)
 			if attrConfig.hasSplit() {
 				return attrConfig.splitString(text)
 			}
 
 			ret = append(ret, text)
 		}
+		// skip cleaning when the query is used for searching
+		if q.getType() == SearchQuery {
+			return ret
+		}
 		ret = attrConfig.cleanResults(ret)
+
 	}
 
 	return ret
@@ -358,12 +371,12 @@ func (c mappedRegexConfigs) apply(value string) string {
 }
 
 type postProcessAction interface {
-	Apply(value string, q mappedQuery) string
+	Apply(ctx context.Context, value string, q mappedQuery) string
 }
 
 type postProcessParseDate string
 
-func (p *postProcessParseDate) Apply(value string, q mappedQuery) string {
+func (p *postProcessParseDate) Apply(ctx context.Context, value string, q mappedQuery) string {
 	parseDate := string(*p)
 
 	const internalDateFormat = "2006-01-02"
@@ -395,7 +408,7 @@ func (p *postProcessParseDate) Apply(value string, q mappedQuery) string {
 
 type postProcessSubtractDays bool
 
-func (p *postProcessSubtractDays) Apply(value string, q mappedQuery) string {
+func (p *postProcessSubtractDays) Apply(ctx context.Context, value string, q mappedQuery) string {
 	const internalDateFormat = "2006-01-02"
 
 	i, err := strconv.Atoi(value)
@@ -411,21 +424,24 @@ func (p *postProcessSubtractDays) Apply(value string, q mappedQuery) string {
 
 type postProcessReplace mappedRegexConfigs
 
-func (c *postProcessReplace) Apply(value string, q mappedQuery) string {
+func (c *postProcessReplace) Apply(ctx context.Context, value string, q mappedQuery) string {
 	replace := mappedRegexConfigs(*c)
 	return replace.apply(value)
 }
 
 type postProcessSubScraper mappedScraperAttrConfig
 
-func (p *postProcessSubScraper) Apply(value string, q mappedQuery) string {
+func (p *postProcessSubScraper) Apply(ctx context.Context, value string, q mappedQuery) string {
 	subScrapeConfig := mappedScraperAttrConfig(*p)
 
 	logger.Debugf("Sub-scraping for: %s", value)
-	ss := q.subScrape(value)
+	ss := q.subScrape(ctx, value)
 
 	if ss != nil {
-		found := ss.runQuery(subScrapeConfig.Selector)
+		found, err := ss.runQuery(subScrapeConfig.Selector)
+		if err != nil {
+			logger.Warnf("subscrape for '%v': %v", value, err)
+		}
 
 		if len(found) > 0 {
 			// check if we're concatenating the results into a single result
@@ -436,7 +452,7 @@ func (p *postProcessSubScraper) Apply(value string, q mappedQuery) string {
 				result = found[0]
 			}
 
-			result = subScrapeConfig.postProcess(result, ss)
+			result = subScrapeConfig.postProcess(ctx, result, ss)
 			return result
 		}
 	}
@@ -446,7 +462,7 @@ func (p *postProcessSubScraper) Apply(value string, q mappedQuery) string {
 
 type postProcessMap map[string]string
 
-func (p *postProcessMap) Apply(value string, q mappedQuery) string {
+func (p *postProcessMap) Apply(ctx context.Context, value string, q mappedQuery) string {
 	// return the mapped value if present
 	m := *p
 	mapped, ok := m[value]
@@ -460,7 +476,7 @@ func (p *postProcessMap) Apply(value string, q mappedQuery) string {
 
 type postProcessFeetToCm bool
 
-func (p *postProcessFeetToCm) Apply(value string, q mappedQuery) string {
+func (p *postProcessFeetToCm) Apply(ctx context.Context, value string, q mappedQuery) string {
 	const foot_in_cm = 30.48
 	const inch_in_cm = 2.54
 
@@ -484,11 +500,11 @@ func (p *postProcessFeetToCm) Apply(value string, q mappedQuery) string {
 
 type postProcessLbToKg bool
 
-func (p *postProcessLbToKg) Apply(value string, q mappedQuery) string {
+func (p *postProcessLbToKg) Apply(ctx context.Context, value string, q mappedQuery) string {
 	const lb_in_kg = 0.45359237
 	w, err := strconv.ParseFloat(value, 64)
 	if err == nil {
-		w = w * lb_in_kg
+		w *= lb_in_kg
 		value = strconv.Itoa(int(math.Round(w)))
 	}
 	return value
@@ -557,7 +573,7 @@ func (a mappedPostProcessAction) ToPostProcessAction() (postProcessAction, error
 		if found != "" {
 			return nil, fmt.Errorf("post-process actions must have a single field, found %s and %s", found, "subtractDays")
 		}
-		found = "subtractDays"
+		// found = "subtractDays"
 		action := postProcessSubtractDays(a.SubtractDays)
 		ret = &action
 	}
@@ -578,7 +594,7 @@ type mappedScraperAttrConfig struct {
 
 	postProcessActions []postProcessAction
 
-	// deprecated: use PostProcess instead
+	// Deprecated: use PostProcess instead
 	ParseDate  string                   `yaml:"parseDate"`
 	Replace    mappedRegexConfigs       `yaml:"replace"`
 	SubScraper *mappedScraperAttrConfig `yaml:"subScraper"`
@@ -590,7 +606,8 @@ func (c *mappedScraperAttrConfig) UnmarshalYAML(unmarshal func(interface{}) erro
 	// try unmarshalling into a string first
 	if err := unmarshal(&c.Selector); err != nil {
 		// if it's a type error then we try to unmarshall to the full object
-		if _, ok := err.(*yaml.TypeError); !ok {
+		var typeErr *yaml.TypeError
+		if !errors.As(err, &typeErr) {
 			return err
 		}
 
@@ -663,8 +680,8 @@ func (c mappedScraperAttrConfig) concatenateResults(nodes []string) string {
 }
 
 func (c mappedScraperAttrConfig) cleanResults(nodes []string) []string {
-	cleaned := utils.StrUnique(nodes)      // remove duplicate values
-	cleaned = utils.StrDelete(cleaned, "") // remove empty values
+	cleaned := stringslice.StrUnique(nodes)      // remove duplicate values
+	cleaned = stringslice.StrDelete(cleaned, "") // remove empty values
 	return cleaned
 }
 
@@ -685,9 +702,9 @@ func (c mappedScraperAttrConfig) splitString(value string) []string {
 	return res
 }
 
-func (c mappedScraperAttrConfig) postProcess(value string, q mappedQuery) string {
+func (c mappedScraperAttrConfig) postProcess(ctx context.Context, value string, q mappedQuery) string {
 	for _, action := range c.postProcessActions {
-		value = action.Apply(value, q)
+		value = action.Apply(ctx, value, q)
 	}
 
 	return value
@@ -743,8 +760,8 @@ func (r mappedResults) setKey(index int, key string, value string) mappedResults
 	return r
 }
 
-func (s mappedScraper) scrapePerformer(q mappedQuery) (*models.ScrapedPerformer, error) {
-	var ret models.ScrapedPerformer
+func (s mappedScraper) scrapePerformer(ctx context.Context, q mappedQuery) (*models.ScrapedPerformer, error) {
+	var ret *models.ScrapedPerformer
 
 	performerMap := s.Performer
 	if performerMap == nil {
@@ -753,27 +770,28 @@ func (s mappedScraper) scrapePerformer(q mappedQuery) (*models.ScrapedPerformer,
 
 	performerTagsMap := performerMap.Tags
 
-	results := performerMap.process(q, s.Common)
+	results := performerMap.process(ctx, q, s.Common)
 	if len(results) > 0 {
-		results[0].apply(&ret)
+		ret = &models.ScrapedPerformer{}
+		results[0].apply(ret)
 
 		// now apply the tags
 		if performerTagsMap != nil {
 			logger.Debug(`Processing performer tags:`)
-			tagResults := performerTagsMap.process(q, s.Common)
+			tagResults := performerTagsMap.process(ctx, q, s.Common)
 
 			for _, p := range tagResults {
-				tag := &models.ScrapedSceneTag{}
+				tag := &models.ScrapedTag{}
 				p.apply(tag)
 				ret.Tags = append(ret.Tags, tag)
 			}
 		}
 	}
 
-	return &ret, nil
+	return ret, nil
 }
 
-func (s mappedScraper) scrapePerformers(q mappedQuery) ([]*models.ScrapedPerformer, error) {
+func (s mappedScraper) scrapePerformers(ctx context.Context, q mappedQuery) ([]*models.ScrapedPerformer, error) {
 	var ret []*models.ScrapedPerformer
 
 	performerMap := s.Performer
@@ -781,7 +799,7 @@ func (s mappedScraper) scrapePerformers(q mappedQuery) ([]*models.ScrapedPerform
 		return nil, nil
 	}
 
-	results := performerMap.process(q, s.Common)
+	results := performerMap.process(ctx, q, s.Common)
 	for _, r := range results {
 		var p models.ScrapedPerformer
 		r.apply(&p)
@@ -791,14 +809,10 @@ func (s mappedScraper) scrapePerformers(q mappedQuery) ([]*models.ScrapedPerform
 	return ret, nil
 }
 
-func (s mappedScraper) scrapeScene(q mappedQuery) (*models.ScrapedScene, error) {
+func (s mappedScraper) processScene(ctx context.Context, q mappedQuery, r mappedResult) *models.ScrapedScene {
 	var ret models.ScrapedScene
 
 	sceneScraperConfig := s.Scene
-	sceneMap := sceneScraperConfig.mappedConfig
-	if sceneMap == nil {
-		return nil, nil
-	}
 
 	scenePerformersMap := sceneScraperConfig.Performers
 	sceneTagsMap := sceneScraperConfig.Tags
@@ -807,76 +821,108 @@ func (s mappedScraper) scrapeScene(q mappedQuery) (*models.ScrapedScene, error) 
 
 	scenePerformerTagsMap := scenePerformersMap.Tags
 
-	logger.Debug(`Processing scene:`)
-	results := sceneMap.process(q, s.Common)
-	if len(results) > 0 {
-		results[0].apply(&ret)
+	r.apply(&ret)
 
-		// process performer tags once
-		var performerTagResults mappedResults
-		if scenePerformerTagsMap != nil {
-			performerTagResults = scenePerformerTagsMap.process(q, s.Common)
-		}
+	// process performer tags once
+	var performerTagResults mappedResults
+	if scenePerformerTagsMap != nil {
+		performerTagResults = scenePerformerTagsMap.process(ctx, q, s.Common)
+	}
 
-		// now apply the performers and tags
-		if scenePerformersMap.mappedConfig != nil {
-			logger.Debug(`Processing scene performers:`)
-			performerResults := scenePerformersMap.process(q, s.Common)
+	// now apply the performers and tags
+	if scenePerformersMap.mappedConfig != nil {
+		logger.Debug(`Processing scene performers:`)
+		performerResults := scenePerformersMap.process(ctx, q, s.Common)
 
-			for _, p := range performerResults {
-				performer := &models.ScrapedScenePerformer{}
-				p.apply(performer)
+		for _, p := range performerResults {
+			performer := &models.ScrapedPerformer{}
+			p.apply(performer)
 
-				for _, p := range performerTagResults {
-					tag := &models.ScrapedSceneTag{}
-					p.apply(tag)
-					ret.Tags = append(ret.Tags, tag)
-				}
-
-				ret.Performers = append(ret.Performers, performer)
-			}
-		}
-
-		if sceneTagsMap != nil {
-			logger.Debug(`Processing scene tags:`)
-			tagResults := sceneTagsMap.process(q, s.Common)
-
-			for _, p := range tagResults {
-				tag := &models.ScrapedSceneTag{}
+			for _, p := range performerTagResults {
+				tag := &models.ScrapedTag{}
 				p.apply(tag)
-				ret.Tags = append(ret.Tags, tag)
-			}
-		}
-
-		if sceneStudioMap != nil {
-			logger.Debug(`Processing scene studio:`)
-			studioResults := sceneStudioMap.process(q, s.Common)
-
-			if len(studioResults) > 0 {
-				studio := &models.ScrapedSceneStudio{}
-				studioResults[0].apply(studio)
-				ret.Studio = studio
-			}
-		}
-
-		if sceneMoviesMap != nil {
-			logger.Debug(`Processing scene movies:`)
-			movieResults := sceneMoviesMap.process(q, s.Common)
-
-			for _, p := range movieResults {
-				movie := &models.ScrapedSceneMovie{}
-				p.apply(movie)
-				ret.Movies = append(ret.Movies, movie)
+				performer.Tags = append(performer.Tags, tag)
 			}
 
+			ret.Performers = append(ret.Performers, performer)
 		}
 	}
 
-	return &ret, nil
+	if sceneTagsMap != nil {
+		logger.Debug(`Processing scene tags:`)
+		tagResults := sceneTagsMap.process(ctx, q, s.Common)
+
+		for _, p := range tagResults {
+			tag := &models.ScrapedTag{}
+			p.apply(tag)
+			ret.Tags = append(ret.Tags, tag)
+		}
+	}
+
+	if sceneStudioMap != nil {
+		logger.Debug(`Processing scene studio:`)
+		studioResults := sceneStudioMap.process(ctx, q, s.Common)
+
+		if len(studioResults) > 0 {
+			studio := &models.ScrapedStudio{}
+			studioResults[0].apply(studio)
+			ret.Studio = studio
+		}
+	}
+
+	if sceneMoviesMap != nil {
+		logger.Debug(`Processing scene movies:`)
+		movieResults := sceneMoviesMap.process(ctx, q, s.Common)
+
+		for _, p := range movieResults {
+			movie := &models.ScrapedMovie{}
+			p.apply(movie)
+			ret.Movies = append(ret.Movies, movie)
+		}
+	}
+
+	return &ret
 }
 
-func (s mappedScraper) scrapeGallery(q mappedQuery) (*models.ScrapedGallery, error) {
-	var ret models.ScrapedGallery
+func (s mappedScraper) scrapeScenes(ctx context.Context, q mappedQuery) ([]*models.ScrapedScene, error) {
+	var ret []*models.ScrapedScene
+
+	sceneScraperConfig := s.Scene
+	sceneMap := sceneScraperConfig.mappedConfig
+	if sceneMap == nil {
+		return nil, nil
+	}
+
+	logger.Debug(`Processing scenes:`)
+	results := sceneMap.process(ctx, q, s.Common)
+	for _, r := range results {
+		logger.Debug(`Processing scene:`)
+		ret = append(ret, s.processScene(ctx, q, r))
+	}
+
+	return ret, nil
+}
+
+func (s mappedScraper) scrapeScene(ctx context.Context, q mappedQuery) (*models.ScrapedScene, error) {
+	var ret *models.ScrapedScene
+
+	sceneScraperConfig := s.Scene
+	sceneMap := sceneScraperConfig.mappedConfig
+	if sceneMap == nil {
+		return nil, nil
+	}
+
+	logger.Debug(`Processing scene:`)
+	results := sceneMap.process(ctx, q, s.Common)
+	if len(results) > 0 {
+		ret = s.processScene(ctx, q, results[0])
+	}
+
+	return ret, nil
+}
+
+func (s mappedScraper) scrapeGallery(ctx context.Context, q mappedQuery) (*models.ScrapedGallery, error) {
+	var ret *models.ScrapedGallery
 
 	galleryScraperConfig := s.Gallery
 	galleryMap := galleryScraperConfig.mappedConfig
@@ -889,17 +935,19 @@ func (s mappedScraper) scrapeGallery(q mappedQuery) (*models.ScrapedGallery, err
 	galleryStudioMap := galleryScraperConfig.Studio
 
 	logger.Debug(`Processing gallery:`)
-	results := galleryMap.process(q, s.Common)
+	results := galleryMap.process(ctx, q, s.Common)
 	if len(results) > 0 {
-		results[0].apply(&ret)
+		ret = &models.ScrapedGallery{}
+
+		results[0].apply(ret)
 
 		// now apply the performers and tags
 		if galleryPerformersMap != nil {
 			logger.Debug(`Processing gallery performers:`)
-			performerResults := galleryPerformersMap.process(q, s.Common)
+			performerResults := galleryPerformersMap.process(ctx, q, s.Common)
 
 			for _, p := range performerResults {
-				performer := &models.ScrapedScenePerformer{}
+				performer := &models.ScrapedPerformer{}
 				p.apply(performer)
 				ret.Performers = append(ret.Performers, performer)
 			}
@@ -907,10 +955,10 @@ func (s mappedScraper) scrapeGallery(q mappedQuery) (*models.ScrapedGallery, err
 
 		if galleryTagsMap != nil {
 			logger.Debug(`Processing gallery tags:`)
-			tagResults := galleryTagsMap.process(q, s.Common)
+			tagResults := galleryTagsMap.process(ctx, q, s.Common)
 
 			for _, p := range tagResults {
-				tag := &models.ScrapedSceneTag{}
+				tag := &models.ScrapedTag{}
 				p.apply(tag)
 				ret.Tags = append(ret.Tags, tag)
 			}
@@ -918,21 +966,21 @@ func (s mappedScraper) scrapeGallery(q mappedQuery) (*models.ScrapedGallery, err
 
 		if galleryStudioMap != nil {
 			logger.Debug(`Processing gallery studio:`)
-			studioResults := galleryStudioMap.process(q, s.Common)
+			studioResults := galleryStudioMap.process(ctx, q, s.Common)
 
 			if len(studioResults) > 0 {
-				studio := &models.ScrapedSceneStudio{}
+				studio := &models.ScrapedStudio{}
 				studioResults[0].apply(studio)
 				ret.Studio = studio
 			}
 		}
 	}
 
-	return &ret, nil
+	return ret, nil
 }
 
-func (s mappedScraper) scrapeMovie(q mappedQuery) (*models.ScrapedMovie, error) {
-	var ret models.ScrapedMovie
+func (s mappedScraper) scrapeMovie(ctx context.Context, q mappedQuery) (*models.ScrapedMovie, error) {
+	var ret *models.ScrapedMovie
 
 	movieScraperConfig := s.Movie
 	movieMap := movieScraperConfig.mappedConfig
@@ -942,21 +990,22 @@ func (s mappedScraper) scrapeMovie(q mappedQuery) (*models.ScrapedMovie, error) 
 
 	movieStudioMap := movieScraperConfig.Studio
 
-	results := movieMap.process(q, s.Common)
+	results := movieMap.process(ctx, q, s.Common)
 	if len(results) > 0 {
-		results[0].apply(&ret)
+		ret = &models.ScrapedMovie{}
+		results[0].apply(ret)
 
 		if movieStudioMap != nil {
 			logger.Debug(`Processing movie studio:`)
-			studioResults := movieStudioMap.process(q, s.Common)
+			studioResults := movieStudioMap.process(ctx, q, s.Common)
 
 			if len(studioResults) > 0 {
-				studio := &models.ScrapedMovieStudio{}
+				studio := &models.ScrapedStudio{}
 				studioResults[0].apply(studio)
 				ret.Studio = studio
 			}
 		}
 	}
 
-	return &ret, nil
+	return ret, nil
 }

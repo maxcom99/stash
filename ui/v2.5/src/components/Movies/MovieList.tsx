@@ -1,10 +1,12 @@
 import React, { useState } from "react";
-import _ from "lodash";
+import { useIntl } from "react-intl";
+import cloneDeep from "lodash-es/cloneDeep";
 import Mousetrap from "mousetrap";
 import { useHistory } from "react-router-dom";
 import {
   FindMoviesQueryResult,
   SlimMovieDataFragment,
+  MovieDataFragment,
 } from "src/core/generated-graphql";
 import { ListFilterModel } from "src/models/list-filter/filter";
 import { DisplayMode } from "src/models/list-filter/types";
@@ -16,24 +18,30 @@ import {
 } from "src/hooks/ListHook";
 import { ExportDialog, DeleteEntityDialog } from "src/components/Shared";
 import { MovieCard } from "./MovieCard";
+import { EditMoviesDialog } from "./EditMoviesDialog";
 
-export const MovieList: React.FC = () => {
+interface IMovieList {
+  filterHook?: (filter: ListFilterModel) => ListFilterModel;
+}
+
+export const MovieList: React.FC<IMovieList> = ({ filterHook }) => {
+  const intl = useIntl();
   const history = useHistory();
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExportAll, setIsExportAll] = useState(false);
 
   const otherOperations = [
     {
-      text: "View Random",
+      text: intl.formatMessage({ id: "actions.view_random" }),
       onClick: viewRandom,
     },
     {
-      text: "Export...",
+      text: intl.formatMessage({ id: "actions.export" }),
       onClick: onExport,
       isDisplayed: showWhenSelected,
     },
     {
-      text: "Export all...",
+      text: intl.formatMessage({ id: "actions.export_all" }),
       onClick: onExportAll,
     },
   ];
@@ -51,6 +59,17 @@ export const MovieList: React.FC = () => {
     };
   };
 
+  function renderEditDialog(
+    selectedMovies: MovieDataFragment[],
+    onClose: (applied: boolean) => void
+  ) {
+    return (
+      <>
+        <EditMoviesDialog selected={selectedMovies} onClose={onClose} />
+      </>
+    );
+  }
+
   const renderDeleteDialog = (
     selectedMovies: SlimMovieDataFragment[],
     onClose: (confirmed: boolean) => void
@@ -58,8 +77,8 @@ export const MovieList: React.FC = () => {
     <DeleteEntityDialog
       selected={selectedMovies}
       onClose={onClose}
-      singularEntity="movie"
-      pluralEntity="movies"
+      singularEntity={intl.formatMessage({ id: "movie" })}
+      pluralEntity={intl.formatMessage({ id: "movies" })}
       destroyMutation={useMoviesDestroy}
     />
   );
@@ -70,7 +89,9 @@ export const MovieList: React.FC = () => {
     otherOperations,
     selectable: true,
     persistState: PersistanceLevel.ALL,
+    renderEditDialog,
     renderDeleteDialog,
+    filterHook,
   });
 
   async function viewRandom(
@@ -82,7 +103,7 @@ export const MovieList: React.FC = () => {
       const { count } = result.data.findMovies;
 
       const index = Math.floor(Math.random() * count);
-      const filterCopy = _.cloneDeep(filter);
+      const filterCopy = cloneDeep(filter);
       filterCopy.itemsPerPage = 1;
       filterCopy.currentPage = index + 1;
       const singleResult = await queryFindMovies(filterCopy);

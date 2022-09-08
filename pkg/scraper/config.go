@@ -8,9 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v2"
-
 	"github.com/stashapp/stash/pkg/models"
+	"gopkg.in/yaml.v2"
 )
 
 type config struct {
@@ -34,6 +33,12 @@ type config struct {
 
 	// Configuration for querying gallery by a Gallery fragment
 	GalleryByFragment *scraperTypeConfig `yaml:"galleryByFragment"`
+
+	// Configuration for querying scenes by name
+	SceneByName *scraperTypeConfig `yaml:"sceneByName"`
+
+	// Configuration for querying scenes by query fragment
+	SceneByQueryFragment *scraperTypeConfig `yaml:"sceneByQueryFragment"`
 
 	// Configuration for querying a scene by a URL
 	SceneByURL []*scrapeByURLConfig `yaml:"sceneByURL"`
@@ -188,7 +193,7 @@ type scraperDriverOptions struct {
 	Headers []*header        `yaml:"headers"`
 }
 
-func loadScraperFromYAML(id string, reader io.Reader) (*config, error) {
+func loadConfigFromYAML(id string, reader io.Reader) (*config, error) {
 	ret := &config{}
 
 	parser := yaml.NewDecoder(reader)
@@ -207,7 +212,7 @@ func loadScraperFromYAML(id string, reader io.Reader) (*config, error) {
 	return ret, nil
 }
 
-func loadScraperFromYAMLFile(path string) (*config, error) {
+func loadConfigFromYAMLFile(path string) (*config, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -218,7 +223,7 @@ func loadScraperFromYAMLFile(path string) (*config, error) {
 	id := filepath.Base(path)
 	id = id[:strings.LastIndex(id, ".")]
 
-	ret, err := loadScraperFromYAML(id, file)
+	ret, err := loadConfigFromYAML(id, file)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +233,7 @@ func loadScraperFromYAMLFile(path string) (*config, error) {
 	return ret, nil
 }
 
-func (c config) toScraper() *models.Scraper {
+func (c config) spec() models.Scraper {
 	ret := models.Scraper{
 		ID:   c.ID,
 		Name: c.Name,
@@ -255,6 +260,9 @@ func (c config) toScraper() *models.Scraper {
 	scene := models.ScraperSpec{}
 	if c.SceneByFragment != nil {
 		scene.SupportedScrapes = append(scene.SupportedScrapes, models.ScrapeTypeFragment)
+	}
+	if c.SceneByName != nil && c.SceneByQueryFragment != nil {
+		scene.SupportedScrapes = append(scene.SupportedScrapes, models.ScrapeTypeName)
 	}
 	if len(c.SceneByURL) > 0 {
 		scene.SupportedScrapes = append(scene.SupportedScrapes, models.ScrapeTypeURL)
@@ -294,173 +302,51 @@ func (c config) toScraper() *models.Scraper {
 		ret.Movie = &movie
 	}
 
-	return &ret
+	return ret
 }
 
-func (c config) supportsPerformers() bool {
-	return c.PerformerByName != nil || c.PerformerByFragment != nil || len(c.PerformerByURL) > 0
+func (c config) supports(ty models.ScrapeContentType) bool {
+	switch ty {
+	case models.ScrapeContentTypePerformer:
+		return c.PerformerByName != nil || c.PerformerByFragment != nil || len(c.PerformerByURL) > 0
+	case models.ScrapeContentTypeScene:
+		return (c.SceneByName != nil && c.SceneByQueryFragment != nil) || c.SceneByFragment != nil || len(c.SceneByURL) > 0
+	case models.ScrapeContentTypeGallery:
+		return c.GalleryByFragment != nil || len(c.GalleryByURL) > 0
+	case models.ScrapeContentTypeMovie:
+		return len(c.MovieByURL) > 0
+	}
+
+	panic("Unhandled ScrapeContentType")
 }
 
-func (c config) matchesPerformerURL(url string) bool {
-	for _, scraper := range c.PerformerByURL {
-		if scraper.matchesURL(url) {
-			return true
+func (c config) matchesURL(url string, ty models.ScrapeContentType) bool {
+	switch ty {
+	case models.ScrapeContentTypePerformer:
+		for _, scraper := range c.PerformerByURL {
+			if scraper.matchesURL(url) {
+				return true
+			}
+		}
+	case models.ScrapeContentTypeScene:
+		for _, scraper := range c.SceneByURL {
+			if scraper.matchesURL(url) {
+				return true
+			}
+		}
+	case models.ScrapeContentTypeGallery:
+		for _, scraper := range c.GalleryByURL {
+			if scraper.matchesURL(url) {
+				return true
+			}
+		}
+	case models.ScrapeContentTypeMovie:
+		for _, scraper := range c.MovieByURL {
+			if scraper.matchesURL(url) {
+				return true
+			}
 		}
 	}
 
 	return false
-}
-
-func (c config) ScrapePerformerNames(name string, txnManager models.TransactionManager, globalConfig GlobalConfig) ([]*models.ScrapedPerformer, error) {
-	if c.PerformerByName != nil {
-		s := getScraper(*c.PerformerByName, txnManager, c, globalConfig)
-		return s.scrapePerformersByName(name)
-	}
-
-	return nil, nil
-}
-
-func (c config) ScrapePerformer(scrapedPerformer models.ScrapedPerformerInput, txnManager models.TransactionManager, globalConfig GlobalConfig) (*models.ScrapedPerformer, error) {
-	if c.PerformerByFragment != nil {
-		s := getScraper(*c.PerformerByFragment, txnManager, c, globalConfig)
-		return s.scrapePerformerByFragment(scrapedPerformer)
-	}
-
-	// try to match against URL if present
-	if scrapedPerformer.URL != nil && *scrapedPerformer.URL != "" {
-		return c.ScrapePerformerURL(*scrapedPerformer.URL, txnManager, globalConfig)
-	}
-
-	return nil, nil
-}
-
-func (c config) ScrapePerformerURL(url string, txnManager models.TransactionManager, globalConfig GlobalConfig) (*models.ScrapedPerformer, error) {
-	for _, scraper := range c.PerformerByURL {
-		if scraper.matchesURL(url) {
-			s := getScraper(scraper.scraperTypeConfig, txnManager, c, globalConfig)
-			ret, err := s.scrapePerformerByURL(url)
-			if err != nil {
-				return nil, err
-			}
-
-			if ret != nil {
-				return ret, nil
-			}
-		}
-	}
-
-	return nil, nil
-}
-
-func (c config) supportsScenes() bool {
-	return c.SceneByFragment != nil || len(c.SceneByURL) > 0
-}
-
-func (c config) supportsGalleries() bool {
-	return c.GalleryByFragment != nil || len(c.GalleryByURL) > 0
-}
-
-func (c config) matchesSceneURL(url string) bool {
-	for _, scraper := range c.SceneByURL {
-		if scraper.matchesURL(url) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (c config) matchesGalleryURL(url string) bool {
-	for _, scraper := range c.GalleryByURL {
-		if scraper.matchesURL(url) {
-			return true
-		}
-	}
-	return false
-}
-
-func (c config) supportsMovies() bool {
-	return len(c.MovieByURL) > 0
-}
-
-func (c config) matchesMovieURL(url string) bool {
-	for _, scraper := range c.MovieByURL {
-		if scraper.matchesURL(url) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (c config) ScrapeScene(scene models.SceneUpdateInput, txnManager models.TransactionManager, globalConfig GlobalConfig) (*models.ScrapedScene, error) {
-	if c.SceneByFragment != nil {
-		s := getScraper(*c.SceneByFragment, txnManager, c, globalConfig)
-		return s.scrapeSceneByFragment(scene)
-	}
-
-	return nil, nil
-}
-
-func (c config) ScrapeSceneURL(url string, txnManager models.TransactionManager, globalConfig GlobalConfig) (*models.ScrapedScene, error) {
-	for _, scraper := range c.SceneByURL {
-		if scraper.matchesURL(url) {
-			s := getScraper(scraper.scraperTypeConfig, txnManager, c, globalConfig)
-			ret, err := s.scrapeSceneByURL(url)
-			if err != nil {
-				return nil, err
-			}
-
-			if ret != nil {
-				return ret, nil
-			}
-		}
-	}
-
-	return nil, nil
-}
-
-func (c config) ScrapeGallery(gallery models.GalleryUpdateInput, txnManager models.TransactionManager, globalConfig GlobalConfig) (*models.ScrapedGallery, error) {
-	if c.GalleryByFragment != nil {
-		s := getScraper(*c.GalleryByFragment, txnManager, c, globalConfig)
-		return s.scrapeGalleryByFragment(gallery)
-	}
-
-	return nil, nil
-}
-
-func (c config) ScrapeGalleryURL(url string, txnManager models.TransactionManager, globalConfig GlobalConfig) (*models.ScrapedGallery, error) {
-	for _, scraper := range c.GalleryByURL {
-		if scraper.matchesURL(url) {
-			s := getScraper(scraper.scraperTypeConfig, txnManager, c, globalConfig)
-			ret, err := s.scrapeGalleryByURL(url)
-			if err != nil {
-				return nil, err
-			}
-
-			if ret != nil {
-				return ret, nil
-			}
-		}
-	}
-
-	return nil, nil
-}
-
-func (c config) ScrapeMovieURL(url string, txnManager models.TransactionManager, globalConfig GlobalConfig) (*models.ScrapedMovie, error) {
-	for _, scraper := range c.MovieByURL {
-		if scraper.matchesURL(url) {
-			s := getScraper(scraper.scraperTypeConfig, txnManager, c, globalConfig)
-			ret, err := s.scrapeMovieByURL(url)
-			if err != nil {
-				return nil, err
-			}
-
-			if ret != nil {
-				return ret, nil
-			}
-		}
-	}
-
-	return nil, nil
 }

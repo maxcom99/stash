@@ -1,9 +1,14 @@
 """The query root for this schema"""
 type Query {
+  # Filters
+  findSavedFilter(id: ID!): SavedFilter
+  findSavedFilters(mode: FilterMode): [SavedFilter!]!
+  findDefaultFilter(mode: FilterMode!): SavedFilter
+
   """Find a scene by ID or Checksum"""
   findScene(id: ID, checksum: String): Scene
   findSceneByHash(input: SceneHashInput!): Scene
-  
+
   """A function which queries Scene objects"""
   findScenes(scene_filter: SceneFilterType, scene_ids: [Int!], filter: FindFilterType): FindScenesResultType!
 
@@ -21,7 +26,7 @@ type Query {
   findSceneMarkers(scene_marker_filter: SceneMarkerFilterType filter: FindFilterType): FindSceneMarkersResultType!
 
   findImage(id: ID, checksum: String): Image
-  
+
   """A function which queries Scene objects"""
   findImages(image_filter: ImageFilterType, image_ids: [Int!], filter: FindFilterType): FindImagesResultType!
 
@@ -63,36 +68,52 @@ type Query {
   # Scrapers
 
   """List available scrapers"""
-  listPerformerScrapers: [Scraper!]!
-  listSceneScrapers: [Scraper!]!
-  listGalleryScrapers: [Scraper!]!
-  listMovieScrapers: [Scraper!]!
+  listScrapers(types: [ScrapeContentType!]!): [Scraper!]!
+  listPerformerScrapers: [Scraper!]! @deprecated(reason: "Use listScrapers(types: [PERFORMER])")
+  listSceneScrapers: [Scraper!]! @deprecated(reason: "Use listScrapers(types: [SCENE])")
+  listGalleryScrapers: [Scraper!]! @deprecated(reason: "Use listScrapers(types: [GALLERY])")
+  listMovieScrapers: [Scraper!]! @deprecated(reason: "Use listScrapers(types: [MOVIE])")
 
-  """Scrape a list of performers based on name"""
-  scrapePerformerList(scraper_id: ID!, query: String!): [ScrapedPerformer!]!
-  """Scrapes a complete performer record based on a scrapePerformerList result"""
-  scrapePerformer(scraper_id: ID!, scraped_performer: ScrapedPerformerInput!): ScrapedPerformer
+
+  """Scrape for a single scene"""
+  scrapeSingleScene(source: ScraperSourceInput!, input: ScrapeSingleSceneInput!): [ScrapedScene!]!
+  """Scrape for multiple scenes"""
+  scrapeMultiScenes(source: ScraperSourceInput!, input: ScrapeMultiScenesInput!): [[ScrapedScene!]!]!
+
+  """Scrape for a single performer"""
+  scrapeSinglePerformer(source: ScraperSourceInput!, input: ScrapeSinglePerformerInput!): [ScrapedPerformer!]!
+  """Scrape for multiple performers"""
+  scrapeMultiPerformers(source: ScraperSourceInput!, input: ScrapeMultiPerformersInput!): [[ScrapedPerformer!]!]!
+
+  """Scrape for a single gallery"""
+  scrapeSingleGallery(source: ScraperSourceInput!, input: ScrapeSingleGalleryInput!): [ScrapedGallery!]!
+
+  """Scrape for a single movie"""
+  scrapeSingleMovie(source: ScraperSourceInput!, input: ScrapeSingleMovieInput!): [ScrapedMovie!]!
+
+  "Scrapes content based on a URL"
+  scrapeURL(url: String!, ty: ScrapeContentType!): ScrapedContent
+
   """Scrapes a complete performer record based on a URL"""
   scrapePerformerURL(url: String!): ScrapedPerformer
-  """Scrapes a complete scene record based on an existing scene"""
-  scrapeScene(scraper_id: ID!, scene: SceneUpdateInput!): ScrapedScene
   """Scrapes a complete performer record based on a URL"""
   scrapeSceneURL(url: String!): ScrapedScene
-  """Scrapes a complete gallery record based on an existing gallery"""
-  scrapeGallery(scraper_id: ID!, gallery: GalleryUpdateInput!): ScrapedGallery
   """Scrapes a complete gallery record based on a URL"""
   scrapeGalleryURL(url: String!): ScrapedGallery
   """Scrapes a complete movie record based on a URL"""
   scrapeMovieURL(url: String!): ScrapedMovie
 
-  """Scrape a performer using Freeones"""
-  scrapeFreeones(performer_name: String!): ScrapedPerformer
-  """Scrape a list of performers from a query"""
-  scrapeFreeonesPerformerList(query: String!): [String!]!
+  """Scrape a list of performers based on name"""
+  scrapePerformerList(scraper_id: ID!, query: String!): [ScrapedPerformer!]! @deprecated(reason: "use scrapeSinglePerformer")
+  """Scrapes a complete performer record based on a scrapePerformerList result"""
+  scrapePerformer(scraper_id: ID!, scraped_performer: ScrapedPerformerInput!): ScrapedPerformer @deprecated(reason: "use scrapeSinglePerformer")
+  """Scrapes a complete scene record based on an existing scene"""
+  scrapeScene(scraper_id: ID!, scene: SceneUpdateInput!): ScrapedScene @deprecated(reason: "use scrapeSingleScene")
+  """Scrapes a complete gallery record based on an existing gallery"""
+  scrapeGallery(scraper_id: ID!, gallery: GalleryUpdateInput!): ScrapedGallery @deprecated(reason: "use scrapeSingleGallery")
 
-  """Query StashBox for scenes"""
-  queryStashBoxScene(input: StashBoxSceneQueryInput!): [ScrapedScene!]!
-  queryStashBoxPerformer(input: StashBoxPerformerQueryInput!): [StashBoxPerformerQueryResult!]!
+  """Scrape a list of performers from a query"""
+  scrapeFreeonesPerformerList(query: String!): [String!]! @deprecated(reason: "use scrapeSinglePerformer with scraper_id = builtin_freeones")
 
   # Plugins
   """List loaded plugins"""
@@ -104,7 +125,13 @@ type Query {
   """Returns the current, complete configuration"""
   configuration: ConfigResult!
   """Returns an array of paths for the given path"""
-  directory(path: String): Directory!
+  directory(
+    "The directory path to list"
+    path: String,
+    "Desired collation locale. Determines the order of the directory result. eg. 'en-US', 'pt-BR', ..."
+    locale: String = "en"
+  ): Directory!
+  validateStashBoxCredentials(input: StashBoxInput!): StashBoxValidationResult!
 
   # System status
   systemStatus: SystemStatus!
@@ -126,7 +153,7 @@ type Query {
 
   # Version
   version: Version!
-  
+
   # LatestVersion
   latestversion: ShortVersion!
 }
@@ -192,16 +219,30 @@ type Mutation {
   movieUpdate(input: MovieUpdateInput!): Movie
   movieDestroy(input: MovieDestroyInput!): Boolean!
   moviesDestroy(ids: [ID!]!): Boolean!
+  bulkMovieUpdate(input: BulkMovieUpdateInput!): [Movie!]
 
   tagCreate(input: TagCreateInput!): Tag
   tagUpdate(input: TagUpdateInput!): Tag
   tagDestroy(input: TagDestroyInput!): Boolean!
   tagsDestroy(ids: [ID!]!): Boolean!
+  tagsMerge(input: TagsMergeInput!): Tag
+
+  # Saved filters
+  saveFilter(input: SaveFilterInput!): SavedFilter!
+  destroySavedFilter(input: DestroyFilterInput!): Boolean!
+  setDefaultFilter(input: SetDefaultFilterInput!): Boolean!
 
   """Change general configuration options"""
   configureGeneral(input: ConfigGeneralInput!): ConfigGeneralResult!
   configureInterface(input: ConfigInterfaceInput!): ConfigInterfaceResult!
   configureDLNA(input: ConfigDLNAInput!): ConfigDLNAResult!
+  configureScraping(input: ConfigScrapingInput!): ConfigScrapingResult!
+  configureDefaults(input: ConfigDefaultSettingsInput!): ConfigDefaultSettingsResult!
+
+  # overwrites the entire UI configuration
+  configureUI(input: Map!): Map!
+  # sets a single UI key value
+  configureUISetting(key: String!, value: Any): Map!
 
   """Generate and set (or clear) API key"""
   generateAPIKey(input: GenerateAPIKeyInput!): String!
@@ -224,6 +265,8 @@ type Mutation {
   metadataAutoTag(input: AutoTagMetadataInput!): ID!
   """Clean metadata. Returns the job ID"""
   metadataClean(input: CleanMetadataInput!): ID!
+  """Identifies scenes using scrapers. Returns the job ID"""
+  metadataIdentify(input: IdentifyMetadataInput!): ID!
   """Migrate generated files for the current hash naming"""
   migrateHashNaming: ID!
 
@@ -240,12 +283,17 @@ type Mutation {
   """Submit fingerprints to stash-box instance"""
   submitStashBoxFingerprints(input: StashBoxFingerprintSubmissionInput!): Boolean!
 
+  """Submit scene as draft to stash-box instance"""
+  submitStashBoxSceneDraft(input: StashBoxDraftSubmissionInput!): ID
+  """Submit performer as draft to stash-box instance"""
+  submitStashBoxPerformerDraft(input: StashBoxDraftSubmissionInput!): ID
+
   """Backup the database. Optionally returns a link to download the database file"""
   backupDatabase(input: BackupDatabaseInput!): String
 
   """Run batch performer tag task. Returns the job ID."""
   stashBoxBatchPerformerTag(input: StashBoxBatchPerformerTagInput!): String!
-  
+
   """Enables DLNA for an optional duration. Has no effect if DLNA is enabled by default"""
   enableDLNA(input: EnableDLNAInput!): Boolean!
   """Disables DLNA for an optional duration. Has no effect if DLNA is disabled by default"""

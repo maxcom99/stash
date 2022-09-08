@@ -1,75 +1,51 @@
-import { CriterionModifier, ResolutionEnum } from "src/core/generated-graphql";
+import {
+  ResolutionCriterionInput,
+  CriterionModifier,
+} from "src/core/generated-graphql";
+import { stringToResolution, resolutionStrings } from "src/utils/resolution";
+import { CriterionType } from "../types";
 import { CriterionOption, StringCriterion } from "./criterion";
 
 abstract class AbstractResolutionCriterion extends StringCriterion {
-  public modifier = CriterionModifier.Equals;
-  public modifierOptions = [];
+  protected toCriterionInput(): ResolutionCriterionInput | undefined {
+    const value = stringToResolution(this.value);
 
-  constructor(type: CriterionOption) {
-    super(type, [
-      "144p",
-      "240p",
-      "360p",
-      "480p",
-      "540p",
-      "720p",
-      "1080p",
-      "1440p",
-      "4k",
-      "5k",
-      "6k",
-      "8k",
-    ]);
-  }
-
-  protected toCriterionInput(): ResolutionEnum | undefined {
-    switch (this.value) {
-      case "144p":
-        return ResolutionEnum.VeryLow;
-      case "240p":
-        return ResolutionEnum.Low;
-      case "360p":
-        return ResolutionEnum.R360P;
-      case "480p":
-        return ResolutionEnum.Standard;
-      case "540p":
-        return ResolutionEnum.WebHd;
-      case "720p":
-        return ResolutionEnum.StandardHd;
-      case "1080p":
-        return ResolutionEnum.FullHd;
-      case "1440p":
-        return ResolutionEnum.QuadHd;
-      case "1920p":
-        return ResolutionEnum.VrHd;
-      case "4k":
-        return ResolutionEnum.FourK;
-      case "5k":
-        return ResolutionEnum.FiveK;
-      case "6k":
-        return ResolutionEnum.SixK;
-      case "8k":
-        return ResolutionEnum.EightK;
-      // no default
+    if (value !== undefined) {
+      return {
+        value,
+        modifier: this.modifier,
+      };
     }
   }
 }
 
-export const ResolutionCriterionOption = new CriterionOption(
-  "resolution",
+class ResolutionCriterionOptionType extends CriterionOption {
+  constructor(value: CriterionType) {
+    super({
+      messageID: value,
+      type: value,
+      parameterName: value,
+      modifierOptions: [
+        CriterionModifier.Equals,
+        CriterionModifier.NotEquals,
+        CriterionModifier.GreaterThan,
+        CriterionModifier.LessThan,
+      ],
+      options: resolutionStrings,
+    });
+  }
+}
+
+export const ResolutionCriterionOption = new ResolutionCriterionOptionType(
   "resolution"
 );
 export class ResolutionCriterion extends AbstractResolutionCriterion {
-  public modifier = CriterionModifier.Equals;
-  public modifierOptions = [];
-
   constructor() {
     super(ResolutionCriterionOption);
   }
 }
 
-export const AverageResolutionCriterionOption = new CriterionOption(
-  "average_resolution",
+export const AverageResolutionCriterionOption = new ResolutionCriterionOptionType(
   "average_resolution"
 );
 

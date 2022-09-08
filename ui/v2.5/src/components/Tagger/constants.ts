@@ -1,3 +1,17 @@
+import { ScraperSourceInput } from "src/core/generated-graphql";
+
+export const STASH_BOX_PREFIX = "stashbox:";
+export const SCRAPER_PREFIX = "scraper:";
+
+export interface ITaggerSource {
+  id: string;
+  stashboxEndpoint?: string;
+  sourceInput: ScraperSourceInput;
+  displayName: string;
+  supportSceneQuery?: boolean;
+  supportSceneFragment?: boolean;
+}
+
 export const LOCAL_FORAGE_KEY = "tagger";
 export const DEFAULT_BLACKLIST = [
   "\\sXXX\\s",
@@ -24,21 +38,14 @@ export const initialConfig: ITaggerConfig = {
 };
 
 export type ParseMode = "auto" | "filename" | "dir" | "path" | "metadata";
-export const ModeDesc = {
-  auto: "Uses metadata if present, or filename",
-  metadata: "Only uses metadata",
-  filename: "Only uses filename",
-  dir: "Only uses parent directory of video file",
-  path: "Uses entire file path",
-};
-
+export type TagOperation = "merge" | "overwrite";
 export interface ITaggerConfig {
   blacklist: string[];
   showMales: boolean;
   mode: ParseMode;
   setCoverImage: boolean;
   setTags: boolean;
-  tagOperation: string;
+  tagOperation: TagOperation;
   selectedEndpoint?: string;
   fingerprintQueue: Record<string, string[]>;
   excludedPerformerFields?: string[];
@@ -53,10 +60,17 @@ export const PERFORMER_FIELDS = [
   "ethnicity",
   "country",
   "eye_color",
+  "hair_color",
   "height",
   "measurements",
   "fake_tits",
   "career_length",
   "tattoos",
   "piercings",
+  "url",
+  "twitter",
+  "instagram",
+  "details",
+  "death_date",
+  "weight",
 ];

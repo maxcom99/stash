@@ -6,6 +6,7 @@ import {
   Form,
   InputGroup,
 } from "react-bootstrap";
+import { useIntl } from "react-intl";
 import { ParserField } from "./ParserField";
 import { ShowFields } from "./ShowFields";
 
@@ -62,6 +63,7 @@ export interface IParserInput {
   page: number;
   pageSize: number;
   findClicked: boolean;
+  ignoreOrganized: boolean;
 }
 
 interface IParserRecipe {
@@ -83,6 +85,7 @@ interface IParserInputProps {
 export const ParserInput: React.FC<IParserInputProps> = (
   props: IParserInputProps
 ) => {
+  const intl = useIntl();
   const [pattern, setPattern] = useState<string>(props.input.pattern);
   const [ignoreWords, setIgnoreWords] = useState<string>(
     props.input.ignoreWords.join(" ")
@@ -92,6 +95,9 @@ export const ParserInput: React.FC<IParserInputProps> = (
   );
   const [capitalizeTitle, setCapitalizeTitle] = useState<boolean>(
     props.input.capitalizeTitle
+  );
+  const [ignoreOrganized, setIgnoreOrganized] = useState<boolean>(
+    props.input.ignoreOrganized
   );
 
   function onFind() {
@@ -103,6 +109,7 @@ export const ParserInput: React.FC<IParserInputProps> = (
       page: 1,
       pageSize: props.input.pageSize,
       findClicked: props.input.findClicked,
+      ignoreOrganized,
     });
   }
 
@@ -127,7 +134,9 @@ export const ParserInput: React.FC<IParserInputProps> = (
     <Form.Group>
       <Form.Group className="row">
         <Form.Label htmlFor="filename-pattern" className="col-2">
-          Filename Pattern
+          {intl.formatMessage({
+            id: "config.tools.scene_filename_parser.filename_pattern",
+          })}
         </Form.Label>
         <InputGroup className="col-8">
           <Form.Control
@@ -139,7 +148,12 @@ export const ParserInput: React.FC<IParserInputProps> = (
             value={pattern}
           />
           <InputGroup.Append>
-            <DropdownButton id="parser-field-select" title="Add Field">
+            <DropdownButton
+              id="parser-field-select"
+              title={intl.formatMessage({
+                id: "config.tools.scene_filename_parser.add_field",
+              })}
+            >
               {validFields.map((item) => (
                 <Dropdown.Item
                   key={item.field}
@@ -153,12 +167,18 @@ export const ParserInput: React.FC<IParserInputProps> = (
           </InputGroup.Append>
         </InputGroup>
         <Form.Text className="text-muted row col-10 offset-2">
-          Use &apos;\&apos; to escape literal {} characters
+          {intl.formatMessage({
+            id: "config.tools.scene_filename_parser.escape_chars",
+          })}
         </Form.Text>
       </Form.Group>
 
       <Form.Group className="row" controlId="ignored-words">
-        <Form.Label className="col-2">Ignored words</Form.Label>
+        <Form.Label className="col-2">
+          {intl.formatMessage({
+            id: "config.tools.scene_filename_parser.ignored_words",
+          })}
+        </Form.Label>
         <InputGroup className="col-8">
           <Form.Control
             className="text-input"
@@ -169,14 +189,18 @@ export const ParserInput: React.FC<IParserInputProps> = (
           />
         </InputGroup>
         <Form.Text className="text-muted col-10 offset-2">
-          Matches with {"{i}"}
+          {intl.formatMessage({
+            id: "config.tools.scene_filename_parser.matches_with",
+          })}
         </Form.Text>
       </Form.Group>
 
-      <h5>Title</h5>
+      <h5>{intl.formatMessage({ id: "title" })}</h5>
       <Form.Group className="row">
         <Form.Label htmlFor="whitespace-characters" className="col-2">
-          Whitespace characters:
+          {intl.formatMessage({
+            id: "config.tools.scene_filename_parser.whitespace_chars",
+          })}
         </Form.Label>
         <InputGroup className="col-8">
           <Form.Control
@@ -188,7 +212,9 @@ export const ParserInput: React.FC<IParserInputProps> = (
           />
         </InputGroup>
         <Form.Text className="text-muted col-10 offset-2">
-          These characters will be replaced with whitespace in the title
+          {intl.formatMessage({
+            id: "config.tools.scene_filename_parser.whitespace_chars_desc",
+          })}
         </Form.Text>
       </Form.Group>
       <Form.Group>
@@ -199,7 +225,25 @@ export const ParserInput: React.FC<IParserInputProps> = (
           checked={capitalizeTitle}
           onChange={() => setCapitalizeTitle(!capitalizeTitle)}
         />
-        <Form.Label htmlFor="capitalize-title">Capitalize title</Form.Label>
+        <Form.Label htmlFor="capitalize-title">
+          {intl.formatMessage({
+            id: "config.tools.scene_filename_parser.capitalize_title",
+          })}
+        </Form.Label>
+      </Form.Group>
+      <Form.Group>
+        <Form.Check
+          inline
+          className="m-0"
+          id="ignore-organized"
+          checked={ignoreOrganized}
+          onChange={() => setIgnoreOrganized(!ignoreOrganized)}
+        />
+        <Form.Label htmlFor="ignore-organized">
+          {intl.formatMessage({
+            id: "config.tools.scene_filename_parser.ignore_organized",
+          })}
+        </Form.Label>
       </Form.Group>
 
       {/* TODO - mapping stuff will go here */}
@@ -208,7 +252,9 @@ export const ParserInput: React.FC<IParserInputProps> = (
         <DropdownButton
           variant="secondary"
           id="recipe-select"
-          title="Select Parser Recipe"
+          title={intl.formatMessage({
+            id: "config.tools.scene_filename_parser.select_parser_recipe",
+          })}
           drop="up"
         >
           {builtInRecipes.map((item) => (
@@ -232,7 +278,7 @@ export const ParserInput: React.FC<IParserInputProps> = (
 
       <Form.Group className="row">
         <Button variant="secondary" className="ml-3 col-1" onClick={onFind}>
-          Find
+          {intl.formatMessage({ id: "actions.find" })}
         </Button>
         <Form.Control
           as="select"

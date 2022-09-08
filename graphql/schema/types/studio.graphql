@@ -5,6 +5,8 @@ type Studio {
   url: String
   parent_studio: Studio
   child_studios: [Studio!]!
+  aliases: [String!]!
+  ignore_auto_tag: Boolean!
 
   image_path: String # Resolver
   scene_count: Int # Resolver
@@ -15,6 +17,8 @@ type Studio {
   details: String
   created_at: Time!
   updated_at: Time!
+  movie_count: Int
+  movies: [Movie!]!
 }
 
 input StudioCreateInput {
@@ -26,6 +30,8 @@ input StudioCreateInput {
   stash_ids: [StashIDInput!]
   rating: Int
   details: String
+  aliases: [String!]
+  ignore_auto_tag: Boolean
 }
 
 input StudioUpdateInput {
@@ -38,6 +44,8 @@ input StudioUpdateInput {
   stash_ids: [StashIDInput!]
   rating: Int
   details: String
+  aliases: [String!]
+  ignore_auto_tag: Boolean
 }
 
 input StudioDestroyInput {

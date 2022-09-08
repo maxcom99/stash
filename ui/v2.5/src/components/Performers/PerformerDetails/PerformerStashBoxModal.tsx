@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { debounce } from "lodash";
+import debounce from "lodash-es/debounce";
 import { Button, Form } from "react-bootstrap";
+import { useIntl } from "react-intl";
 
 import * as GQL from "src/core/generated-graphql";
 import { Modal, LoadingIndicator } from "src/components/Shared";
+import { stashboxDisplayName } from "src/utils/stashbox";
 
 const CLASSNAME = "PerformerScrapeModal";
 const CLASSNAME_LIST = `${CLASSNAME}-list`;
@@ -15,7 +17,7 @@ export interface IStashBox extends GQL.StashBox {
 interface IProps {
   instance: IStashBox;
   onHide: () => void;
-  onSelectPerformer: (performer: GQL.ScrapedScenePerformer) => void;
+  onSelectPerformer: (performer: GQL.ScrapedPerformer) => void;
   name?: string;
 }
 const PerformerStashBoxModal: React.FC<IProps> = ({
@@ -24,19 +26,22 @@ const PerformerStashBoxModal: React.FC<IProps> = ({
   onHide,
   onSelectPerformer,
 }) => {
+  const intl = useIntl();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState<string>(name ?? "");
-  const { data, loading } = GQL.useQueryStashBoxPerformerQuery({
+  const { data, loading } = GQL.useScrapeSinglePerformerQuery({
     variables: {
-      input: {
+      source: {
         stash_box_index: instance.index,
-        q: query,
+      },
+      input: {
+        query,
       },
     },
     skip: query === "",
   });
 
-  const performers = data?.queryStashBoxPerformer?.[0].results ?? [];
+  const performers = data?.scrapeSinglePerformer ?? [];
 
   const onInputChange = debounce((input: string) => {
     setQuery(input);
@@ -48,8 +53,15 @@ const PerformerStashBoxModal: React.FC<IProps> = ({
     <Modal
       show
       onHide={onHide}
-      header={`Scrape performer from ${instance.name ?? "Stash-Box"}`}
-      accept={{ text: "Cancel", onClick: onHide, variant: "secondary" }}
+      header={`Scrape performer from ${stashboxDisplayName(
+        instance.name,
+        instance.index
+      )}`}
+      accept={{
+        text: intl.formatMessage({ id: "actions.cancel" }),
+        onClick: onHide,
+        variant: "secondary",
+      }}
     >
       <div className={CLASSNAME}>
         <Form.Control

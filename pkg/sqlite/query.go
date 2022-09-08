@@ -2,26 +2,63 @@ package sqlite
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
 )
 
 type queryBuilder struct {
 	repository *repository
 
-	body string
+	columns []string
+	from    string
 
 	joins         joins
 	whereClauses  []string
 	havingClauses []string
 	args          []interface{}
 	withClauses   []string
+	recursiveWith bool
 
 	sortAndPagination string
 
 	err error
+}
+
+func (qb queryBuilder) body() string {
+	return fmt.Sprintf("SELECT %s FROM %s%s", strings.Join(qb.columns, ", "), qb.from, qb.joins.toSQL())
+}
+
+func (qb *queryBuilder) addColumn(column string) {
+	qb.columns = append(qb.columns, column)
+}
+
+func (qb queryBuilder) toSQL(includeSortPagination bool) string {
+	body := qb.body()
+
+	withClause := ""
+	if len(qb.withClauses) > 0 {
+		var recursive string
+		if qb.recursiveWith {
+			recursive = " RECURSIVE "
+		}
+		withClause = "WITH " + recursive + strings.Join(qb.withClauses, ", ") + " "
+	}
+
+	body = withClause + qb.repository.buildQueryBody(body, qb.whereClauses, qb.havingClauses)
+	if includeSortPagination {
+		body += qb.sortAndPagination
+	}
+
+	return body
+}
+
+func (qb queryBuilder) findIDs() ([]int, error) {
+	const includeSortPagination = true
+	sql := qb.toSQL(includeSortPagination)
+	logger.Tracef("SQL: %s, args: %v", sql, qb.args)
+	return qb.repository.runIdsQuery(sql, qb.args)
 }
 
 func (qb queryBuilder) executeFind() ([]int, int, error) {
@@ -29,10 +66,9 @@ func (qb queryBuilder) executeFind() ([]int, int, error) {
 		return nil, 0, qb.err
 	}
 
-	body := qb.body
-	body += qb.joins.toSQL()
+	body := qb.body()
 
-	return qb.repository.executeFindQuery(body, qb.args, qb.sortAndPagination, qb.whereClauses, qb.havingClauses, qb.withClauses)
+	return qb.repository.executeFindQuery(body, qb.args, qb.sortAndPagination, qb.whereClauses, qb.havingClauses, qb.withClauses, qb.recursiveWith)
 }
 
 func (qb queryBuilder) executeCount() (int, error) {
@@ -40,12 +76,15 @@ func (qb queryBuilder) executeCount() (int, error) {
 		return 0, qb.err
 	}
 
-	body := qb.body
-	body += qb.joins.toSQL()
+	body := qb.body()
 
 	withClause := ""
 	if len(qb.withClauses) > 0 {
-		withClause = "WITH " + strings.Join(qb.withClauses, ", ") + " "
+		var recursive string
+		if qb.recursiveWith {
+			recursive = " RECURSIVE "
+		}
+		withClause = "WITH " + recursive + strings.Join(qb.withClauses, ", ") + " "
 	}
 
 	body = qb.repository.buildQueryBody(body, qb.whereClauses, qb.havingClauses)
@@ -69,12 +108,14 @@ func (qb *queryBuilder) addHaving(clauses ...string) {
 	}
 }
 
-func (qb *queryBuilder) addWith(clauses ...string) {
+func (qb *queryBuilder) addWith(recursive bool, clauses ...string) {
 	for _, clause := range clauses {
 		if len(clause) > 0 {
 			qb.withClauses = append(qb.withClauses, clause)
 		}
 	}
+
+	qb.recursiveWith = qb.recursiveWith || recursive
 }
 
 func (qb *queryBuilder) addArg(args ...interface{}) {
@@ -86,6 +127,7 @@ func (qb *queryBuilder) join(table, as, onClause string) {
 		table:    table,
 		as:       as,
 		onClause: onClause,
+		joinType: "LEFT",
 	}
 
 	qb.joins.add(newJoin)
@@ -104,7 +146,7 @@ func (qb *queryBuilder) addFilter(f *filterBuilder) {
 
 	clause, args := f.generateWithClauses()
 	if len(clause) > 0 {
-		qb.addWith(clause)
+		qb.addWith(f.recursiveWith, clause)
 	}
 
 	if len(args) > 0 {
@@ -133,71 +175,37 @@ func (qb *queryBuilder) addFilter(f *filterBuilder) {
 	qb.addJoins(f.getAllJoins()...)
 }
 
-func (qb *queryBuilder) handleIntCriterionInput(c *models.IntCriterionInput, column string) {
-	if c != nil {
-		clause, count := getIntCriterionWhereClause(column, *c)
-		qb.addWhere(clause)
-		if count == 1 {
-			qb.addArg(c.Value)
+func (qb *queryBuilder) parseQueryString(columns []string, q string) {
+	specs := models.ParseSearchString(q)
+
+	for _, t := range specs.MustHave {
+		var clauses []string
+
+		for _, column := range columns {
+			clauses = append(clauses, column+" LIKE ?")
+			qb.addArg(like(t))
+		}
+
+		qb.addWhere("(" + strings.Join(clauses, " OR ") + ")")
+	}
+
+	for _, t := range specs.MustNot {
+		for _, column := range columns {
+			qb.addWhere(coalesce(column) + " NOT LIKE ?")
+			qb.addArg(like(t))
 		}
 	}
-}
 
-func (qb *queryBuilder) handleStringCriterionInput(c *models.StringCriterionInput, column string) {
-	if c != nil {
-		if modifier := c.Modifier; c.Modifier.IsValid() {
-			switch modifier {
-			case models.CriterionModifierIncludes:
-				clause, thisArgs := getSearchBinding([]string{column}, c.Value, false)
-				qb.addWhere(clause)
-				qb.addArg(thisArgs...)
-			case models.CriterionModifierExcludes:
-				clause, thisArgs := getSearchBinding([]string{column}, c.Value, true)
-				qb.addWhere(clause)
-				qb.addArg(thisArgs...)
-			case models.CriterionModifierEquals:
-				qb.addWhere(column + " LIKE ?")
-				qb.addArg(c.Value)
-			case models.CriterionModifierNotEquals:
-				qb.addWhere(column + " NOT LIKE ?")
-				qb.addArg(c.Value)
-			case models.CriterionModifierMatchesRegex:
-				if _, err := regexp.Compile(c.Value); err != nil {
-					qb.err = err
-					return
-				}
-				qb.addWhere(fmt.Sprintf("(%s IS NOT NULL AND %[1]s regexp ?)", column))
-				qb.addArg(c.Value)
-			case models.CriterionModifierNotMatchesRegex:
-				if _, err := regexp.Compile(c.Value); err != nil {
-					qb.err = err
-					return
-				}
-				qb.addWhere(fmt.Sprintf("(%s IS NULL OR %[1]s NOT regexp ?)", column))
-				qb.addArg(c.Value)
-			case models.CriterionModifierIsNull:
-				qb.addWhere("(" + column + " IS NULL OR TRIM(" + column + ") = '')")
-			case models.CriterionModifierNotNull:
-				qb.addWhere("(" + column + " IS NOT NULL AND TRIM(" + column + ") != '')")
-			default:
-				clause, count := getSimpleCriterionClause(modifier, "?")
-				qb.addWhere(column + " " + clause)
-				if count == 1 {
-					qb.addArg(c.Value)
-				}
+	for _, set := range specs.AnySets {
+		var clauses []string
+
+		for _, column := range columns {
+			for _, v := range set {
+				clauses = append(clauses, column+" LIKE ?")
+				qb.addArg(like(v))
 			}
 		}
-	}
-}
 
-func (qb *queryBuilder) handleCountCriterion(countFilter *models.IntCriterionInput, primaryTable, joinTable, primaryFK string) {
-	if countFilter != nil {
-		clause, count := getCountCriterionClause(primaryTable, joinTable, primaryFK, *countFilter)
-
-		if count == 1 {
-			qb.addArg(countFilter.Value)
-		}
-
-		qb.addWhere(clause)
+		qb.addWhere("(" + strings.Join(clauses, " OR ") + ")")
 	}
 }

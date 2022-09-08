@@ -1,14 +1,14 @@
 import React from "react";
 import { Link } from "react-router-dom";
+import { FormattedMessage, useIntl } from "react-intl";
 import * as GQL from "src/core/generated-graphql";
 import { NavUtils, TextUtils } from "src/utils";
 import {
-  BasicCard,
+  GridCard,
   CountryFlag,
   HoverPopover,
   Icon,
   TagLink,
-  TruncatedText,
 } from "src/components/Shared";
 import { Button, ButtonGroup } from "react-bootstrap";
 import {
@@ -16,11 +16,14 @@ import {
   CriterionValue,
 } from "src/models/list-filter/criteria/criterion";
 import { PopoverCountButton } from "../Shared/PopoverCountButton";
+import GenderIcon from "./GenderIcon";
+import { faHeart, faTag } from "@fortawesome/free-solid-svg-icons";
 
 export interface IPerformerCardExtraCriteria {
   scenes: Criterion<CriterionValue>[];
   images: Criterion<CriterionValue>[];
   galleries: Criterion<CriterionValue>[];
+  movies: Criterion<CriterionValue>[];
 }
 
 interface IPerformerCardProps {
@@ -40,11 +43,22 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
   onSelectedChanged,
   extraCriteria,
 }) => {
+  const intl = useIntl();
   const age = TextUtils.age(
     performer.birthdate,
     ageFromDate ?? performer.death_date
   );
-  const ageString = `${age} years old${ageFromDate ? " in this scene." : "."}`;
+  const ageL10nId = ageFromDate
+    ? "media_info.performer_card.age_context"
+    : "media_info.performer_card.age";
+  const ageL10String = intl.formatMessage({
+    id: "years_old",
+    defaultMessage: "years old",
+  });
+  const ageString = intl.formatMessage(
+    { id: ageL10nId },
+    { age, years_old: ageL10String }
+  );
 
   function maybeRenderFavoriteIcon() {
     if (performer.favorite === false) {
@@ -52,7 +66,7 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
     }
     return (
       <div className="favorite">
-        <Icon icon="heart" size="2x" />
+        <Icon icon={faHeart} size="2x" />
       </div>
     );
   }
@@ -62,6 +76,7 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
 
     return (
       <PopoverCountButton
+        className="scene-count"
         type="scene"
         count={performer.scene_count}
         url={NavUtils.makePerformerScenesUrl(performer, extraCriteria?.scenes)}
@@ -74,6 +89,7 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
 
     return (
       <PopoverCountButton
+        className="image-count"
         type="image"
         count={performer.image_count}
         url={NavUtils.makePerformerImagesUrl(performer, extraCriteria?.images)}
@@ -86,6 +102,7 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
 
     return (
       <PopoverCountButton
+        className="gallery-count"
         type="gallery"
         count={performer.gallery_count}
         url={NavUtils.makePerformerGalleriesUrl(
@@ -105,11 +122,24 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
 
     return (
       <HoverPopover placement="bottom" content={popoverContent}>
-        <Button className="minimal">
-          <Icon icon="tag" />
+        <Button className="minimal tag-count">
+          <Icon icon={faTag} />
           <span>{performer.tags.length}</span>
         </Button>
       </HoverPopover>
+    );
+  }
+
+  function maybeRenderMoviesPopoverButton() {
+    if (!performer.movie_count) return;
+
+    return (
+      <PopoverCountButton
+        className="movie-count"
+        type="movie"
+        count={performer.movie_count}
+        url={NavUtils.makePerformerMoviesUrl(performer, extraCriteria?.movies)}
+      />
     );
   }
 
@@ -118,13 +148,15 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
       performer.scene_count ||
       performer.image_count ||
       performer.gallery_count ||
-      performer.tags.length > 0
+      performer.tags.length > 0 ||
+      performer.movie_count
     ) {
       return (
         <>
           <hr />
           <ButtonGroup className="card-popovers">
             {maybeRenderScenesPopoverButton()}
+            {maybeRenderMoviesPopoverButton()}
             {maybeRenderImagesPopoverButton()}
             {maybeRenderGalleriesPopoverButton()}
             {maybeRenderTagPopoverButton()}
@@ -144,15 +176,35 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
           performer.rating ? `rating-${performer.rating}` : ""
         }`}
       >
-        RATING: {performer.rating}
+        <FormattedMessage id="rating" />: {performer.rating}
       </div>
     );
   }
 
+  function maybeRenderFlag() {
+    if (performer.country) {
+      return (
+        <Link to={NavUtils.makePerformersCountryUrl(performer)}>
+          <CountryFlag
+            className="performer-card__country-flag"
+            country={performer.country}
+          />
+          <span className="performer-card__country-string">
+            {performer.country}
+          </span>
+        </Link>
+      );
+    }
+  }
+
   return (
-    <BasicCard
+    <GridCard
       className="performer-card"
       url={`/performers/${performer.id}`}
+      pretitleIcon={
+        <GenderIcon className="gender-icon" gender={performer.gender} />
+      }
+      title={performer.name ?? ""}
       image={
         <>
           <img
@@ -162,17 +214,16 @@ export const PerformerCard: React.FC<IPerformerCardProps> = ({
           />
           {maybeRenderFavoriteIcon()}
           {maybeRenderRatingBanner()}
+          {maybeRenderFlag()}
         </>
       }
       details={
         <>
-          <h5>
-            <TruncatedText text={performer.name} />
-          </h5>
-          {age !== 0 ? <div className="text-muted">{ageString}</div> : ""}
-          <Link to={NavUtils.makePerformersCountryUrl(performer)}>
-            <CountryFlag country={performer.country} />
-          </Link>
+          {age !== 0 ? (
+            <div className="performer-card__age">{ageString}</div>
+          ) : (
+            ""
+          )}
           {maybeRenderPopoverButtonGroup()}
         </>
       }

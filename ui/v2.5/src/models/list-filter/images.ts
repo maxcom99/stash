@@ -1,6 +1,10 @@
-import { createCriterionOption } from "./criteria/criterion";
+import {
+  createMandatoryNumberCriterionOption,
+  createMandatoryStringCriterionOption,
+  createStringCriterionOption,
+} from "./criteria/criterion";
+import { PerformerFavoriteCriterionOption } from "./criteria/favorite";
 import { ImageIsMissingCriterionOption } from "./criteria/is-missing";
-import { NoneCriterionOption } from "./criteria/none";
 import { OrganizedCriterionOption } from "./criteria/organized";
 import { PerformersCriterionOption } from "./criteria/performers";
 import { RatingCriterionOption } from "./criteria/rating";
@@ -10,37 +14,32 @@ import {
   PerformerTagsCriterionOption,
   TagsCriterionOption,
 } from "./criteria/tags";
-import { ListFilterOptions } from "./filter-options";
+import { ListFilterOptions, MediaSortByOptions } from "./filter-options";
 import { DisplayMode } from "./types";
 
 const defaultSortBy = "path";
 
-const sortByOptions = [
-  "title",
-  "path",
-  "rating",
-  "o_counter",
-  "filesize",
-  "file_mod_time",
-  "tag_count",
-  "performer_count",
-  "random",
-].map(ListFilterOptions.createSortBy);
+const sortByOptions = ["o_counter", "filesize", ...MediaSortByOptions].map(
+  ListFilterOptions.createSortBy
+);
 
 const displayModeOptions = [DisplayMode.Grid, DisplayMode.Wall];
 const criterionOptions = [
-  NoneCriterionOption,
-  createCriterionOption("path"),
+  createStringCriterionOption("title"),
+  createMandatoryStringCriterionOption("checksum", "media_info.checksum"),
+  createMandatoryStringCriterionOption("path"),
   RatingCriterionOption,
   OrganizedCriterionOption,
-  createCriterionOption("o_counter"),
+  createMandatoryNumberCriterionOption("o_counter"),
   ResolutionCriterionOption,
   ImageIsMissingCriterionOption,
   TagsCriterionOption,
-  createCriterionOption("tag_count"),
+  createMandatoryNumberCriterionOption("tag_count"),
   PerformerTagsCriterionOption,
   PerformersCriterionOption,
-  createCriterionOption("performer_count"),
+  createMandatoryNumberCriterionOption("performer_count"),
+  createMandatoryNumberCriterionOption("performer_age"),
+  PerformerFavoriteCriterionOption,
   StudiosCriterionOption,
 ];
 export const ImageListFilterOptions = new ListFilterOptions(

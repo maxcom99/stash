@@ -1,7 +1,9 @@
 package plugin
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 
@@ -26,11 +28,6 @@ type jsPluginTask struct {
 	started   bool
 	waitGroup sync.WaitGroup
 	vm        *otto.Otto
-}
-
-func throw(vm *otto.Otto, str string) {
-	value, _ := vm.Call("new Error", nil, str)
-	panic(value)
 }
 
 func (t *jsPluginTask) onError(err error) {
@@ -76,12 +73,21 @@ func (t *jsPluginTask) Start() error {
 		return err
 	}
 
-	input := t.buildPluginInput()
+	if err := t.vm.Set("input", t.input); err != nil {
+		return fmt.Errorf("error setting input: %w", err)
+	}
 
-	t.vm.Set("input", input)
-	js.AddLogAPI(t.vm, t.progress)
-	js.AddUtilAPI(t.vm)
-	js.AddGQLAPI(t.vm, t.gqlHandler)
+	if err := js.AddLogAPI(t.vm, t.progress); err != nil {
+		return fmt.Errorf("error adding log API: %w", err)
+	}
+
+	if err := js.AddUtilAPI(t.vm); err != nil {
+		return fmt.Errorf("error adding util API: %w", err)
+	}
+
+	if err := js.AddGQLAPI(context.TODO(), t.vm, t.input.ServerConnection.SessionCookie, t.gqlHandler); err != nil {
+		return fmt.Errorf("error adding GraphQL API: %w", err)
+	}
 
 	t.vm.Interrupt = make(chan func(), 1)
 
@@ -92,7 +98,7 @@ func (t *jsPluginTask) Start() error {
 			t.waitGroup.Done()
 
 			if caught := recover(); caught != nil {
-				if caught == errStop {
+				if err, ok := caught.(error); ok && errors.Is(err, errStop) {
 					// TODO - log this
 					return
 				}

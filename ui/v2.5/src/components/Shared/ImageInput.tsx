@@ -7,8 +7,10 @@ import {
   Popover,
   Row,
 } from "react-bootstrap";
-import { Modal } from ".";
+import { useIntl } from "react-intl";
+import Modal from "./Modal";
 import Icon from "./Icon";
+import { faFile, faLink } from "@fortawesome/free-solid-svg-icons";
 
 interface IImageInput {
   isEditing: boolean;
@@ -16,6 +18,10 @@ interface IImageInput {
   onImageChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onImageURL?: (url: string) => void;
   acceptSVG?: boolean;
+}
+
+function acceptExtensions(acceptSVG: boolean = false) {
+  return `.jpg,.jpeg,.png,.webp,.gif${acceptSVG ? ",.svg" : ""}`;
 }
 
 export const ImageInput: React.FC<IImageInput> = ({
@@ -27,6 +33,7 @@ export const ImageInput: React.FC<IImageInput> = ({
 }) => {
   const [isShowDialog, setIsShowDialog] = useState(false);
   const [url, setURL] = useState("");
+  const intl = useIntl();
 
   if (!isEditing) return <div />;
 
@@ -34,11 +41,13 @@ export const ImageInput: React.FC<IImageInput> = ({
     // just return the file input
     return (
       <Form.Label className="image-input">
-        <Button variant="secondary">{text ?? "Browse for image..."}</Button>
+        <Button variant="secondary">
+          {text ?? intl.formatMessage({ id: "actions.browse_for_image" })}
+        </Button>
         <Form.Control
           type="file"
           onChange={onImageChange}
-          accept={`.jpg,.jpeg,.png${acceptSVG ? ",.svg" : ""}`}
+          accept={acceptExtensions(acceptSVG)}
         />
       </Form.Label>
     );
@@ -58,13 +67,16 @@ export const ImageInput: React.FC<IImageInput> = ({
       <Modal
         show={!!isShowDialog}
         onHide={() => setIsShowDialog(false)}
-        header="Image URL"
-        accept={{ onClick: onConfirmURL, text: "Confirm" }}
+        header={intl.formatMessage({ id: "dialogs.set_image_url_title" })}
+        accept={{
+          onClick: onConfirmURL,
+          text: intl.formatMessage({ id: "actions.confirm" }),
+        }}
       >
         <div className="dialog-content">
           <Form.Group controlId="url" as={Row}>
             <Form.Label column xs={3}>
-              URL
+              {intl.formatMessage({ id: "url" })}
             </Form.Label>
             <Col xs={9}>
               <Form.Control
@@ -73,7 +85,7 @@ export const ImageInput: React.FC<IImageInput> = ({
                   setURL(event.currentTarget.value)
                 }
                 value={url}
-                placeholder="URL"
+                placeholder={intl.formatMessage({ id: "url" })}
               />
             </Col>
           </Form.Group>
@@ -89,20 +101,20 @@ export const ImageInput: React.FC<IImageInput> = ({
           <div>
             <Form.Label className="image-input">
               <Button variant="secondary">
-                <Icon icon="file" className="fa-fw" />
-                <span>From file...</span>
+                <Icon icon={faFile} className="fa-fw" />
+                <span>{intl.formatMessage({ id: "actions.from_file" })}</span>
               </Button>
               <Form.Control
                 type="file"
                 onChange={onImageChange}
-                accept={`.jpg,.jpeg,.png${acceptSVG ? ",.svg" : ""}`}
+                accept={acceptExtensions(acceptSVG)}
               />
             </Form.Label>
           </div>
           <div>
             <Button className="minimal" onClick={() => setIsShowDialog(true)}>
-              <Icon icon="link" className="fa-fw" />
-              <span>From URL...</span>
+              <Icon icon={faLink} className="fa-fw" />
+              <span>{intl.formatMessage({ id: "actions.from_url" })}</span>
             </Button>
           </div>
         </>
@@ -120,7 +132,7 @@ export const ImageInput: React.FC<IImageInput> = ({
         rootClose
       >
         <Button variant="secondary" className="mr-2">
-          {text ?? "Set image..."}
+          {text ?? intl.formatMessage({ id: "actions.set_image" })}
         </Button>
       </OverlayTrigger>
     </>

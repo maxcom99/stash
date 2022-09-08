@@ -5,7 +5,7 @@ import { ListFilterModel } from "src/models/list-filter/filter";
 import { StudioList } from "../StudioList";
 
 interface IStudioChildrenPanel {
-  studio: Partial<GQL.StudioDataFragment>;
+  studio: GQL.StudioDataFragment;
 }
 
 export const StudioChildrenPanel: React.FC<IStudioChildrenPanel> = ({
@@ -15,7 +15,7 @@ export const StudioChildrenPanel: React.FC<IStudioChildrenPanel> = ({
     const studioValue = { id: studio.id!, label: studio.name! };
     // if studio is already present, then we modify it, otherwise add
     let parentStudioCriterion = filter.criteria.find((c) => {
-      return c.criterionOption.value === "parent_studios";
+      return c.criterionOption.type === "parent_studios";
     }) as ParentStudiosCriterion;
 
     if (

@@ -5,15 +5,15 @@ import { ListFilterModel } from "src/models/list-filter/filter";
 import { SceneList } from "src/components/Scenes/SceneList";
 
 interface IMovieScenesPanel {
-  movie: Partial<GQL.MovieDataFragment>;
+  movie: GQL.MovieDataFragment;
 }
 
 export const MovieScenesPanel: React.FC<IMovieScenesPanel> = ({ movie }) => {
   function filterHook(filter: ListFilterModel) {
-    const movieValue = { id: movie.id!, label: movie.name! };
+    const movieValue = { id: movie.id, label: movie.name };
     // if movie is already present, then we modify it, otherwise add
     let movieCriterion = filter.criteria.find((c) => {
-      return c.criterionOption.value === "movies";
+      return c.criterionOption.type === "movies";
     }) as MoviesCriterion;
 
     if (

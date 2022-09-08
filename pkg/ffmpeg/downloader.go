@@ -2,6 +2,7 @@ package ffmpeg
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,20 +13,10 @@ import (
 	"runtime"
 	"strings"
 
+	stashExec "github.com/stashapp/stash/pkg/exec"
+	"github.com/stashapp/stash/pkg/fsutil"
 	"github.com/stashapp/stash/pkg/logger"
-	"github.com/stashapp/stash/pkg/utils"
 )
-
-func findInPaths(paths []string, baseName string) string {
-	for _, p := range paths {
-		filePath := filepath.Join(p, baseName)
-		if exists, _ := utils.FileExists(filePath); exists {
-			return filePath
-		}
-	}
-
-	return ""
-}
 
 func GetPaths(paths []string) (string, string) {
 	var ffmpegPath, ffprobePath string
@@ -38,18 +29,27 @@ func GetPaths(paths []string) (string, string) {
 
 	// Check if ffmpeg exists in the config directory
 	if ffmpegPath == "" {
-		ffmpegPath = findInPaths(paths, getFFMPEGFilename())
+		ffmpegPath = fsutil.FindInPaths(paths, getFFMPEGFilename())
 	}
 	if ffprobePath == "" {
-		ffprobePath = findInPaths(paths, getFFProbeFilename())
+		ffprobePath = fsutil.FindInPaths(paths, getFFProbeFilename())
 	}
 
 	return ffmpegPath, ffprobePath
 }
 
-func Download(configDirectory string) error {
+func Download(ctx context.Context, configDirectory string) error {
 	for _, url := range getFFMPEGURL() {
-		err := DownloadSingle(configDirectory, url)
+		err := downloadSingle(ctx, configDirectory, url)
+		if err != nil {
+			return err
+		}
+	}
+
+	// validate that the urls contained what we needed
+	executables := []string{getFFMPEGFilename(), getFFProbeFilename()}
+	for _, executable := range executables {
+		_, err := os.Stat(filepath.Join(configDirectory, executable))
 		if err != nil {
 			return err
 		}
@@ -80,13 +80,12 @@ func (r *progressReader) Read(p []byte) (int, error) {
 	return read, err
 }
 
-func DownloadSingle(configDirectory, url string) error {
+func downloadSingle(ctx context.Context, configDirectory, url string) error {
 	if url == "" {
 		return fmt.Errorf("no ffmpeg url for this platform")
 	}
 
 	// Configure where we want to download the archive
-	urlExt := path.Ext(url)
 	urlBase := path.Base(url)
 	archivePath := filepath.Join(configDirectory, urlBase)
 	_ = os.Remove(archivePath) // remove archive if it already exists
@@ -99,7 +98,12 @@ func DownloadSingle(configDirectory, url string) error {
 	logger.Infof("Downloading %s...", url)
 
 	// Make the HTTP request
-	resp, err := http.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -120,10 +124,16 @@ func DownloadSingle(configDirectory, url string) error {
 	if err != nil {
 		return err
 	}
-
 	logger.Info("Downloading complete")
 
-	if urlExt == ".zip" {
+	mime := resp.Header.Get("Content-Type")
+	if mime != "application/zip" { // try detecting MIME type since some servers don't return the correct one
+		data := make([]byte, 500) // http.DetectContentType only reads up to 500 bytes
+		_, _ = out.ReadAt(data, 0)
+		mime = http.DetectContentType(data)
+	}
+
+	if mime == "application/zip" {
 		logger.Infof("Unzipping %s...", archivePath)
 		if err := unzip(archivePath, configDirectory); err != nil {
 			return err
@@ -131,20 +141,24 @@ func DownloadSingle(configDirectory, url string) error {
 
 		// On OSX or Linux set downloaded files permissions
 		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-			if err := os.Chmod(filepath.Join(configDirectory, "ffmpeg"), 0755); err != nil {
-				return err
+			_, err = os.Stat(filepath.Join(configDirectory, "ffmpeg"))
+			if !os.IsNotExist(err) {
+				if err = os.Chmod(filepath.Join(configDirectory, "ffmpeg"), 0755); err != nil {
+					return err
+				}
 			}
 
-			if err := os.Chmod(filepath.Join(configDirectory, "ffprobe"), 0755); err != nil {
-				return err
+			_, err = os.Stat(filepath.Join(configDirectory, "ffprobe"))
+			if !os.IsNotExist(err) {
+				if err := os.Chmod(filepath.Join(configDirectory, "ffprobe"), 0755); err != nil {
+					return err
+				}
 			}
 
 			// TODO: In future possible clear xattr to allow running on osx without user intervention
 			// TODO: this however may not be required.
 			// xattr -c /path/to/binary -- xattr.Remove(path, "com.apple.quarantine")
 		}
-
-		logger.Infof("ffmpeg and ffprobe successfully installed in %s", configDirectory)
 
 	} else {
 		return fmt.Errorf("ffmpeg was downloaded to %s", archivePath)
@@ -157,11 +171,16 @@ func getFFMPEGURL() []string {
 	var urls []string
 	switch runtime.GOOS {
 	case "darwin":
-		urls = []string{"https://evermeet.cx/ffmpeg/ffmpeg-4.3.1.zip", "https://evermeet.cx/ffmpeg/ffprobe-4.3.1.zip"}
+		urls = []string{"https://evermeet.cx/ffmpeg/getrelease/zip", "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"}
 	case "linux":
-		// TODO: get appropriate arch (arm,arm64,amd64) and xz untar from https://johnvansickle.com/ffmpeg/
-		//       or get the ffmpeg,ffprobe zip repackaged ones from  https://ffbinaries.com/downloads
-		urls = []string{""}
+		switch runtime.GOARCH {
+		case "amd64":
+			urls = []string{"https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.2.1/ffmpeg-4.2.1-linux-64.zip", "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.2.1/ffprobe-4.2.1-linux-64.zip"}
+		case "arm":
+			urls = []string{"https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.2.1/ffmpeg-4.2.1-linux-armhf-32.zip", "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.2.1/ffprobe-4.2.1-linux-armhf-32.zip"}
+		case "arm64":
+			urls = []string{"https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.2.1/ffmpeg-4.2.1-linux-arm-64.zip", "https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.2.1/ffprobe-4.2.1-linux-arm-64.zip"}
+		}
 	case "windows":
 		urls = []string{"https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"}
 	default:
@@ -190,7 +209,8 @@ func pathBinaryHasCorrectFlags() bool {
 	if err != nil {
 		return false
 	}
-	bytes, _ := exec.Command(ffmpegPath).CombinedOutput()
+	cmd := stashExec.Command(ffmpegPath)
+	bytes, _ := cmd.CombinedOutput()
 	output := string(bytes)
 	hasOpus := strings.Contains(output, "--enable-libopus")
 	hasVpx := strings.Contains(output, "--enable-libvpx")

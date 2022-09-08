@@ -1,7 +1,8 @@
 import React, { useState } from "react";
+import { FormattedMessage, useIntl } from "react-intl";
 import { Button, Form } from "react-bootstrap";
-import { TruncatedText } from "src/components/Shared";
-import { JWUtils } from "src/utils";
+import TruncatedText from "src/components/Shared/TruncatedText";
+import { VIDEO_PLAYER_ID } from "src/components/ScenePlayer/util";
 import * as GQL from "src/core/generated-graphql";
 
 interface ISceneVideoFilterPanelProps {
@@ -85,6 +86,8 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
     divider: 100,
   };
 
+  const intl = useIntl();
+
   const [contrastValue, setContrastValue] = useState(contrastRange.default);
   const [brightnessValue, setBrightnessValue] = useState(
     brightnessRange.default
@@ -106,10 +109,11 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
   );
 
   function updateVideoStyle() {
-    const playerId = JWUtils.playerID;
-    const playerVideoElement = document
-      .getElementById(playerId)
-      ?.getElementsByClassName("jw-video")[0];
+    const playerVideoContainer = document.getElementById(VIDEO_PLAYER_ID);
+    const videoElements =
+      playerVideoContainer?.getElementsByTagName("video") ?? [];
+    const playerVideoElement =
+      videoElements.length > 0 ? videoElements[0] : null;
 
     if (playerVideoElement != null) {
       let styleString = "filter:";
@@ -342,7 +346,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderBlur() {
     return renderSlider({
-      title: "Blur",
+      title: intl.formatMessage({ id: "effect_filters.blur" }),
       range: blurRange,
       value: blurValue,
       setValue: setBlurValue,
@@ -352,7 +356,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderContrast() {
     return renderSlider({
-      title: "Contrast",
+      title: intl.formatMessage({ id: "effect_filters.contrast" }),
       className: "contrast-slider",
       range: contrastRange,
       value: contrastValue,
@@ -363,7 +367,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderBrightness() {
     return renderSlider({
-      title: "Brightness",
+      title: intl.formatMessage({ id: "effect_filters.brightness" }),
       className: "brightness-slider",
       range: brightnessRange,
       value: brightnessValue,
@@ -374,7 +378,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderGammaSlider() {
     return renderSlider({
-      title: "Gamma",
+      title: intl.formatMessage({ id: "effect_filters.gamma" }),
       className: "gamma-slider",
       range: gammaRange,
       value: gammaValue,
@@ -385,7 +389,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderSaturate() {
     return renderSlider({
-      title: "Saturation",
+      title: intl.formatMessage({ id: "effect_filters.saturation" }),
       className: "saturation-slider",
       range: saturateRange,
       value: saturateValue,
@@ -396,7 +400,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderHueRotateSlider() {
     return renderSlider({
-      title: "Hue",
+      title: intl.formatMessage({ id: "effect_filters.hue" }),
       className: "hue-rotate-slider",
       range: hueRotateRange,
       value: hueRotateValue,
@@ -407,7 +411,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderWhiteBalance() {
     return renderSlider({
-      title: "Warmth",
+      title: intl.formatMessage({ id: "effect_filters.warmth" }),
       className: "white-balance-slider",
       range: whiteBalanceRange,
       value: whiteBalanceValue,
@@ -421,7 +425,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderRedSlider() {
     return renderSlider({
-      title: "Red",
+      title: intl.formatMessage({ id: "effect_filters.red" }),
       className: "red-slider",
       range: colourRange,
       value: redValue,
@@ -434,7 +438,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderGreenSlider() {
     return renderSlider({
-      title: "Green",
+      title: intl.formatMessage({ id: "effect_filters.green" }),
       className: "green-slider",
       range: colourRange,
       value: greenValue,
@@ -447,7 +451,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderBlueSlider() {
     return renderSlider({
-      title: "Blue",
+      title: intl.formatMessage({ id: "effect_filters.blue" }),
       className: "blue-slider",
       range: colourRange,
       value: blueValue,
@@ -460,7 +464,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderRotate() {
     return renderSlider({
-      title: "Rotate",
+      title: intl.formatMessage({ id: "effect_filters.rotate" }),
       range: rotateRange,
       value: rotateValue,
       setValue: setRotateValue,
@@ -472,7 +476,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderScale() {
     return renderSlider({
-      title: "Scale",
+      title: intl.formatMessage({ id: "effect_filters.scale" }),
       range: scaleRange,
       value: scaleValue,
       setValue: setScaleValue,
@@ -482,7 +486,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
 
   function renderAspectRatio() {
     return renderSlider({
-      title: "Aspect",
+      title: intl.formatMessage({ id: "effect_filters.aspect" }),
       range: aspectRatioRange,
       value: aspectRatioValue,
       setValue: setAspectRatioValue,
@@ -507,11 +511,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
     const sceneAspectRatio = sceneWidth / sceneHeight;
     const sceneNewAspectRatio = sceneHeight / sceneWidth;
 
-    const playerId = JWUtils.playerID;
-    const playerVideoElement = document
-      .getElementById(playerId)
-      ?.getElementsByClassName("jw-video")[0];
-
+    const playerVideoElement = document.getElementById(VIDEO_PLAYER_ID);
     const playerWidth = playerVideoElement?.clientWidth ?? 1;
     const playerHeight = playerVideoElement?.clientHeight ?? 1;
     const playerAspectRation = playerWidth / playerHeight;
@@ -557,7 +557,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
             type="button"
             onClick={() => onRotateAndScale(0)}
           >
-            Rotate Left & Scale
+            <FormattedMessage id="effect_filters.rotate_left_and_scale" />
           </Button>
         </span>
         <span className="col-6">
@@ -567,7 +567,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
             type="button"
             onClick={() => onRotateAndScale(1)}
           >
-            Rotate Right & Scale
+            <FormattedMessage id="effect_filters.rotate_right_and_scale" />
           </Button>
         </span>
       </div>
@@ -603,7 +603,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
             type="button"
             onClick={() => onResetFilters()}
           >
-            Reset Filters
+            <FormattedMessage id="effect_filters.reset_filters" />
           </Button>
         </span>
         <span className="col-6">
@@ -613,7 +613,7 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
             type="button"
             onClick={() => onResetTransforms()}
           >
-            Reset Transforms
+            <FormattedMessage id="effect_filters.reset_transforms" />
           </Button>
         </span>
       </div>
@@ -632,7 +632,9 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
     <div className="container scene-video-filter">
       <div className="row form-group">
         <span className="col-12">
-          <h5>Filters</h5>
+          <h5>
+            <FormattedMessage id="effect_filters.name" />
+          </h5>
         </span>
       </div>
       {renderBrightness()}
@@ -647,7 +649,9 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
       {renderBlur()}
       <div className="row form-group">
         <span className="col-12">
-          <h5>Transforms</h5>
+          <h5>
+            <FormattedMessage id="effect_filters.name_transforms" />
+          </h5>
         </span>
       </div>
       {renderRotate()}
@@ -655,7 +659,9 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
       {renderAspectRatio()}
       <div className="row form-group">
         <span className="col-12">
-          <h5>Actions</h5>
+          <h5>
+            <FormattedMessage id="actions_name" />
+          </h5>
         </span>
       </div>
       {renderRotateAndScale()}
@@ -664,3 +670,5 @@ export const SceneVideoFilterPanel: React.FC<ISceneVideoFilterPanelProps> = (
     </div>
   );
 };
+
+export default SceneVideoFilterPanel;

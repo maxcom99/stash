@@ -3,70 +3,52 @@ package scraper
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"net"
 	"net/http"
-	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
-	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	jsoniter "github.com/json-iterator/go"
 	"golang.org/x/net/html/charset"
-	"golang.org/x/net/publicsuffix"
 
 	"github.com/stashapp/stash/pkg/logger"
 )
 
-// Timeout for the scrape http request. Includes transfer time. May want to make this
-// configurable at some point.
-const scrapeGetTimeout = time.Second * 60
 const scrapeDefaultSleep = time.Second * 2
 
-func loadURL(url string, scraperConfig config, globalConfig GlobalConfig) (io.Reader, error) {
+func loadURL(ctx context.Context, loadURL string, client *http.Client, scraperConfig config, globalConfig GlobalConfig) (io.Reader, error) {
 	driverOptions := scraperConfig.DriverOptions
 	if driverOptions != nil && driverOptions.UseCDP {
 		// get the page using chrome dp
-		return urlFromCDP(url, *driverOptions, globalConfig)
+		return urlFromCDP(ctx, loadURL, *driverOptions, globalConfig)
 	}
 
-	// get the page using http.Client
-	options := cookiejar.Options{
-		PublicSuffixList: publicsuffix.List,
-	}
-	jar, er := cookiejar.New(&options)
-	if er != nil {
-		return nil, er
-	}
-
-	setCookies(jar, scraperConfig)
-	printCookies(jar, scraperConfig, "Jar cookies set from scraper")
-
-	client := &http.Client{
-		Transport: &http.Transport{ // ignore insecure certificates
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: !globalConfig.GetScraperCertCheck()},
-		},
-		Timeout: scrapeGetTimeout,
-		// defaultCheckRedirect code with max changed from 10 to 20
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 20 {
-				return errors.New("stopped after 20 redirects")
-			}
-			return nil
-		},
-		Jar: jar,
-	}
-
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, loadURL, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	jar, err := scraperConfig.jar()
+	if err != nil {
+		return nil, fmt.Errorf("error creating cookie jar: %w", err)
+	}
+
+	u, err := url.Parse(loadURL)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing url %s: %w", loadURL, err)
+	}
+
+	// Fetch relevant cookies from the jar for url u and add them to the request
+	cookies := jar.Cookies(u)
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
 	}
 
 	userAgent := globalConfig.GetScraperUserAgent()
@@ -93,24 +75,23 @@ func loadURL(url string, scraperConfig config, globalConfig GlobalConfig) (io.Re
 
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	bodyReader := bytes.NewReader(body)
 	printCookies(jar, scraperConfig, "Jar cookies found for scraper urls")
-
 	return charset.NewReader(bodyReader, resp.Header.Get("Content-Type"))
 }
 
 // func urlFromCDP uses chrome cdp and DOM to load and process the url
 // if remote is set as true in the scraperConfig  it will try to use localhost:9222
 // else it will look for google-chrome in path
-func urlFromCDP(url string, driverOptions scraperDriverOptions, globalConfig GlobalConfig) (io.Reader, error) {
+func urlFromCDP(ctx context.Context, urlCDP string, driverOptions scraperDriverOptions, globalConfig GlobalConfig) (io.Reader, error) {
 
 	if !driverOptions.UseCDP {
-		return nil, fmt.Errorf("Url shouldn't be feetched through CDP")
+		return nil, fmt.Errorf("url shouldn't be fetched through CDP")
 	}
 
 	sleepDuration := scrapeDefaultSleep
@@ -118,8 +99,6 @@ func urlFromCDP(url string, driverOptions scraperDriverOptions, globalConfig Glo
 	if driverOptions.Sleep > 0 {
 		sleepDuration = time.Duration(driverOptions.Sleep) * time.Second
 	}
-
-	act := context.Background()
 
 	// if scraperCDPPath is a remote address, then allocate accordingly
 	cdpPath := globalConfig.GetScraperCDPPath()
@@ -129,19 +108,46 @@ func urlFromCDP(url string, driverOptions scraperDriverOptions, globalConfig Glo
 		if isCDPPathHTTP(globalConfig) || isCDPPathWS(globalConfig) {
 			remote := cdpPath
 
+			// -------------------------------------------------------------------
+			// #1023
+			// when chromium is listening over RDP it only accepts requests
+			// with host headers that are either IPs or `localhost`
+			cdpURL, err := url.Parse(remote)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse CDP Path: %v", err)
+			}
+			hostname := cdpURL.Hostname()
+			if hostname != "localhost" {
+				if net.ParseIP(hostname) == nil { // not an IP
+					addr, err := net.LookupIP(hostname)
+					if err != nil || len(addr) == 0 { // can not resolve to IP
+						return nil, fmt.Errorf("CDP: hostname <%s> can not be resolved", hostname)
+					}
+					if len(addr[0]) == 0 { // nil IP
+						return nil, fmt.Errorf("CDP: hostname <%s> resolved to nil", hostname)
+					}
+					// addr is a valid IP
+					// replace the host part of the cdpURL with the IP
+					cdpURL.Host = strings.Replace(cdpURL.Host, hostname, addr[0].String(), 1)
+					// use that for remote
+					remote = cdpURL.String()
+				}
+			}
+			// --------------------------------------------------------------------
+
 			// if CDPPath is http(s) then we need to get the websocket URL
 			if isCDPPathHTTP(globalConfig) {
 				var err error
-				remote, err = getRemoteCDPWSAddress(remote)
+				remote, err = getRemoteCDPWSAddress(ctx, remote)
 				if err != nil {
 					return nil, err
 				}
 			}
 
-			act, cancelAct = chromedp.NewRemoteAllocator(context.Background(), remote)
+			ctx, cancelAct = chromedp.NewRemoteAllocator(ctx, remote)
 		} else {
 			// use a temporary user directory for chrome
-			dir, err := ioutil.TempDir("", "stash-chromedp")
+			dir, err := os.MkdirTemp("", "stash-chromedp")
 			if err != nil {
 				return nil, err
 			}
@@ -151,13 +157,13 @@ func urlFromCDP(url string, driverOptions scraperDriverOptions, globalConfig Glo
 				chromedp.UserDataDir(dir),
 				chromedp.ExecPath(cdpPath),
 			)
-			act, cancelAct = chromedp.NewExecAllocator(act, opts...)
+			ctx, cancelAct = chromedp.NewExecAllocator(ctx, opts...)
 		}
 
 		defer cancelAct()
 	}
 
-	ctx, cancel := chromedp.NewContext(act)
+	ctx, cancel := chromedp.NewContext(ctx)
 	defer cancel()
 
 	// add a fixed timeout for the http request
@@ -172,17 +178,10 @@ func urlFromCDP(url string, driverOptions scraperDriverOptions, globalConfig Glo
 		setCDPCookies(driverOptions),
 		printCDPCookies(driverOptions, "Cookies found"),
 		network.SetExtraHTTPHeaders(network.Headers(headers)),
-		chromedp.Navigate(url),
+		chromedp.Navigate(urlCDP),
 		chromedp.Sleep(sleepDuration),
 		setCDPClicks(driverOptions),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			node, err := dom.GetDocument().Do(ctx)
-			if err != nil {
-				return err
-			}
-			res, err = dom.GetOuterHTML().WithNodeID(node.NodeID).Do(ctx)
-			return err
-		}),
+		chromedp.OuterHTML("html", &res, chromedp.ByQuery),
 		printCDPCookies(driverOptions, "Cookies set"),
 	)
 
@@ -227,11 +226,17 @@ func setCDPClicks(driverOptions scraperDriverOptions) chromedp.Tasks {
 }
 
 // getRemoteCDPWSAddress returns the complete remote address that is required to access the cdp instance
-func getRemoteCDPWSAddress(address string) (string, error) {
-	resp, err := http.Get(address)
+func getRemoteCDPWSAddress(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
 
 	var result map[string]interface{}
 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -241,17 +246,6 @@ func getRemoteCDPWSAddress(address string) (string, error) {
 	remote := result["webSocketDebuggerUrl"].(string)
 	logger.Debugf("Remote cdp instance found %s", remote)
 	return remote, err
-}
-
-func cdpNetwork(enable bool) chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
-		if enable {
-			network.Enable().Do(ctx)
-		} else {
-			network.Disable().Do(ctx)
-		}
-		return nil
-	})
 }
 
 func cdpHeaders(driverOptions scraperDriverOptions) map[string]interface{} {

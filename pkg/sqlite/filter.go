@@ -4,7 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/stashapp/stash/pkg/logger"
+	"github.com/stashapp/stash/pkg/utils"
 
 	"github.com/stashapp/stash/pkg/models"
 )
@@ -27,10 +31,15 @@ type criterionHandler interface {
 
 type criterionHandlerFunc func(f *filterBuilder)
 
+func (h criterionHandlerFunc) handle(f *filterBuilder) {
+	h(f)
+}
+
 type join struct {
 	table    string
 	as       string
 	onClause string
+	joinType string
 }
 
 // equals returns true if the other join alias/table is equal to this one
@@ -49,11 +58,15 @@ func (j join) alias() string {
 
 func (j join) toSQL() string {
 	asStr := ""
+	joinStr := j.joinType
 	if j.as != "" && j.as != j.table {
 		asStr = " AS " + j.as
 	}
+	if j.joinType == "" {
+		joinStr = "LEFT"
+	}
 
-	return fmt.Sprintf("LEFT JOIN %s%s ON %s", j.table, asStr, j.onClause)
+	return fmt.Sprintf("%s JOIN %s%s ON %s", joinStr, j.table, asStr, j.onClause)
 }
 
 type joins []join
@@ -61,23 +74,31 @@ type joins []join
 func (j *joins) add(newJoins ...join) {
 	// only add if not already joined
 	for _, newJoin := range newJoins {
+		found := false
 		for _, jj := range *j {
 			if jj.equals(newJoin) {
-				return
+				found = true
+				break
 			}
 		}
 
-		*j = append(*j, newJoin)
+		if !found {
+			*j = append(*j, newJoin)
+		}
 	}
 }
 
 func (j *joins) toSQL() string {
+	if len(*j) == 0 {
+		return ""
+	}
+
 	var ret []string
 	for _, jj := range *j {
 		ret = append(ret, jj.toSQL())
 	}
 
-	return strings.Join(ret, " ")
+	return " " + strings.Join(ret, " ")
 }
 
 type filterBuilder struct {
@@ -88,11 +109,12 @@ type filterBuilder struct {
 	whereClauses  []sqlClause
 	havingClauses []sqlClause
 	withClauses   []sqlClause
+	recursiveWith bool
 
 	err error
 }
 
-var errSubFilterAlreadySet error = errors.New(`sub-filter already set`)
+var errSubFilterAlreadySet = errors.New(`sub-filter already set`)
 
 // sub-filter operator values
 var (
@@ -137,16 +159,33 @@ func (f *filterBuilder) not(n *filterBuilder) {
 	f.subFilterOp = notOp
 }
 
-// addJoin adds a join to the filter. The join is expressed in SQL as:
+// addLeftJoin adds a left join to the filter. The join is expressed in SQL as:
 // LEFT JOIN <table> [AS <as>] ON <onClause>
 // The AS is omitted if as is empty.
 // This method does not add a join if it its alias/table name is already
 // present in another existing join.
-func (f *filterBuilder) addJoin(table, as, onClause string) {
+func (f *filterBuilder) addLeftJoin(table, as, onClause string) {
 	newJoin := join{
 		table:    table,
 		as:       as,
 		onClause: onClause,
+		joinType: "LEFT",
+	}
+
+	f.joins.add(newJoin)
+}
+
+// addInnerJoin adds an inner join to the filter. The join is expressed in SQL as:
+// INNER JOIN <table> [AS <as>] ON <onClause>
+// The AS is omitted if as is empty.
+// This method does not add a join if it its alias/table name is already
+// present in another existing join.
+func (f *filterBuilder) addInnerJoin(table, as, onClause string) {
+	newJoin := join{
+		table:    table,
+		as:       as,
+		onClause: onClause,
+		joinType: "INNER",
 	}
 
 	f.joins.add(newJoin)
@@ -179,6 +218,18 @@ func (f *filterBuilder) addWith(sql string, args ...interface{}) {
 	f.withClauses = append(f.withClauses, makeClause(sql, args...))
 }
 
+// addRecursiveWith adds a with clause and arguments to the filter, and sets it to recursive
+//
+//nolint:unused
+func (f *filterBuilder) addRecursiveWith(sql string, args ...interface{}) {
+	if sql == "" {
+		return
+	}
+
+	f.addWith(sql, args...)
+	f.recursiveWith = true
+}
+
 func (f *filterBuilder) getSubFilterClause(clause, subFilterClause string) string {
 	ret := clause
 
@@ -186,10 +237,8 @@ func (f *filterBuilder) getSubFilterClause(clause, subFilterClause string) strin
 		var op string
 		if len(ret) > 0 {
 			op = " " + f.subFilterOp + " "
-		} else {
-			if f.subFilterOp == notOp {
-				op = "NOT "
-			}
+		} else if f.subFilterOp == notOp {
+			op = "NOT "
 		}
 
 		ret += op + "(" + subFilterClause + ")"
@@ -283,15 +332,7 @@ func (f *filterBuilder) getError() error {
 // handleCriterion calls the handle function on the provided criterionHandler,
 // providing itself.
 func (f *filterBuilder) handleCriterion(handler criterionHandler) {
-	f.handleCriterionFunc(func(h *filterBuilder) {
-		handler.handle(h)
-	})
-}
-
-// handleCriterionFunc calls the provided criterion handler function providing
-// itself.
-func (f *filterBuilder) handleCriterionFunc(handler criterionHandlerFunc) {
-	handler(f)
+	handler.handle(f)
 }
 
 func (f *filterBuilder) setError(e error) {
@@ -309,7 +350,7 @@ func (f *filterBuilder) andClauses(input []sqlClause) (string, []interface{}) {
 	}
 
 	if len(clauses) > 0 {
-		c := strings.Join(clauses, " AND ")
+		c := "(" + strings.Join(clauses, ") AND (") + ")"
 		if len(clauses) > 1 {
 			c = "(" + c + ")"
 		}
@@ -351,13 +392,7 @@ func stringCriterionHandler(c *models.StringCriterionInput, column string) crite
 				case models.CriterionModifierNotNull:
 					f.addWhere("(" + column + " IS NOT NULL AND TRIM(" + column + ") != '')")
 				default:
-					clause, count := getSimpleCriterionClause(modifier, "?")
-
-					if count == 1 {
-						f.addWhere(column+" "+clause, c.Value)
-					} else {
-						f.addWhere(column + " " + clause)
-					}
+					panic("unsupported string filter modifier")
 				}
 			}
 		}
@@ -367,13 +402,8 @@ func stringCriterionHandler(c *models.StringCriterionInput, column string) crite
 func intCriterionHandler(c *models.IntCriterionInput, column string) criterionHandlerFunc {
 	return func(f *filterBuilder) {
 		if c != nil {
-			clause, count := getIntCriterionWhereClause(column, *c)
-
-			if count == 1 {
-				f.addWhere(clause, c.Value)
-			} else {
-				f.addWhere(clause)
-			}
+			clause, args := getIntCriterionWhereClause(column, *c)
+			f.addWhere(clause, args...)
 		}
 	}
 }
@@ -389,14 +419,6 @@ func boolCriterionHandler(c *bool, column string) criterionHandlerFunc {
 			}
 
 			f.addWhere(column + " = " + v)
-		}
-	}
-}
-
-func stringLiteralCriterionHandler(v *string, column string) criterionHandlerFunc {
-	return func(f *filterBuilder) {
-		if v != nil {
-			f.addWhere(column+" = ?", v)
 		}
 	}
 }
@@ -420,33 +442,55 @@ type joinedMultiCriterionHandlerBuilder struct {
 
 func (m *joinedMultiCriterionHandlerBuilder) handler(criterion *models.MultiCriterionInput) criterionHandlerFunc {
 	return func(f *filterBuilder) {
-		if criterion != nil && len(criterion.Value) > 0 {
-			var args []interface{}
-			for _, tagID := range criterion.Value {
-				args = append(args, tagID)
-			}
-
+		if criterion != nil {
 			joinAlias := m.joinAs
 			if joinAlias == "" {
 				joinAlias = m.joinTable
 			}
 
+			if criterion.Modifier == models.CriterionModifierIsNull || criterion.Modifier == models.CriterionModifierNotNull {
+				var notClause string
+				if criterion.Modifier == models.CriterionModifierNotNull {
+					notClause = "NOT"
+				}
+
+				m.addJoinTable(f)
+
+				f.addWhere(utils.StrFormat("{table}.{column} IS {not} NULL", utils.StrFormatMap{
+					"table":  joinAlias,
+					"column": m.foreignFK,
+					"not":    notClause,
+				}))
+				return
+			}
+
+			if len(criterion.Value) == 0 {
+				return
+			}
+
+			var args []interface{}
+			for _, tagID := range criterion.Value {
+				args = append(args, tagID)
+			}
+
 			whereClause := ""
 			havingClause := ""
-			if criterion.Modifier == models.CriterionModifierIncludes {
+
+			switch criterion.Modifier {
+			case models.CriterionModifierIncludes:
 				// includes any of the provided ids
 				m.addJoinTable(f)
 				whereClause = fmt.Sprintf("%s.%s IN %s", joinAlias, m.foreignFK, getInBinding(len(criterion.Value)))
-			} else if criterion.Modifier == models.CriterionModifierIncludesAll {
+			case models.CriterionModifierIncludesAll:
 				// includes all of the provided ids
 				m.addJoinTable(f)
 				whereClause = fmt.Sprintf("%s.%s IN %s", joinAlias, m.foreignFK, getInBinding(len(criterion.Value)))
 				havingClause = fmt.Sprintf("count(distinct %s.%s) IS %d", joinAlias, m.foreignFK, len(criterion.Value))
-			} else if criterion.Modifier == models.CriterionModifierExcludes {
+			case models.CriterionModifierExcludes:
 				// excludes all of the provided ids
 				// need to use actual join table name for this
-				// not exists (select <joinTable>.<primaryFK> from <joinTable> where <joinTable>.<primaryFK> = <primaryTable>.id and <joinTable>.<foreignFK> in <values>)
-				whereClause = fmt.Sprintf("not exists (select %[1]s.%[2]s from %[1]s where %[1]s.%[2]s = %[3]s.id and %[1]s.%[4]s in %[5]s)", m.joinTable, m.primaryFK, m.primaryTable, m.foreignFK, getInBinding(len(criterion.Value)))
+				// <primaryTable>.id NOT IN (select <joinTable>.<primaryFK> from <joinTable> where <joinTable>.<foreignFK> in <values>)
+				whereClause = fmt.Sprintf("%[1]s.id NOT IN (SELECT %[3]s.%[2]s from %[3]s where %[3]s.%[4]s in %[5]s)", m.primaryTable, m.primaryFK, m.joinTable, m.foreignFK, getInBinding(len(criterion.Value)))
 			}
 
 			f.addWhere(whereClause, args...)
@@ -468,7 +512,27 @@ type multiCriterionHandlerBuilder struct {
 
 func (m *multiCriterionHandlerBuilder) handler(criterion *models.MultiCriterionInput) criterionHandlerFunc {
 	return func(f *filterBuilder) {
-		if criterion != nil && len(criterion.Value) > 0 {
+		if criterion != nil {
+			if criterion.Modifier == models.CriterionModifierIsNull || criterion.Modifier == models.CriterionModifierNotNull {
+				var notClause string
+				if criterion.Modifier == models.CriterionModifierNotNull {
+					notClause = "NOT"
+				}
+
+				table := m.primaryTable
+				if m.joinTable != "" {
+					table = m.joinTable
+					f.addLeftJoin(table, "", fmt.Sprintf("%s.%s = %s.id", table, m.primaryFK, m.primaryTable))
+				}
+
+				f.addWhere(fmt.Sprintf("%s.%s IS %s NULL", table, m.foreignFK, notClause))
+				return
+			}
+
+			if len(criterion.Value) == 0 {
+				return
+			}
+
 			var args []interface{}
 			for _, tagID := range criterion.Value {
 				args = append(args, tagID)
@@ -494,13 +558,9 @@ type countCriterionHandlerBuilder struct {
 func (m *countCriterionHandlerBuilder) handler(criterion *models.IntCriterionInput) criterionHandlerFunc {
 	return func(f *filterBuilder) {
 		if criterion != nil {
-			clause, count := getCountCriterionClause(m.primaryTable, m.joinTable, m.primaryFK, *criterion)
+			clause, args := getCountCriterionClause(m.primaryTable, m.joinTable, m.primaryFK, *criterion)
 
-			if count == 1 {
-				f.addWhere(clause, criterion.Value)
-			} else {
-				f.addWhere(clause)
-			}
+			f.addWhere(clause, args...)
 		}
 	}
 }
@@ -518,66 +578,205 @@ type stringListCriterionHandlerBuilder struct {
 func (m *stringListCriterionHandlerBuilder) handler(criterion *models.StringCriterionInput) criterionHandlerFunc {
 	return func(f *filterBuilder) {
 		if criterion != nil && len(criterion.Value) > 0 {
-			var args []interface{}
-			for _, tagID := range criterion.Value {
-				args = append(args, tagID)
-			}
-
 			m.addJoinTable(f)
 
 			stringCriterionHandler(criterion, m.joinTable+"."+m.stringColumn)(f)
-
 		}
 	}
 }
 
 type hierarchicalMultiCriterionHandlerBuilder struct {
+	tx dbi
+
 	primaryTable string
 	foreignTable string
 	foreignFK    string
 
-	derivedTable string
-	parentFK     string
+	derivedTable   string
+	parentFK       string
+	relationsTable string
+}
+
+func getHierarchicalValues(tx dbi, values []string, table, relationsTable, parentFK string, depth *int) string {
+	var args []interface{}
+
+	depthVal := 0
+	if depth != nil {
+		depthVal = *depth
+	}
+
+	if depthVal == 0 {
+		valid := true
+		var valuesClauses []string
+		for _, value := range values {
+			id, err := strconv.Atoi(value)
+			// In case of invalid value just run the query.
+			// Building VALUES() based on provided values just saves a query when depth is 0.
+			if err != nil {
+				valid = false
+				break
+			}
+
+			valuesClauses = append(valuesClauses, fmt.Sprintf("(%d,%d)", id, id))
+		}
+
+		if valid {
+			return "VALUES" + strings.Join(valuesClauses, ",")
+		}
+	}
+
+	for _, value := range values {
+		args = append(args, value)
+	}
+	inCount := len(args)
+
+	var depthCondition string
+	if depthVal != -1 {
+		depthCondition = fmt.Sprintf("WHERE depth < %d", depthVal)
+	}
+
+	withClauseMap := utils.StrFormatMap{
+		"table":           table,
+		"relationsTable":  relationsTable,
+		"inBinding":       getInBinding(inCount),
+		"recursiveSelect": "",
+		"parentFK":        parentFK,
+		"depthCondition":  depthCondition,
+		"unionClause":     "",
+	}
+
+	if relationsTable != "" {
+		withClauseMap["recursiveSelect"] = utils.StrFormat(`SELECT p.root_id, c.child_id, depth + 1 FROM {relationsTable} AS c
+INNER JOIN items as p ON c.parent_id = p.item_id
+`, withClauseMap)
+	} else {
+		withClauseMap["recursiveSelect"] = utils.StrFormat(`SELECT p.root_id, c.id, depth + 1 FROM {table} as c
+INNER JOIN items as p ON c.{parentFK} = p.item_id
+`, withClauseMap)
+	}
+
+	if depthVal != 0 {
+		withClauseMap["unionClause"] = utils.StrFormat(`
+UNION {recursiveSelect} {depthCondition}
+`, withClauseMap)
+	}
+
+	withClause := utils.StrFormat(`items AS (
+SELECT id as root_id, id as item_id, 0 as depth FROM {table}
+WHERE id in {inBinding}
+{unionClause})
+`, withClauseMap)
+
+	query := fmt.Sprintf("WITH RECURSIVE %s SELECT 'VALUES' || GROUP_CONCAT('(' || root_id || ', ' || item_id || ')') AS val FROM items", withClause)
+
+	var valuesClause string
+	err := tx.Get(&valuesClause, query, args...)
+	if err != nil {
+		logger.Error(err)
+		// return record which never matches so we don't have to handle error here
+		return "VALUES(NULL, NULL)"
+	}
+
+	return valuesClause
+}
+
+func addHierarchicalConditionClauses(f *filterBuilder, criterion *models.HierarchicalMultiCriterionInput, table, idColumn string) {
+	switch criterion.Modifier {
+	case models.CriterionModifierIncludes:
+		f.addWhere(fmt.Sprintf("%s.%s IS NOT NULL", table, idColumn))
+	case models.CriterionModifierIncludesAll:
+		f.addWhere(fmt.Sprintf("%s.%s IS NOT NULL", table, idColumn))
+		f.addHaving(fmt.Sprintf("count(distinct %s.%s) IS %d", table, idColumn, len(criterion.Value)))
+	case models.CriterionModifierExcludes:
+		f.addWhere(fmt.Sprintf("%s.%s IS NULL", table, idColumn))
+	}
 }
 
 func (m *hierarchicalMultiCriterionHandlerBuilder) handler(criterion *models.HierarchicalMultiCriterionInput) criterionHandlerFunc {
 	return func(f *filterBuilder) {
-		if criterion != nil && len(criterion.Value) > 0 {
-			var args []interface{}
-			for _, value := range criterion.Value {
-				args = append(args, value)
+		if criterion != nil {
+			if criterion.Modifier == models.CriterionModifierIsNull || criterion.Modifier == models.CriterionModifierNotNull {
+				var notClause string
+				if criterion.Modifier == models.CriterionModifierNotNull {
+					notClause = "NOT"
+				}
+
+				f.addWhere(utils.StrFormat("{table}.{column} IS {not} NULL", utils.StrFormatMap{
+					"table":  m.primaryTable,
+					"column": m.foreignFK,
+					"not":    notClause,
+				}))
+				return
 			}
-			inCount := len(args)
 
-			f.addJoin(m.derivedTable, "", fmt.Sprintf("%s.child_id = %s.%s", m.derivedTable, m.primaryTable, m.foreignFK))
-
-			var depthCondition string
-			if criterion.Depth != -1 {
-				depthCondition = "WHERE depth < ?"
-				args = append(args, criterion.Depth)
+			if len(criterion.Value) == 0 {
+				return
 			}
 
-			withClause := fmt.Sprintf(
-				"RECURSIVE %s AS (SELECT id as id, id as child_id, 0 as depth FROM %s WHERE id in %s UNION SELECT p.id, c.id, depth + 1 FROM %s as c INNER JOIN %s as p ON c.%s = p.child_id %s)",
-				m.derivedTable,
-				m.foreignTable,
-				getInBinding(inCount),
-				m.foreignTable,
-				m.derivedTable,
-				m.parentFK,
-				depthCondition,
-			)
+			valuesClause := getHierarchicalValues(m.tx, criterion.Value, m.foreignTable, m.relationsTable, m.parentFK, criterion.Depth)
 
-			f.addWith(withClause, args...)
+			f.addLeftJoin("(SELECT column1 AS root_id, column2 AS item_id FROM ("+valuesClause+"))", m.derivedTable, fmt.Sprintf("%s.item_id = %s.%s", m.derivedTable, m.primaryTable, m.foreignFK))
 
-			if criterion.Modifier == models.CriterionModifierIncludes {
-				f.addWhere(fmt.Sprintf("%s.id IS NOT NULL", m.derivedTable))
-			} else if criterion.Modifier == models.CriterionModifierIncludesAll {
-				f.addWhere(fmt.Sprintf("%s.id IS NOT NULL", m.derivedTable))
-				f.addHaving(fmt.Sprintf("count(distinct %s.id) IS %d", m.derivedTable, inCount))
-			} else if criterion.Modifier == models.CriterionModifierExcludes {
-				f.addWhere(fmt.Sprintf("%s.id IS NULL", m.derivedTable))
+			addHierarchicalConditionClauses(f, criterion, m.derivedTable, "root_id")
+		}
+	}
+}
+
+type joinedHierarchicalMultiCriterionHandlerBuilder struct {
+	tx dbi
+
+	primaryTable string
+	foreignTable string
+	foreignFK    string
+
+	parentFK       string
+	relationsTable string
+
+	joinAs    string
+	joinTable string
+	primaryFK string
+}
+
+func (m *joinedHierarchicalMultiCriterionHandlerBuilder) handler(criterion *models.HierarchicalMultiCriterionInput) criterionHandlerFunc {
+	return func(f *filterBuilder) {
+		if criterion != nil {
+			joinAlias := m.joinAs
+
+			if criterion.Modifier == models.CriterionModifierIsNull || criterion.Modifier == models.CriterionModifierNotNull {
+				var notClause string
+				if criterion.Modifier == models.CriterionModifierNotNull {
+					notClause = "NOT"
+				}
+
+				f.addLeftJoin(m.joinTable, joinAlias, fmt.Sprintf("%s.%s = %s.id", joinAlias, m.primaryFK, m.primaryTable))
+
+				f.addWhere(utils.StrFormat("{table}.{column} IS {not} NULL", utils.StrFormatMap{
+					"table":  joinAlias,
+					"column": m.foreignFK,
+					"not":    notClause,
+				}))
+				return
 			}
+
+			if len(criterion.Value) == 0 {
+				return
+			}
+
+			valuesClause := getHierarchicalValues(m.tx, criterion.Value, m.foreignTable, m.relationsTable, m.parentFK, criterion.Depth)
+
+			joinTable := utils.StrFormat(`(
+	SELECT j.*, d.column1 AS root_id, d.column2 AS item_id FROM {joinTable} AS j
+	INNER JOIN ({valuesClause}) AS d ON j.{foreignFK} = d.column2
+)
+`, utils.StrFormatMap{
+				"joinTable":    m.joinTable,
+				"foreignFK":    m.foreignFK,
+				"valuesClause": valuesClause,
+			})
+
+			f.addLeftJoin(joinTable, joinAlias, fmt.Sprintf("%s.%s = %s.id", joinAlias, m.primaryFK, m.primaryTable))
+
+			addHierarchicalConditionClauses(f, criterion, joinAlias, "root_id")
 		}
 	}
 }

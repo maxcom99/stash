@@ -5,6 +5,7 @@ type StudioReader interface {
 	FindMany(ids []int) ([]*Studio, error)
 	FindChildren(id int) ([]*Studio, error)
 	FindByName(name string, nocase bool) (*Studio, error)
+	FindByStashID(stashID StashID) ([]*Studio, error)
 	Count() (int, error)
 	All() ([]*Studio, error)
 	// TODO - this interface is temporary until the filter schema can fully
@@ -14,6 +15,7 @@ type StudioReader interface {
 	GetImage(studioID int) ([]byte, error)
 	HasImage(studioID int) (bool, error)
 	GetStashIDs(studioID int) ([]*StashID, error)
+	GetAliases(studioID int) ([]string, error)
 }
 
 type StudioWriter interface {
@@ -24,6 +26,7 @@ type StudioWriter interface {
 	UpdateImage(studioID int, image []byte) error
 	DestroyImage(studioID int) error
 	UpdateStashIDs(studioID int, stashIDs []StashID) error
+	UpdateAliases(studioID int, aliases []string) error
 }
 
 type StudioReaderWriter interface {

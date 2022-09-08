@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package sqlite_test
@@ -68,6 +69,32 @@ func TestImageFindByPath(t *testing.T) {
 	})
 }
 
+func TestImageFindByGalleryID(t *testing.T) {
+	withTxn(func(r models.Repository) error {
+		sqb := r.Image()
+
+		images, err := sqb.FindByGalleryID(galleryIDs[galleryIdxWithTwoImages])
+
+		if err != nil {
+			t.Errorf("Error finding images: %s", err.Error())
+		}
+
+		assert.Len(t, images, 2)
+		assert.Equal(t, imageIDs[imageIdx1WithGallery], images[0].ID)
+		assert.Equal(t, imageIDs[imageIdx2WithGallery], images[1].ID)
+
+		images, err = sqb.FindByGalleryID(galleryIDs[galleryIdxWithScene])
+
+		if err != nil {
+			t.Errorf("Error finding images: %s", err.Error())
+		}
+
+		assert.Len(t, images, 0)
+
+		return nil
+	})
+}
+
 func TestImageQueryQ(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		const imageIdx = 2
@@ -82,14 +109,31 @@ func TestImageQueryQ(t *testing.T) {
 	})
 }
 
+func queryImagesWithCount(sqb models.ImageReader, imageFilter *models.ImageFilterType, findFilter *models.FindFilterType) ([]*models.Image, int, error) {
+	result, err := sqb.Query(models.ImageQueryOptions{
+		QueryOptions: models.QueryOptions{
+			FindFilter: findFilter,
+			Count:      true,
+		},
+		ImageFilter: imageFilter,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	images, err := result.Resolve()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return images, result.Count, nil
+}
+
 func imageQueryQ(t *testing.T, sqb models.ImageReader, q string, expectedImageIdx int) {
 	filter := models.FindFilterType{
 		Q: &q,
 	}
-	images, _, err := sqb.Query(nil, &filter)
-	if err != nil {
-		t.Errorf("Error querying image: %s", err.Error())
-	}
+	images := queryImages(t, sqb, nil, &filter)
 
 	assert.Len(t, images, 1)
 	image := images[0]
@@ -103,10 +147,7 @@ func imageQueryQ(t *testing.T, sqb models.ImageReader, q string, expectedImageId
 
 	// no Q should return all results
 	filter.Q = nil
-	images, _, err = sqb.Query(nil, &filter)
-	if err != nil {
-		t.Errorf("Error querying image: %s", err.Error())
-	}
+	images = queryImages(t, sqb, nil, &filter)
 
 	assert.Len(t, images, totalImages)
 }
@@ -140,10 +181,7 @@ func verifyImagePath(t *testing.T, pathCriterion models.StringCriterionInput, ex
 			Path: &pathCriterion,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
-		}
+		images := queryImages(t, sqb, &imageFilter, nil)
 
 		assert.Equal(t, expected, len(images), "number of returned images")
 
@@ -275,17 +313,17 @@ func TestImageIllegalQuery(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Image()
 
-		_, _, err := sqb.Query(imageFilter, nil)
+		_, _, err := queryImagesWithCount(sqb, imageFilter, nil)
 		assert.NotNil(err)
 
 		imageFilter.Or = nil
 		imageFilter.Not = &subFilter
-		_, _, err = sqb.Query(imageFilter, nil)
+		_, _, err = queryImagesWithCount(sqb, imageFilter, nil)
 		assert.NotNil(err)
 
 		imageFilter.And = nil
 		imageFilter.Or = &subFilter
-		_, _, err = sqb.Query(imageFilter, nil)
+		_, _, err = queryImagesWithCount(sqb, imageFilter, nil)
 		assert.NotNil(err)
 
 		return nil
@@ -324,7 +362,7 @@ func verifyImagesRating(t *testing.T, ratingCriterion models.IntCriterionInput) 
 			Rating: &ratingCriterion,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, nil)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -363,7 +401,7 @@ func verifyImagesOCounter(t *testing.T, oCounterCriterion models.IntCriterionInp
 			OCounter: &oCounterCriterion,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, nil)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -389,10 +427,13 @@ func verifyImagesResolution(t *testing.T, resolution models.ResolutionEnum) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Image()
 		imageFilter := models.ImageFilterType{
-			Resolution: &resolution,
+			Resolution: &models.ResolutionCriterionInput{
+				Value:    resolution,
+				Modifier: models.CriterionModifierEquals,
+			},
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, nil)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -436,7 +477,7 @@ func TestImageQueryIsMissingGalleries(t *testing.T) {
 			Q: &q,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, &findFilter)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -444,10 +485,12 @@ func TestImageQueryIsMissingGalleries(t *testing.T) {
 		assert.Len(t, images, 0)
 
 		findFilter.Q = nil
-		images, _, err = sqb.Query(&imageFilter, &findFilter)
+		images, _, err = queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
+
+		assert.Greater(t, len(images), 0)
 
 		// ensure non of the ids equal the one with gallery
 		for _, image := range images {
@@ -471,7 +514,7 @@ func TestImageQueryIsMissingStudio(t *testing.T) {
 			Q: &q,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, &findFilter)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -479,7 +522,7 @@ func TestImageQueryIsMissingStudio(t *testing.T) {
 		assert.Len(t, images, 0)
 
 		findFilter.Q = nil
-		images, _, err = sqb.Query(&imageFilter, &findFilter)
+		images, _, err = queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -506,7 +549,7 @@ func TestImageQueryIsMissingPerformers(t *testing.T) {
 			Q: &q,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, &findFilter)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -514,7 +557,7 @@ func TestImageQueryIsMissingPerformers(t *testing.T) {
 		assert.Len(t, images, 0)
 
 		findFilter.Q = nil
-		images, _, err = sqb.Query(&imageFilter, &findFilter)
+		images, _, err = queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -543,7 +586,7 @@ func TestImageQueryIsMissingTags(t *testing.T) {
 			Q: &q,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, &findFilter)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -551,7 +594,7 @@ func TestImageQueryIsMissingTags(t *testing.T) {
 		assert.Len(t, images, 0)
 
 		findFilter.Q = nil
-		images, _, err = sqb.Query(&imageFilter, &findFilter)
+		images, _, err = queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -570,7 +613,7 @@ func TestImageQueryIsMissingRating(t *testing.T) {
 			IsMissing: &isMissing,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, nil)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -600,11 +643,7 @@ func TestImageQueryGallery(t *testing.T) {
 			Galleries: &galleryCriterion,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
-		}
-
+		images := queryImages(t, sqb, &imageFilter, nil)
 		assert.Len(t, images, 1)
 
 		// ensure ids are correct
@@ -620,10 +659,7 @@ func TestImageQueryGallery(t *testing.T) {
 			Modifier: models.CriterionModifierIncludesAll,
 		}
 
-		images, _, err = sqb.Query(&imageFilter, nil)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
-		}
+		images = queryImages(t, sqb, &imageFilter, nil)
 
 		assert.Len(t, images, 1)
 		assert.Equal(t, imageIDs[imageIdxWithTwoGalleries], images[0].ID)
@@ -640,11 +676,12 @@ func TestImageQueryGallery(t *testing.T) {
 			Q: &q,
 		}
 
-		images, _, err = sqb.Query(&imageFilter, &findFilter)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
-		}
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
 		assert.Len(t, images, 0)
+
+		q = getImageStringValue(imageIdxWithPerformer, titleField)
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 1)
 
 		return nil
 	})
@@ -665,11 +702,7 @@ func TestImageQueryPerformers(t *testing.T) {
 			Performers: &performerCriterion,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
-		}
-
+		images := queryImages(t, sqb, &imageFilter, nil)
 		assert.Len(t, images, 2)
 
 		// ensure ids are correct
@@ -685,11 +718,7 @@ func TestImageQueryPerformers(t *testing.T) {
 			Modifier: models.CriterionModifierIncludesAll,
 		}
 
-		images, _, err = sqb.Query(&imageFilter, nil)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
-		}
-
+		images = queryImages(t, sqb, &imageFilter, nil)
 		assert.Len(t, images, 1)
 		assert.Equal(t, imageIDs[imageIdxWithTwoPerformers], images[0].ID)
 
@@ -705,10 +734,30 @@ func TestImageQueryPerformers(t *testing.T) {
 			Q: &q,
 		}
 
-		images, _, err = sqb.Query(&imageFilter, &findFilter)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 0)
+
+		performerCriterion = models.MultiCriterionInput{
+			Modifier: models.CriterionModifierIsNull,
 		}
+		q = getImageStringValue(imageIdxWithGallery, titleField)
+
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 1)
+		assert.Equal(t, imageIDs[imageIdxWithGallery], images[0].ID)
+
+		q = getImageStringValue(imageIdxWithPerformerTag, titleField)
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 0)
+
+		performerCriterion.Modifier = models.CriterionModifierNotNull
+
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 1)
+		assert.Equal(t, imageIDs[imageIdxWithPerformerTag], images[0].ID)
+
+		q = getImageStringValue(imageIdxWithGallery, titleField)
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
 		assert.Len(t, images, 0)
 
 		return nil
@@ -718,7 +767,7 @@ func TestImageQueryPerformers(t *testing.T) {
 func TestImageQueryTags(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Image()
-		tagCriterion := models.MultiCriterionInput{
+		tagCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdxWithImage]),
 				strconv.Itoa(tagIDs[tagIdx1WithImage]),
@@ -730,11 +779,7 @@ func TestImageQueryTags(t *testing.T) {
 			Tags: &tagCriterion,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
-		}
-
+		images := queryImages(t, sqb, &imageFilter, nil)
 		assert.Len(t, images, 2)
 
 		// ensure ids are correct
@@ -742,7 +787,7 @@ func TestImageQueryTags(t *testing.T) {
 			assert.True(t, image.ID == imageIDs[imageIdxWithTag] || image.ID == imageIDs[imageIdxWithTwoTags])
 		}
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithImage]),
 				strconv.Itoa(tagIDs[tagIdx2WithImage]),
@@ -750,15 +795,11 @@ func TestImageQueryTags(t *testing.T) {
 			Modifier: models.CriterionModifierIncludesAll,
 		}
 
-		images, _, err = sqb.Query(&imageFilter, nil)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
-		}
-
+		images = queryImages(t, sqb, &imageFilter, nil)
 		assert.Len(t, images, 1)
 		assert.Equal(t, imageIDs[imageIdxWithTwoTags], images[0].ID)
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithImage]),
 			},
@@ -770,10 +811,30 @@ func TestImageQueryTags(t *testing.T) {
 			Q: &q,
 		}
 
-		images, _, err = sqb.Query(&imageFilter, &findFilter)
-		if err != nil {
-			t.Errorf("Error querying image: %s", err.Error())
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 0)
+
+		tagCriterion = models.HierarchicalMultiCriterionInput{
+			Modifier: models.CriterionModifierIsNull,
 		}
+		q = getImageStringValue(imageIdxWithGallery, titleField)
+
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 1)
+		assert.Equal(t, imageIDs[imageIdxWithGallery], images[0].ID)
+
+		q = getImageStringValue(imageIdxWithTag, titleField)
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 0)
+
+		tagCriterion.Modifier = models.CriterionModifierNotNull
+
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 1)
+		assert.Equal(t, imageIDs[imageIdxWithTag], images[0].ID)
+
+		q = getImageStringValue(imageIdxWithGallery, titleField)
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
 		assert.Len(t, images, 0)
 
 		return nil
@@ -788,14 +849,13 @@ func TestImageQueryStudio(t *testing.T) {
 				strconv.Itoa(studioIDs[studioIdxWithImage]),
 			},
 			Modifier: models.CriterionModifierIncludes,
-			Depth:    0,
 		}
 
 		imageFilter := models.ImageFilterType{
 			Studios: &studioCriterion,
 		}
 
-		images, _, err := sqb.Query(&imageFilter, nil)
+		images, _, err := queryImagesWithCount(sqb, &imageFilter, nil)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -810,7 +870,6 @@ func TestImageQueryStudio(t *testing.T) {
 				strconv.Itoa(studioIDs[studioIdxWithImage]),
 			},
 			Modifier: models.CriterionModifierExcludes,
-			Depth:    0,
 		}
 
 		q := getImageStringValue(imageIdxWithStudio, titleField)
@@ -818,7 +877,7 @@ func TestImageQueryStudio(t *testing.T) {
 			Q: &q,
 		}
 
-		images, _, err = sqb.Query(&imageFilter, &findFilter)
+		images, _, err = queryImagesWithCount(sqb, &imageFilter, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -831,12 +890,13 @@ func TestImageQueryStudio(t *testing.T) {
 func TestImageQueryStudioDepth(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Image()
+		depth := 2
 		studioCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(studioIDs[studioIdxWithGrandChild]),
 			},
 			Modifier: models.CriterionModifierIncludes,
-			Depth:    2,
+			Depth:    &depth,
 		}
 
 		imageFilter := models.ImageFilterType{
@@ -846,7 +906,7 @@ func TestImageQueryStudioDepth(t *testing.T) {
 		images := queryImages(t, sqb, &imageFilter, nil)
 		assert.Len(t, images, 1)
 
-		studioCriterion.Depth = 1
+		depth = 1
 
 		images = queryImages(t, sqb, &imageFilter, nil)
 		assert.Len(t, images, 0)
@@ -858,12 +918,14 @@ func TestImageQueryStudioDepth(t *testing.T) {
 		// ensure id is correct
 		assert.Equal(t, imageIDs[imageIdxWithGrandChildStudio], images[0].ID)
 
+		depth = 2
+
 		studioCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(studioIDs[studioIdxWithGrandChild]),
 			},
 			Modifier: models.CriterionModifierExcludes,
-			Depth:    2,
+			Depth:    &depth,
 		}
 
 		q := getImageStringValue(imageIdxWithGrandChildStudio, titleField)
@@ -874,7 +936,7 @@ func TestImageQueryStudioDepth(t *testing.T) {
 		images = queryImages(t, sqb, &imageFilter, &findFilter)
 		assert.Len(t, images, 0)
 
-		studioCriterion.Depth = 1
+		depth = 1
 		images = queryImages(t, sqb, &imageFilter, &findFilter)
 		assert.Len(t, images, 1)
 
@@ -887,7 +949,7 @@ func TestImageQueryStudioDepth(t *testing.T) {
 }
 
 func queryImages(t *testing.T, sqb models.ImageReader, imageFilter *models.ImageFilterType, findFilter *models.FindFilterType) []*models.Image {
-	images, _, err := sqb.Query(imageFilter, findFilter)
+	images, _, err := queryImagesWithCount(sqb, imageFilter, findFilter)
 	if err != nil {
 		t.Errorf("Error querying images: %s", err.Error())
 	}
@@ -898,7 +960,7 @@ func queryImages(t *testing.T, sqb models.ImageReader, imageFilter *models.Image
 func TestImageQueryPerformerTags(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Image()
-		tagCriterion := models.MultiCriterionInput{
+		tagCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdxWithPerformer]),
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
@@ -918,7 +980,7 @@ func TestImageQueryPerformerTags(t *testing.T) {
 			assert.True(t, image.ID == imageIDs[imageIdxWithPerformerTag] || image.ID == imageIDs[imageIdxWithPerformerTwoTags])
 		}
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
 				strconv.Itoa(tagIDs[tagIdx2WithPerformer]),
@@ -931,7 +993,7 @@ func TestImageQueryPerformerTags(t *testing.T) {
 		assert.Len(t, images, 1)
 		assert.Equal(t, imageIDs[imageIdxWithPerformerTwoTags], images[0].ID)
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
 			},
@@ -943,6 +1005,29 @@ func TestImageQueryPerformerTags(t *testing.T) {
 			Q: &q,
 		}
 
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 0)
+
+		tagCriterion = models.HierarchicalMultiCriterionInput{
+			Modifier: models.CriterionModifierIsNull,
+		}
+		q = getImageStringValue(imageIdxWithGallery, titleField)
+
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 1)
+		assert.Equal(t, imageIDs[imageIdxWithGallery], images[0].ID)
+
+		q = getImageStringValue(imageIdxWithPerformerTag, titleField)
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 0)
+
+		tagCriterion.Modifier = models.CriterionModifierNotNull
+
+		images = queryImages(t, sqb, &imageFilter, &findFilter)
+		assert.Len(t, images, 1)
+		assert.Equal(t, imageIDs[imageIdxWithPerformerTag], images[0].ID)
+
+		q = getImageStringValue(imageIdxWithGallery, titleField)
 		images = queryImages(t, sqb, &imageFilter, &findFilter)
 		assert.Len(t, images, 0)
 
@@ -1042,7 +1127,7 @@ func TestImageQuerySorting(t *testing.T) {
 		}
 
 		sqb := r.Image()
-		images, _, err := sqb.Query(nil, &findFilter)
+		images, _, err := queryImagesWithCount(sqb, nil, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -1057,7 +1142,7 @@ func TestImageQuerySorting(t *testing.T) {
 		// sort in descending order
 		direction = models.SortDirectionEnumDesc
 
-		images, _, err = sqb.Query(nil, &findFilter)
+		images, _, err = queryImagesWithCount(sqb, nil, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -1079,7 +1164,7 @@ func TestImageQueryPagination(t *testing.T) {
 		}
 
 		sqb := r.Image()
-		images, _, err := sqb.Query(nil, &findFilter)
+		images, _, err := queryImagesWithCount(sqb, nil, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -1090,7 +1175,7 @@ func TestImageQueryPagination(t *testing.T) {
 
 		page := 2
 		findFilter.Page = &page
-		images, _, err = sqb.Query(nil, &findFilter)
+		images, _, err = queryImagesWithCount(sqb, nil, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}
@@ -1102,7 +1187,7 @@ func TestImageQueryPagination(t *testing.T) {
 		perPage = 2
 		page = 1
 
-		images, _, err = sqb.Query(nil, &findFilter)
+		images, _, err = queryImagesWithCount(sqb, nil, &findFilter)
 		if err != nil {
 			t.Errorf("Error querying image: %s", err.Error())
 		}

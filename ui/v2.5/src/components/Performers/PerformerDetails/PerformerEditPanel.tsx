@@ -1,47 +1,47 @@
 import React, { useEffect, useState } from "react";
-import {
-  Button,
-  Popover,
-  OverlayTrigger,
-  Form,
-  Col,
-  InputGroup,
-  Row,
-  Badge,
-} from "react-bootstrap";
+import { Button, Form, Col, Row, Badge, Dropdown } from "react-bootstrap";
+import { FormattedMessage, useIntl } from "react-intl";
 import Mousetrap from "mousetrap";
 import * as GQL from "src/core/generated-graphql";
 import * as yup from "yup";
 import {
-  getGenderStrings,
   useListPerformerScrapers,
-  genderToString,
-  stringToGender,
   queryScrapePerformer,
   mutateReloadScrapers,
   usePerformerUpdate,
   usePerformerCreate,
   useTagCreate,
   queryScrapePerformerURL,
-  useConfiguration,
 } from "src/core/StashService";
 import {
   Icon,
   ImageInput,
   LoadingIndicator,
   CollapseButton,
-  Modal,
   TagSelect,
+  URLField,
 } from "src/components/Shared";
-import { ImageUtils } from "src/utils";
+import { ImageUtils, getStashIDs } from "src/utils";
 import { getCountryByISO } from "src/utils/country";
 import { useToast } from "src/hooks";
 import { Prompt, useHistory } from "react-router-dom";
 import { useFormik } from "formik";
-import { RatingStars } from "src/components/Scenes/SceneDetails/RatingStars";
+import {
+  genderStrings,
+  genderToString,
+  stringToGender,
+} from "src/utils/gender";
+import { ConfigurationContext } from "src/hooks/Config";
+import { stashboxDisplayName } from "src/utils/stashbox";
 import { PerformerScrapeDialog } from "./PerformerScrapeDialog";
 import PerformerScrapeModal from "./PerformerScrapeModal";
 import PerformerStashBoxModal, { IStashBox } from "./PerformerStashBoxModal";
+import cx from "classnames";
+import {
+  faPlus,
+  faSyncAlt,
+  faTrashAlt,
+} from "@fortawesome/free-solid-svg-icons";
 
 const isScraper = (
   scraper: GQL.Scraper | GQL.StashBox
@@ -51,26 +51,26 @@ interface IPerformerDetails {
   performer: Partial<GQL.PerformerDataFragment>;
   isNew?: boolean;
   isVisible: boolean;
-  onDelete?: () => void;
   onImageChange?: (image?: string | null) => void;
   onImageEncoding?: (loading?: boolean) => void;
+  onCancelEditing?: () => void;
 }
 
 export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
   performer,
   isNew,
   isVisible,
-  onDelete,
   onImageChange,
   onImageEncoding,
+  onCancelEditing,
 }) => {
   const Toast = useToast();
   const history = useHistory();
 
   // Editing state
   const [scraper, setScraper] = useState<GQL.Scraper | IStashBox | undefined>();
-  const [newTags, setNewTags] = useState<GQL.ScrapedSceneTag[]>();
-  const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState<boolean>(false);
+  const [newTags, setNewTags] = useState<GQL.ScrapedTag[]>();
+  const [isScraperModalOpen, setIsScraperModalOpen] = useState<boolean>(false);
 
   // Network state
   const [isLoading, setIsLoading] = useState(false);
@@ -84,13 +84,14 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
   const [scrapedPerformer, setScrapedPerformer] = useState<
     GQL.ScrapedPerformer | undefined
   >();
-  const stashConfig = useConfiguration();
+  const { configuration: stashConfig } = React.useContext(ConfigurationContext);
 
   const imageEncoding = ImageUtils.usePasteImage(onImageLoad, true);
 
   const [createTag] = useTagCreate();
+  const intl = useIntl();
 
-  const genderOptions = [""].concat(getGenderStrings());
+  const genderOptions = [""].concat(genderStrings);
 
   const labelXS = 3;
   const labelXL = 2;
@@ -117,11 +118,11 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     tag_ids: yup.array(yup.string().required()).optional(),
     stash_ids: yup.mixed<GQL.StashIdInput>().optional(),
     image: yup.string().optional().nullable(),
-    rating: yup.number().optional().nullable(),
     details: yup.string().optional(),
     death_date: yup.string().optional(),
     hair_color: yup.string().optional(),
     weight: yup.number().optional(),
+    ignore_auto_tag: yup.boolean().optional(),
   });
 
   const initialValues = {
@@ -144,11 +145,11 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     tag_ids: (performer.tags ?? []).map((t) => t.id),
     stash_ids: performer.stash_ids ?? undefined,
     image: undefined,
-    rating: performer.rating ?? null,
     details: performer.details ?? "",
     death_date: performer.death_date ?? "",
     hair_color: performer.hair_color ?? "",
     weight: performer.weight ?? undefined,
+    ignore_auto_tag: performer.ignore_auto_tag ?? false,
   };
 
   type InputValues = typeof initialValues;
@@ -158,10 +159,6 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     validationSchema: schema,
     onSubmit: (values) => onSave(values),
   });
-
-  function setRating(v: number) {
-    formik.setFieldValue("rating", v);
-  }
 
   function translateScrapedGender(scrapedGender?: string) {
     if (!scrapedGender) {
@@ -200,7 +197,7 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
           >
             {t.name}
             <Button className="minimal ml-2">
-              <Icon className="fa-fw" icon="plus" />
+              <Icon className="fa-fw" icon={faPlus} />
             </Button>
           </Badge>
         ))}
@@ -220,7 +217,7 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     return ret;
   }
 
-  async function createNewTag(toCreate: GQL.ScrapedSceneTag) {
+  async function createNewTag(toCreate: GQL.ScrapedTag) {
     const tagInput: GQL.TagCreateInput = { name: toCreate.name ?? "" };
     try {
       const result = await createTag({
@@ -330,9 +327,10 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     // otherwise follow existing behaviour (`undefined`)
     if (
       (!isNew || [null, undefined].includes(formik.values.image)) &&
-      state.image !== undefined
+      state.images &&
+      state.images.length > 0
     ) {
-      const imageStr = state.image;
+      const imageStr = state.images[0];
       formik.setFieldValue("image", imageStr ?? undefined);
     }
     if (state.details) {
@@ -347,6 +345,19 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     if (state.weight) {
       formik.setFieldValue("weight", state.weight);
     }
+
+    const remoteSiteID = state.remote_site_id;
+    if (remoteSiteID && (scraper as IStashBox).endpoint) {
+      const newIDs =
+        formik.values.stash_ids?.filter(
+          (s) => s.endpoint !== (scraper as IStashBox).endpoint
+        ) ?? [];
+      newIDs?.push({
+        endpoint: (scraper as IStashBox).endpoint,
+        stash_id: remoteSiteID,
+      });
+      formik.setFieldValue("stash_ids", newIDs);
+    }
   }
 
   function onImageLoad(imageData: string) {
@@ -356,22 +367,7 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
   async function onSave(performerInput: InputValues) {
     setIsLoading(true);
     try {
-      if (!isNew) {
-        const input = getUpdateValues(performerInput);
-
-        await updatePerformer({
-          variables: {
-            input: {
-              ...input,
-              stash_ids: performerInput?.stash_ids?.map((s) => ({
-                endpoint: s.endpoint,
-                stash_id: s.stash_id,
-              })),
-            },
-          },
-        });
-        history.push(`/performers/${performer.id}`);
-      } else {
+      if (isNew) {
         const input = getCreateValues(performerInput);
         const result = await createPerformer({
           variables: {
@@ -381,9 +377,25 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
         if (result.data?.performerCreate) {
           history.push(`/performers/${result.data.performerCreate.id}`);
         }
+      } else {
+        const input = getUpdateValues(performerInput);
+
+        await updatePerformer({
+          variables: {
+            input: {
+              ...input,
+              stash_ids: getStashIDs(performerInput?.stash_ids),
+            },
+          },
+        });
       }
     } catch (e) {
       Toast.error(e);
+      setIsLoading(false);
+      return;
+    }
+    if (!isNew && onCancelEditing) {
+      onCancelEditing();
     }
     setIsLoading(false);
   }
@@ -393,36 +405,6 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     if (isVisible) {
       Mousetrap.bind("s s", () => {
         onSave?.(formik.values);
-      });
-
-      if (!isNew) {
-        Mousetrap.bind("d d", () => {
-          setIsDeleteAlertOpen(true);
-        });
-      }
-
-      // numeric keypresses get caught by jwplayer, so blur the element
-      // if the rating sequence is started
-      Mousetrap.bind("r", () => {
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
-
-        Mousetrap.bind("0", () => setRating(NaN));
-        Mousetrap.bind("1", () => setRating(1));
-        Mousetrap.bind("2", () => setRating(2));
-        Mousetrap.bind("3", () => setRating(3));
-        Mousetrap.bind("4", () => setRating(4));
-        Mousetrap.bind("5", () => setRating(5));
-
-        setTimeout(() => {
-          Mousetrap.unbind("0");
-          Mousetrap.unbind("1");
-          Mousetrap.unbind("2");
-          Mousetrap.unbind("3");
-          Mousetrap.unbind("4");
-          Mousetrap.unbind("5");
-        }, 1000);
       });
 
       return () => {
@@ -462,8 +444,7 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
   function getUpdateValues(values: InputValues): GQL.PerformerUpdateInput {
     return {
       ...values,
-      gender: stringToGender(values.gender),
-      rating: values.rating ?? null,
+      gender: stringToGender(values.gender) ?? null,
       weight: Number(values.weight),
       id: performer.id ?? "",
     };
@@ -503,26 +484,30 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     selectedPerformer: GQL.ScrapedPerformerDataFragment,
     selectedScraper: GQL.Scraper
   ) {
-    setScraper(undefined);
+    setIsScraperModalOpen(false);
     try {
       if (!scraper) return;
       setIsLoading(true);
 
       const {
         __typename,
-        image: _image,
+        images: _image,
         tags: _tags,
         ...ret
       } = selectedPerformer;
 
       const result = await queryScrapePerformer(selectedScraper.id, ret);
-      if (!result?.data?.scrapePerformer) return;
+      if (!result?.data?.scrapeSinglePerformer?.length) return;
 
+      // assume one result
       // if this is a new performer, just dump the data
       if (isNew) {
-        updatePerformerEditStateFromScraper(result.data.scrapePerformer);
+        updatePerformerEditStateFromScraper(
+          result.data.scrapeSinglePerformer[0]
+        );
+        setScraper(undefined);
       } else {
-        setScrapedPerformer(result.data.scrapePerformer);
+        setScrapedPerformer(result.data.scrapeSinglePerformer[0]);
       }
     } catch (e) {
       Toast.error(e);
@@ -554,12 +539,12 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     }
   }
 
-  async function onScrapeStashBox(performerResult: GQL.ScrapedScenePerformer) {
-    setScraper(undefined);
+  async function onScrapeStashBox(performerResult: GQL.ScrapedPerformer) {
+    setIsScraperModalOpen(false);
 
-    const result: Partial<GQL.ScrapedPerformerDataFragment> = {
+    const result: GQL.ScrapedPerformerDataFragment = {
       ...performerResult,
-      image: performerResult.images?.[0] ?? undefined,
+      images: performerResult.images ?? undefined,
       country: getCountryByISO(performerResult.country),
       __typename: "ScrapedPerformer",
     };
@@ -567,68 +552,69 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     // if this is a new performer, just dump the data
     if (isNew) {
       updatePerformerEditStateFromScraper(result);
+      setScraper(undefined);
     } else {
       setScrapedPerformer(result);
     }
+  }
+
+  function onScraperSelected(s: GQL.Scraper | IStashBox | undefined) {
+    setScraper(s);
+    setIsScraperModalOpen(true);
   }
 
   function renderScraperMenu() {
     if (!performer) {
       return;
     }
-    const stashBoxes = stashConfig.data?.configuration.general.stashBoxes ?? [];
+    const stashBoxes = stashConfig?.general.stashBoxes ?? [];
 
     const popover = (
-      <Popover id="performer-scraper-popover">
-        <Popover.Content>
-          <>
-            {stashBoxes.map((s, index) => (
-              <div key={s.endpoint}>
-                <Button
-                  className="minimal"
-                  onClick={() => setScraper({ ...s, index })}
-                >
-                  {s.name ?? "Stash-Box"}
-                </Button>
-              </div>
-            ))}
-            {queryableScrapers
-              ? queryableScrapers.map((s) => (
-                  <div key={s.name}>
-                    <Button
-                      key={s.name}
-                      className="minimal"
-                      onClick={() => setScraper(s)}
-                    >
-                      {s.name}
-                    </Button>
-                  </div>
-                ))
-              : ""}
-            <div>
-              <Button className="minimal" onClick={() => onReloadScrapers()}>
-                <span className="fa-icon">
-                  <Icon icon="sync-alt" />
-                </span>
-                <span>Reload scrapers</span>
-              </Button>
-            </div>
-          </>
-        </Popover.Content>
-      </Popover>
+      <Dropdown.Menu id="performer-scraper-popover">
+        {stashBoxes.map((s, index) => (
+          <Dropdown.Item
+            as={Button}
+            key={s.endpoint}
+            className="minimal"
+            onClick={() => onScraperSelected({ ...s, index })}
+          >
+            {stashboxDisplayName(s.name, index)}
+          </Dropdown.Item>
+        ))}
+        {queryableScrapers
+          ? queryableScrapers.map((s) => (
+              <Dropdown.Item
+                as={Button}
+                key={s.name}
+                className="minimal"
+                onClick={() => onScraperSelected(s)}
+              >
+                {s.name}
+              </Dropdown.Item>
+            ))
+          : ""}
+        <Dropdown.Item
+          as={Button}
+          className="minimal"
+          onClick={() => onReloadScrapers()}
+        >
+          <span className="fa-icon">
+            <Icon icon={faSyncAlt} />
+          </span>
+          <span>
+            <FormattedMessage id="actions.reload_scrapers" />
+          </span>
+        </Dropdown.Item>
+      </Dropdown.Menu>
     );
 
     return (
-      <OverlayTrigger
-        trigger="click"
-        placement="top"
-        overlay={popover}
-        rootClose
-      >
-        <Button variant="secondary" className="mr-2">
-          Scrape with...
-        </Button>
-      </OverlayTrigger>
+      <Dropdown drop="up" className="d-inline-block">
+        <Dropdown.Toggle variant="secondary" className="mr-2">
+          <FormattedMessage id="actions.scrape_with" />
+        </Dropdown.Toggle>
+        {popover}
+      </Dropdown>
     );
   }
 
@@ -657,6 +643,7 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
       <PerformerScrapeDialog
         performer={currentPerformer}
         scraped={scrapedPerformer}
+        scraper={scraper}
         onClose={(p) => {
           onScrapeDialogClosed(p);
         }}
@@ -669,64 +656,53 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
       updatePerformerEditStateFromScraper(p);
     }
     setScrapedPerformer(undefined);
+    setScraper(undefined);
   }
 
-  function maybeRenderScrapeButton() {
+  function renderButtons(classNames: string) {
     return (
-      <Button
-        variant="secondary"
-        disabled={!urlScrapable(formik.values.url)}
-        className="scrape-url-button text-input"
-        onClick={() => onScrapePerformerURL()}
-      >
-        <Icon icon="file-upload" />
-      </Button>
-    );
-  }
-
-  function renderButtons() {
-    return (
-      <Row>
-        <Col className="mt-3" xs={12}>
+      <div className={cx("details-edit", "col-xl-9", classNames)}>
+        {!isNew && onCancelEditing ? (
           <Button
             className="mr-2"
             variant="primary"
-            disabled={!formik.dirty}
-            onClick={() => formik.submitForm()}
+            onClick={() => onCancelEditing()}
           >
-            Save
+            <FormattedMessage id="actions.cancel" />
           </Button>
-          {!isNew ? (
-            <Button
-              className="mr-2"
-              variant="danger"
-              onClick={() => setIsDeleteAlertOpen(true)}
-            >
-              Delete
-            </Button>
-          ) : (
-            ""
-          )}
-          {renderScraperMenu()}
-          <ImageInput
-            isEditing
-            onImageChange={onImageChangeHandler}
-            onImageURL={onImageChangeURL}
-          />
+        ) : (
+          ""
+        )}
+        {renderScraperMenu()}
+        <ImageInput
+          isEditing
+          onImageChange={onImageChangeHandler}
+          onImageURL={onImageChangeURL}
+        />
+        <div>
           <Button
-            className="mx-2"
+            className="mr-2"
             variant="danger"
             onClick={() => formik.setFieldValue("image", null)}
           >
-            Clear image
+            <FormattedMessage id="actions.clear_image" />
           </Button>
-        </Col>
-      </Row>
+        </div>
+        <Button
+          variant="success"
+          disabled={!formik.dirty}
+          onClick={() => formik.submitForm()}
+        >
+          <FormattedMessage id="actions.save" />
+        </Button>
+      </div>
     );
   }
 
-  const renderScrapeModal = () =>
-    scraper !== undefined && isScraper(scraper) ? (
+  const renderScrapeModal = () => {
+    if (!isScraperModalOpen) return;
+
+    return scraper !== undefined && isScraper(scraper) ? (
       <PerformerScrapeModal
         scraper={scraper}
         onHide={() => setScraper(undefined)}
@@ -741,25 +717,13 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
         name={formik.values.name || ""}
       />
     ) : undefined;
-
-  function renderDeleteAlert() {
-    return (
-      <Modal
-        show={isDeleteAlertOpen}
-        icon="trash-alt"
-        accept={{ text: "Delete", variant: "danger", onClick: onDelete }}
-        cancel={{ onClick: () => setIsDeleteAlertOpen(false) }}
-      >
-        <p>Are you sure you want to delete {performer.name}?</p>
-      </Modal>
-    );
-  }
+  };
 
   function renderTagsField() {
     return (
       <Form.Group controlId="tags" as={Row}>
         <Form.Label column sm={labelXS} xl={labelXL}>
-          Tags
+          <FormattedMessage id="tags" defaultMessage="Tags" />
         </Form.Label>
         <Col xs={fieldXS} xl={fieldXL}>
           <TagSelect
@@ -819,10 +783,10 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
                   <Button
                     variant="danger"
                     className="mr-2 py-0"
-                    title="Delete StashID"
+                    title={intl.formatMessage({ id: "actions.delete_stashid" })}
                     onClick={() => removeStashID(stashID)}
                   >
-                    <Icon icon="trash-alt" />
+                    <Icon icon={faTrashAlt} />
                   </Button>
                   {link}
                 </li>
@@ -838,7 +802,7 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
     return (
       <Form.Group controlId={field} as={Row}>
         <Form.Label column xs={labelXS} xl={labelXL}>
-          {title}
+          <FormattedMessage id={field} defaultMessage={title} />
         </Form.Label>
         <Col xs={fieldXS} xl={fieldXL}>
           <Form.Control
@@ -854,24 +818,24 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
 
   return (
     <>
-      {renderDeleteAlert()}
       {renderScrapeModal()}
       {maybeRenderScrapeDialog()}
 
       <Prompt
         when={formik.dirty}
-        message="Unsaved changes. Are you sure you want to leave?"
+        message={intl.formatMessage({ id: "dialogs.unsaved_changes" })}
       />
+      {renderButtons("mb-3")}
 
       <Form noValidate onSubmit={formik.handleSubmit} id="performer-edit">
         <Form.Group controlId="name" as={Row}>
           <Form.Label column xs={labelXS} xl={labelXL}>
-            Name
+            <FormattedMessage id="name" />
           </Form.Label>
           <Col xs={fieldXS} xl={fieldXL}>
             <Form.Control
               className="text-input"
-              placeholder="Name"
+              placeholder={intl.formatMessage({ id: "name" })}
               {...formik.getFieldProps("name")}
               isInvalid={!!formik.errors.name}
             />
@@ -883,13 +847,13 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
 
         <Form.Group controlId="aliases" as={Row}>
           <Form.Label column sm={labelXS} xl={labelXL}>
-            Alias
+            <FormattedMessage id="aliases" />
           </Form.Label>
           <Col sm={fieldXS} xl={fieldXL}>
             <Form.Control
               as="textarea"
               className="text-input"
-              placeholder="Alias"
+              placeholder={intl.formatMessage({ id: "aliases" })}
               {...formik.getFieldProps("aliases")}
             />
           </Col>
@@ -897,7 +861,7 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
 
         <Form.Group as={Row}>
           <Form.Label column xs={labelXS} xl={labelXL}>
-            Gender
+            <FormattedMessage id="gender" />
           </Form.Label>
           <Col xs="auto">
             <Form.Control
@@ -927,13 +891,13 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
 
         <Form.Group controlId="tattoos" as={Row}>
           <Form.Label column sm={labelXS} xl={labelXL}>
-            Tattoos
+            <FormattedMessage id="tattoos" />
           </Form.Label>
           <Col sm={fieldXS} xl={fieldXL}>
             <Form.Control
               as="textarea"
               className="text-input"
-              placeholder="Tattoos"
+              placeholder={intl.formatMessage({ id: "tattoos" })}
               {...formik.getFieldProps("tattoos")}
             />
           </Col>
@@ -941,13 +905,13 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
 
         <Form.Group controlId="piercings" as={Row}>
           <Form.Label column sm={labelXS} xl={labelXL}>
-            Piercings
+            <FormattedMessage id="piercings" />
           </Form.Label>
           <Col sm={fieldXS} xl={fieldXL}>
             <Form.Control
               as="textarea"
               className="text-input"
-              placeholder="Piercings"
+              placeholder={intl.formatMessage({ id: "piercings" })}
               {...formik.getFieldProps("piercings")}
             />
           </Col>
@@ -955,19 +919,16 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
 
         {renderTextField("career_length", "Career Length")}
 
-        <Form.Group controlId="name" as={Row}>
+        <Form.Group controlId="url" as={Row}>
           <Form.Label column xs={labelXS} xl={labelXL}>
-            URL
+            <FormattedMessage id="url" />
           </Form.Label>
           <Col xs={fieldXS} xl={fieldXL}>
-            <InputGroup>
-              <Form.Control
-                className="text-input"
-                placeholder="URL"
-                {...formik.getFieldProps("url")}
-              />
-              <InputGroup.Append>{maybeRenderScrapeButton()}</InputGroup.Append>
-            </InputGroup>
+            <URLField
+              {...formik.getFieldProps("url")}
+              onScrapeClick={onScrapePerformerURL}
+              urlScrapable={urlScrapable}
+            />
           </Col>
         </Form.Group>
 
@@ -975,35 +936,38 @@ export const PerformerEditPanel: React.FC<IPerformerDetails> = ({
         {renderTextField("instagram", "Instagram")}
         <Form.Group controlId="details" as={Row}>
           <Form.Label column sm={labelXS} xl={labelXL}>
-            Details
+            <FormattedMessage id="details" />
           </Form.Label>
           <Col sm={fieldXS} xl={fieldXL}>
             <Form.Control
               as="textarea"
               className="text-input"
-              placeholder="Details"
+              placeholder={intl.formatMessage({ id: "details" })}
               {...formik.getFieldProps("details")}
             />
           </Col>
         </Form.Group>
         {renderTagsField()}
 
-        <Form.Group controlId="rating" as={Row}>
-          <Form.Label column xs={labelXS} xl={labelXL}>
-            Rating
+        {renderStashIDs()}
+
+        <hr />
+
+        <Form.Group controlId="ignore-auto-tag" as={Row}>
+          <Form.Label column sm={labelXS} xl={labelXL}>
+            <FormattedMessage id="ignore_auto_tag" />
           </Form.Label>
-          <Col xs={fieldXS} xl={fieldXL}>
-            <RatingStars
-              value={formik.values.rating ?? undefined}
-              onSetRating={(value) =>
-                formik.setFieldValue("rating", value ?? null)
-              }
+          <Col sm={fieldXS} xl={fieldXL}>
+            <Form.Check
+              {...formik.getFieldProps({
+                name: "ignore_auto_tag",
+                type: "checkbox",
+              })}
             />
           </Col>
         </Form.Group>
-        {renderStashIDs()}
 
-        {renderButtons()}
+        {renderButtons("mt-3")}
       </Form>
     </>
   );

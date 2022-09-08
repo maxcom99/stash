@@ -1,8 +1,11 @@
-import { createCriterionOption } from "./criteria/criterion";
+import {
+  createMandatoryNumberCriterionOption,
+  createMandatoryStringCriterionOption,
+  createStringCriterionOption,
+} from "./criteria/criterion";
 import { HasMarkersCriterionOption } from "./criteria/has-markers";
 import { SceneIsMissingCriterionOption } from "./criteria/is-missing";
 import { MoviesCriterionOption } from "./criteria/movies";
-import { NoneCriterionOption } from "./criteria/none";
 import { OrganizedCriterionOption } from "./criteria/organized";
 import { PerformersCriterionOption } from "./criteria/performers";
 import { RatingCriterionOption } from "./criteria/rating";
@@ -13,27 +16,29 @@ import {
   PerformerTagsCriterionOption,
   TagsCriterionOption,
 } from "./criteria/tags";
-import { ListFilterOptions } from "./filter-options";
+import { ListFilterOptions, MediaSortByOptions } from "./filter-options";
 import { DisplayMode } from "./types";
+import {
+  DuplicatedCriterionOption,
+  PhashCriterionOption,
+} from "./criteria/phash";
+import { PerformerFavoriteCriterionOption } from "./criteria/favorite";
+import { CaptionsCriterionOption } from "./criteria/captions";
 
 const defaultSortBy = "date";
 const sortByOptions = [
-  "title",
-  "path",
-  "rating",
   "organized",
   "o_counter",
   "date",
   "filesize",
-  "file_mod_time",
   "duration",
   "framerate",
   "bitrate",
-  "tag_count",
-  "performer_count",
-  "random",
   "movie_scene_number",
   "interactive",
+  "interactive_speed",
+  "perceptual_similarity",
+  ...MediaSortByOptions,
 ].map(ListFilterOptions.createSortBy);
 
 const displayModeOptions = [
@@ -44,25 +49,38 @@ const displayModeOptions = [
 ];
 
 const criterionOptions = [
-  NoneCriterionOption,
-  createCriterionOption("path"),
+  createStringCriterionOption("title"),
+  createMandatoryStringCriterionOption("path"),
+  createStringCriterionOption("details"),
+  createMandatoryStringCriterionOption("oshash", "media_info.hash"),
+  createStringCriterionOption(
+    "sceneChecksum",
+    "media_info.checksum",
+    "checksum"
+  ),
+  PhashCriterionOption,
+  DuplicatedCriterionOption,
   RatingCriterionOption,
   OrganizedCriterionOption,
-  createCriterionOption("o_counter"),
+  createMandatoryNumberCriterionOption("o_counter"),
   ResolutionCriterionOption,
-  createCriterionOption("duration"),
+  createMandatoryNumberCriterionOption("duration"),
   HasMarkersCriterionOption,
   SceneIsMissingCriterionOption,
   TagsCriterionOption,
-  createCriterionOption("tag_count"),
+  createMandatoryNumberCriterionOption("tag_count"),
   PerformerTagsCriterionOption,
   PerformersCriterionOption,
-  createCriterionOption("performer_count"),
+  createMandatoryNumberCriterionOption("performer_count"),
+  createMandatoryNumberCriterionOption("performer_age"),
+  PerformerFavoriteCriterionOption,
   StudiosCriterionOption,
   MoviesCriterionOption,
-  createCriterionOption("url"),
-  createCriterionOption("stash_id"),
+  createStringCriterionOption("url"),
+  createStringCriterionOption("stash_id"),
   InteractiveCriterionOption,
+  CaptionsCriterionOption,
+  createMandatoryNumberCriterionOption("interactive_speed"),
 ];
 
 export const SceneListFilterOptions = new ListFilterOptions(

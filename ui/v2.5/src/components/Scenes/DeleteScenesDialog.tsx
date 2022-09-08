@@ -4,7 +4,9 @@ import { useScenesDestroy } from "src/core/StashService";
 import * as GQL from "src/core/generated-graphql";
 import { Modal } from "src/components/Shared";
 import { useToast } from "src/hooks";
-import { FormattedMessage } from "react-intl";
+import { ConfigurationContext } from "src/hooks/Config";
+import { FormattedMessage, useIntl } from "react-intl";
+import { faTrashAlt } from "@fortawesome/free-solid-svg-icons";
 
 interface IDeleteSceneDialogProps {
   selected: GQL.SlimSceneDataFragment[];
@@ -14,23 +16,31 @@ interface IDeleteSceneDialogProps {
 export const DeleteScenesDialog: React.FC<IDeleteSceneDialogProps> = (
   props: IDeleteSceneDialogProps
 ) => {
-  const plural = props.selected.length > 1;
+  const intl = useIntl();
+  const singularEntity = intl.formatMessage({ id: "scene" });
+  const pluralEntity = intl.formatMessage({ id: "scenes" });
 
-  const singleMessageId = "deleteSceneText";
-  const pluralMessageId = "deleteScenesText";
+  const header = intl.formatMessage(
+    { id: "dialogs.delete_entity_title" },
+    { count: props.selected.length, singularEntity, pluralEntity }
+  );
+  const toastMessage = intl.formatMessage(
+    { id: "toast.delete_past_tense" },
+    { count: props.selected.length, singularEntity, pluralEntity }
+  );
+  const message = intl.formatMessage(
+    { id: "dialogs.delete_entity_desc" },
+    { count: props.selected.length, singularEntity, pluralEntity }
+  );
 
-  const singleMessage =
-    "Are you sure you want to delete this scene? Unless the file is also deleted, this scene will be re-added when scan is performed.";
-  const pluralMessage =
-    "Are you sure you want to delete these scenes? Unless the files are also deleted, these scenes will be re-added when scan is performed.";
+  const { configuration: config } = React.useContext(ConfigurationContext);
 
-  const header = plural ? "Delete Scenes" : "Delete Scene";
-  const toastMessage = plural ? "Deleted scenes" : "Deleted scene";
-  const messageId = plural ? pluralMessageId : singleMessageId;
-  const message = plural ? pluralMessage : singleMessage;
-
-  const [deleteFile, setDeleteFile] = useState<boolean>(false);
-  const [deleteGenerated, setDeleteGenerated] = useState<boolean>(true);
+  const [deleteFile, setDeleteFile] = useState<boolean>(
+    config?.defaults.deleteFile ?? false
+  );
+  const [deleteGenerated, setDeleteGenerated] = useState<boolean>(
+    config?.defaults.deleteGenerated ?? true
+  );
 
   const Toast = useToast();
   const [deleteScene] = useScenesDestroy(getScenesDeleteInput());
@@ -51,43 +61,107 @@ export const DeleteScenesDialog: React.FC<IDeleteSceneDialogProps> = (
     try {
       await deleteScene();
       Toast.success({ content: toastMessage });
+      props.onClose(true);
     } catch (e) {
       Toast.error(e);
+      props.onClose(false);
     }
     setIsDeleting(false);
-    props.onClose(true);
+  }
+
+  function funscriptPath(scenePath: string) {
+    const extIndex = scenePath.lastIndexOf(".");
+    if (extIndex !== -1) {
+      return scenePath.substring(0, extIndex + 1) + "funscript";
+    }
+
+    return scenePath;
+  }
+
+  function maybeRenderDeleteFileAlert() {
+    if (!deleteFile) {
+      return;
+    }
+
+    const deletedFiles: string[] = [];
+
+    props.selected.forEach((s) => {
+      deletedFiles.push(s.path);
+      if (s.interactive) {
+        deletedFiles.push(funscriptPath(s.path));
+      }
+    });
+
+    return (
+      <div className="delete-dialog alert alert-danger text-break">
+        <p className="font-weight-bold">
+          <FormattedMessage
+            values={{
+              count: props.selected.length,
+              singularEntity: intl.formatMessage({ id: "file" }),
+              pluralEntity: intl.formatMessage({ id: "files" }),
+            }}
+            id="dialogs.delete_alert"
+          />
+        </p>
+        <ul>
+          {deletedFiles.slice(0, 5).map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+          {deletedFiles.length > 5 && (
+            <FormattedMessage
+              values={{
+                count: deletedFiles.length - 5,
+                singularEntity: intl.formatMessage({ id: "file" }),
+                pluralEntity: intl.formatMessage({ id: "files" }),
+              }}
+              id="dialogs.delete_object_overflow"
+            />
+          )}
+        </ul>
+      </div>
+    );
   }
 
   return (
     <Modal
       show
-      icon="trash-alt"
+      icon={faTrashAlt}
       header={header}
-      accept={{ variant: "danger", onClick: onDelete, text: "Delete" }}
+      accept={{
+        variant: "danger",
+        onClick: onDelete,
+        text: intl.formatMessage({ id: "actions.delete" }),
+      }}
       cancel={{
         onClick: () => props.onClose(false),
-        text: "Cancel",
+        text: intl.formatMessage({ id: "actions.cancel" }),
         variant: "secondary",
       }}
       isRunning={isDeleting}
     >
-      <p>
-        <FormattedMessage id={messageId} defaultMessage={message} />
-      </p>
+      <p>{message}</p>
+      {maybeRenderDeleteFileAlert()}
       <Form>
         <Form.Check
           id="delete-file"
           checked={deleteFile}
-          label="Delete file"
+          label={intl.formatMessage({
+            id: "actions.delete_file_and_funscript",
+          })}
           onChange={() => setDeleteFile(!deleteFile)}
         />
         <Form.Check
           id="delete-generated"
           checked={deleteGenerated}
-          label="Delete generated supporting files"
+          label={intl.formatMessage({
+            id: "actions.delete_generated_supporting_files",
+          })}
           onChange={() => setDeleteGenerated(!deleteGenerated)}
         />
       </Form>
     </Modal>
   );
 };
+
+export default DeleteScenesDialog;

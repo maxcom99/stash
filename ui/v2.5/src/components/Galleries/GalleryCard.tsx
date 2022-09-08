@@ -2,17 +2,19 @@ import { Button, ButtonGroup } from "react-bootstrap";
 import React from "react";
 import { Link } from "react-router-dom";
 import * as GQL from "src/core/generated-graphql";
-import { FormattedPlural } from "react-intl";
-import { useConfiguration } from "src/core/StashService";
 import {
-  BasicCard,
+  GridCard,
   HoverPopover,
   Icon,
   TagLink,
   TruncatedText,
 } from "src/components/Shared";
-import { TextUtils } from "src/utils";
+import { PopoverCountButton } from "src/components/Shared/PopoverCountButton";
+import { NavUtils, TextUtils } from "src/utils";
+import { ConfigurationContext } from "src/hooks/Config";
 import { PerformerPopoverButton } from "../Shared/PerformerPopoverButton";
+import { RatingBanner } from "../Shared/RatingBanner";
+import { faBox, faPlayCircle, faTag } from "@fortawesome/free-solid-svg-icons";
 
 interface IProps {
   gallery: GQL.SlimGalleryDataFragment;
@@ -23,9 +25,8 @@ interface IProps {
 }
 
 export const GalleryCard: React.FC<IProps> = (props) => {
-  const config = useConfiguration();
-  const showStudioAsText =
-    config?.data?.configuration.interface.showStudioAsText ?? false;
+  const { configuration } = React.useContext(ConfigurationContext);
+  const showStudioAsText = configuration?.interface.showStudioAsText ?? false;
 
   function maybeRenderScenePopoverButton() {
     if (props.gallery.scenes.length === 0) return;
@@ -35,9 +36,13 @@ export const GalleryCard: React.FC<IProps> = (props) => {
     ));
 
     return (
-      <HoverPopover placement="bottom" content={popoverContent}>
+      <HoverPopover
+        className="scene-count"
+        placement="bottom"
+        content={popoverContent}
+      >
         <Button className="minimal">
-          <Icon icon="play-circle" />
+          <Icon icon={faPlayCircle} />
           <span>{props.gallery.scenes.length}</span>
         </Button>
       </HoverPopover>
@@ -52,9 +57,13 @@ export const GalleryCard: React.FC<IProps> = (props) => {
     ));
 
     return (
-      <HoverPopover placement="bottom" content={popoverContent}>
+      <HoverPopover
+        className="tag-count"
+        placement="bottom"
+        content={popoverContent}
+      >
         <Button className="minimal">
-          <Icon icon="tag" />
+          <Icon icon={faTag} />
           <span>{props.gallery.tags.length}</span>
         </Button>
       </HoverPopover>
@@ -65,6 +74,19 @@ export const GalleryCard: React.FC<IProps> = (props) => {
     if (props.gallery.performers.length <= 0) return;
 
     return <PerformerPopoverButton performers={props.gallery.performers} />;
+  }
+
+  function maybeRenderImagesPopoverButton() {
+    if (!props.gallery.image_count) return;
+
+    return (
+      <PopoverCountButton
+        className="image-count"
+        type="image"
+        count={props.gallery.image_count}
+        url={NavUtils.makeGalleryImagesUrl(props.gallery)}
+      />
+    );
   }
 
   function maybeRenderSceneStudioOverlay() {
@@ -90,9 +112,9 @@ export const GalleryCard: React.FC<IProps> = (props) => {
   function maybeRenderOrganized() {
     if (props.gallery.organized) {
       return (
-        <div>
+        <div className="organized">
           <Button className="minimal">
-            <Icon icon="box" />
+            <Icon icon={faBox} />
           </Button>
         </div>
       );
@@ -104,12 +126,14 @@ export const GalleryCard: React.FC<IProps> = (props) => {
       props.gallery.scenes.length > 0 ||
       props.gallery.performers.length > 0 ||
       props.gallery.tags.length > 0 ||
-      props.gallery.organized
+      props.gallery.organized ||
+      props.gallery.image_count > 0
     ) {
       return (
         <>
           <hr />
           <ButtonGroup className="card-popovers">
+            {maybeRenderImagesPopoverButton()}
             {maybeRenderTagPopoverButton()}
             {maybeRenderPerformerPopoverButton()}
             {maybeRenderScenePopoverButton()}
@@ -120,25 +144,15 @@ export const GalleryCard: React.FC<IProps> = (props) => {
     }
   }
 
-  function maybeRenderRatingBanner() {
-    if (!props.gallery.rating) {
-      return;
-    }
-    return (
-      <div
-        className={`rating-banner ${
-          props.gallery.rating ? `rating-${props.gallery.rating}` : ""
-        }`}
-      >
-        RATING: {props.gallery.rating}
-      </div>
-    );
-  }
-
   return (
-    <BasicCard
+    <GridCard
       className={`gallery-card zoom-${props.zoomIndex}`}
       url={`/galleries/${props.gallery.id}`}
+      title={
+        props.gallery.title
+          ? props.gallery.title
+          : TextUtils.fileNameFromPath(props.gallery.path ?? "")
+      }
       linkClassName="gallery-card-header"
       image={
         <>
@@ -149,34 +163,21 @@ export const GalleryCard: React.FC<IProps> = (props) => {
               src={`${props.gallery.cover.paths.thumbnail}`}
             />
           ) : undefined}
-          {maybeRenderRatingBanner()}
+          <RatingBanner rating={props.gallery.rating} />
         </>
       }
       overlays={maybeRenderSceneStudioOverlay()}
       details={
-        <>
-          <Link to={`/galleries/${props.gallery.id}`}>
-            <h5 className="card-section-title">
-              <TruncatedText
-                text={
-                  props.gallery.title
-                    ? props.gallery.title
-                    : TextUtils.fileNameFromPath(props.gallery.path ?? "")
-                }
-                lineCount={2}
-              />
-            </h5>
-          </Link>
-          <span>
-            {props.gallery.image_count}&nbsp;
-            <FormattedPlural
-              value={props.gallery.image_count}
-              one="image"
-              other="images"
+        <div className="gallery-card__details">
+          <span className="gallery-card__date">{props.gallery.date}</span>
+          <p>
+            <TruncatedText
+              className="gallery-card__description"
+              text={props.gallery.details}
+              lineCount={3}
             />
-            .
-          </span>
-        </>
+          </p>
+        </div>
       }
       popovers={maybeRenderPopoverButtonGroup()}
       selected={props.selected}

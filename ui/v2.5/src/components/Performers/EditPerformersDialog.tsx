@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Form, Col, Row } from "react-bootstrap";
-import _ from "lodash";
+import { FormattedMessage, useIntl } from "react-intl";
 import { useBulkPerformerUpdate } from "src/core/StashService";
 import * as GQL from "src/core/generated-graphql";
 import { Modal } from "src/components/Shared";
@@ -8,81 +8,102 @@ import { useToast } from "src/hooks";
 import { FormUtils } from "src/utils";
 import MultiSet from "../Shared/MultiSet";
 import { RatingStars } from "../Scenes/SceneDetails/RatingStars";
+import {
+  getAggregateInputValue,
+  getAggregateState,
+  getAggregateStateObject,
+} from "src/utils/bulkUpdate";
+import {
+  genderStrings,
+  genderToString,
+  stringToGender,
+} from "src/utils/gender";
+import { IndeterminateCheckbox } from "../Shared/IndeterminateCheckbox";
+import { BulkUpdateTextInput } from "../Shared/BulkUpdateTextInput";
+import { faPencilAlt } from "@fortawesome/free-solid-svg-icons";
 
 interface IListOperationProps {
   selected: GQL.SlimPerformerDataFragment[];
   onClose: (applied: boolean) => void;
 }
 
+const performerFields = [
+  "favorite",
+  "url",
+  "instagram",
+  "twitter",
+  "rating",
+  "gender",
+  "birthdate",
+  "death_date",
+  "career_length",
+  "country",
+  "ethnicity",
+  "eye_color",
+  "height",
+  // "weight",
+  "measurements",
+  "fake_tits",
+  "hair_color",
+  "tattoos",
+  "piercings",
+  "ignore_auto_tag",
+];
+
 export const EditPerformersDialog: React.FC<IListOperationProps> = (
   props: IListOperationProps
 ) => {
+  const intl = useIntl();
   const Toast = useToast();
-  const [rating, setRating] = useState<number>();
-  const [tagMode, setTagMode] = React.useState<GQL.BulkUpdateIdMode>(
-    GQL.BulkUpdateIdMode.Add
+  const [tagIds, setTagIds] = useState<GQL.BulkUpdateIds>({
+    mode: GQL.BulkUpdateIdMode.Add,
+  });
+  const [existingTagIds, setExistingTagIds] = useState<string[]>();
+  const [
+    aggregateState,
+    setAggregateState,
+  ] = useState<GQL.BulkPerformerUpdateInput>({});
+  // weight needs conversion to/from number
+  const [weight, setWeight] = useState<string | undefined>();
+  const [updateInput, setUpdateInput] = useState<GQL.BulkPerformerUpdateInput>(
+    {}
   );
-  const [tagIds, setTagIds] = useState<string[]>();
-  const [favorite, setFavorite] = useState<boolean | undefined>();
+  const genderOptions = [""].concat(genderStrings);
 
   const [updatePerformers] = useBulkPerformerUpdate(getPerformerInput());
 
   // Network state
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const checkboxRef = React.createRef<HTMLInputElement>();
-
-  function makeBulkUpdateIds(
-    ids: string[],
-    mode: GQL.BulkUpdateIdMode
-  ): GQL.BulkUpdateIds {
-    return {
-      mode,
-      ids,
-    };
+  function setUpdateField(input: Partial<GQL.BulkPerformerUpdateInput>) {
+    setUpdateInput({ ...updateInput, ...input });
   }
 
   function getPerformerInput(): GQL.BulkPerformerUpdateInput {
-    // need to determine what we are actually setting on each performer
-    const aggregateTagIds = getTagIds(props.selected);
-    const aggregateRating = getRating(props.selected);
-
     const performerInput: GQL.BulkPerformerUpdateInput = {
       ids: props.selected.map((performer) => {
         return performer.id;
       }),
+      ...updateInput,
+      tag_ids: tagIds,
     };
 
-    // if rating is undefined
-    if (rating === undefined) {
-      // and all galleries have the same rating, then we are unsetting the rating.
-      if (aggregateRating) {
-        // null to unset rating
-        performerInput.rating = null;
-      }
-      // otherwise not setting the rating
-    } else {
-      // if rating is set, then we are setting the rating for all
-      performerInput.rating = rating;
-    }
+    // we don't have unset functionality for the rating star control
+    // so need to determine if we are setting a rating or not
+    performerInput.rating = getAggregateInputValue(
+      updateInput.rating,
+      aggregateState.rating
+    );
 
-    // if tagIds non-empty, then we are setting them
-    if (
-      tagMode === GQL.BulkUpdateIdMode.Set &&
-      (!tagIds || tagIds.length === 0)
-    ) {
-      // and all performers have the same ids,
-      if (aggregateTagIds.length > 0) {
-        // then unset the tagIds, otherwise ignore
-        performerInput.tag_ids = makeBulkUpdateIds(tagIds || [], tagMode);
-      }
-    } else {
-      // if tagIds non-empty, then we are setting them
-      performerInput.tag_ids = makeBulkUpdateIds(tagIds || [], tagMode);
-    }
+    // gender dropdown doesn't have unset functionality
+    // so need to determine what we are setting
+    performerInput.gender = getAggregateInputValue(
+      updateInput.gender,
+      aggregateState.gender
+    );
 
-    if (favorite !== undefined) {
-      performerInput.favorite = favorite;
+    if (weight !== undefined) {
+      performerInput.weight = parseFloat(weight);
     }
 
     return performerInput;
@@ -92,7 +113,16 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
     setIsUpdating(true);
     try {
       await updatePerformers();
-      Toast.success({ content: "Updated performers" });
+      Toast.success({
+        content: intl.formatMessage(
+          { id: "toast.updated_entity" },
+          {
+            entity: intl
+              .formatMessage({ id: "performers" })
+              .toLocaleLowerCase(),
+          }
+        ),
+      });
       props.onClose(true);
     } catch (e) {
       Toast.error(e);
@@ -100,171 +130,188 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
     setIsUpdating(false);
   }
 
-  function getTagIds(state: GQL.SlimPerformerDataFragment[]) {
-    let ret: string[] = [];
-    let first = true;
-
-    state.forEach((performer: GQL.SlimPerformerDataFragment) => {
-      if (first) {
-        ret = performer.tags ? performer.tags.map((t) => t.id).sort() : [];
-        first = false;
-      } else {
-        const tIds = performer.tags
-          ? performer.tags.map((t) => t.id).sort()
-          : [];
-
-        if (!_.isEqual(ret, tIds)) {
-          ret = [];
-        }
-      }
-    });
-
-    return ret;
-  }
-
-  function getRating(state: GQL.SlimPerformerDataFragment[]) {
-    let ret: number | undefined;
-    let first = true;
-
-    state.forEach((performer) => {
-      if (first) {
-        ret = performer.rating ?? undefined;
-        first = false;
-      } else if (ret !== performer.rating) {
-        ret = undefined;
-      }
-    });
-
-    return ret;
-  }
-
   useEffect(() => {
+    const updateState: GQL.BulkPerformerUpdateInput = {};
+
     const state = props.selected;
     let updateTagIds: string[] = [];
-    let updateFavorite: boolean | undefined;
-    let updateRating: number | undefined;
+    let updateWeight: string | undefined | null = undefined;
     let first = true;
 
     state.forEach((performer: GQL.SlimPerformerDataFragment) => {
-      const performerTagIDs = (performer.tags ?? []).map((p) => p.id).sort();
-      const performerRating = performer.rating;
+      getAggregateStateObject(updateState, performer, performerFields, first);
 
-      if (first) {
-        updateTagIds = performerTagIDs;
-        first = false;
-        updateFavorite = performer.favorite;
-        updateRating = performerRating ?? undefined;
-      } else {
-        if (!_.isEqual(performerTagIDs, updateTagIds)) {
-          updateTagIds = [];
-        }
-        if (performer.favorite !== updateFavorite) {
-          updateFavorite = undefined;
-        }
-        if (performerRating !== updateRating) {
-          updateRating = undefined;
-        }
-      }
+      const performerTagIDs = (performer.tags ?? []).map((p) => p.id).sort();
+
+      updateTagIds =
+        getAggregateState(updateTagIds, performerTagIDs, first) ?? [];
+
+      const thisWeight =
+        performer.weight !== undefined && performer.weight !== null
+          ? performer.weight.toString()
+          : performer.weight;
+      updateWeight = getAggregateState(updateWeight, thisWeight, first);
+
+      first = false;
     });
 
-    if (tagMode === GQL.BulkUpdateIdMode.Set) {
-      setTagIds(updateTagIds);
-    }
-    setFavorite(updateFavorite);
-    setRating(updateRating);
-  }, [props.selected, tagMode]);
+    setExistingTagIds(updateTagIds);
+    setWeight(updateWeight);
+    setAggregateState(updateState);
+    setUpdateInput(updateState);
+  }, [props.selected]);
 
-  useEffect(() => {
-    if (checkboxRef.current) {
-      checkboxRef.current.indeterminate = favorite === undefined;
-    }
-  }, [favorite, checkboxRef]);
-
-  function renderMultiSelect(
-    type: "performers" | "tags",
-    ids: string[] | undefined
+  function renderTextField(
+    name: string,
+    value: string | undefined | null,
+    setter: (newValue: string | undefined) => void
   ) {
-    let mode = GQL.BulkUpdateIdMode.Add;
-    switch (type) {
-      case "tags":
-        mode = tagMode;
-        break;
-    }
-
     return (
-      <MultiSet
-        type={type}
-        disabled={isUpdating}
-        onUpdate={(items) => {
-          const itemIDs = items.map((i) => i.id);
-          switch (type) {
-            case "tags":
-              setTagIds(itemIDs);
-              break;
-          }
-        }}
-        onSetMode={(newMode) => {
-          switch (type) {
-            case "tags":
-              setTagMode(newMode);
-              break;
-          }
-        }}
-        ids={ids ?? []}
-        mode={mode}
-      />
+      <Form.Group controlId={name}>
+        <Form.Label>
+          <FormattedMessage id={name} />
+        </Form.Label>
+        <BulkUpdateTextInput
+          value={value === null ? "" : value ?? undefined}
+          valueChanged={(newValue) => setter(newValue)}
+          unsetDisabled={props.selected.length < 2}
+        />
+      </Form.Group>
     );
-  }
-
-  function cycleFavorite() {
-    if (favorite) {
-      setFavorite(undefined);
-    } else if (favorite === undefined) {
-      setFavorite(false);
-    } else {
-      setFavorite(true);
-    }
   }
 
   function render() {
     return (
       <Modal
         show
-        icon="pencil-alt"
-        header="Edit Performers"
-        accept={{ onClick: onSave, text: "Apply" }}
+        icon={faPencilAlt}
+        header={intl.formatMessage(
+          { id: "actions.edit_entity" },
+          { entityType: intl.formatMessage({ id: "performers" }) }
+        )}
+        accept={{
+          onClick: onSave,
+          text: intl.formatMessage({ id: "actions.apply" }),
+        }}
         cancel={{
           onClick: () => props.onClose(false),
-          text: "Cancel",
+          text: intl.formatMessage({ id: "actions.cancel" }),
           variant: "secondary",
         }}
         isRunning={isUpdating}
       >
         <Form.Group controlId="rating" as={Row}>
           {FormUtils.renderLabel({
-            title: "Rating",
+            title: intl.formatMessage({ id: "rating" }),
           })}
           <Col xs={9}>
             <RatingStars
-              value={rating}
-              onSetRating={(value) => setRating(value)}
+              value={updateInput.rating ?? undefined}
+              onSetRating={(value) => setUpdateField({ rating: value })}
               disabled={isUpdating}
             />
           </Col>
         </Form.Group>
         <Form>
-          <Form.Group controlId="tags">
-            <Form.Label>Tags</Form.Label>
-            {renderMultiSelect("tags", tagIds)}
+          <Form.Group controlId="favorite">
+            <IndeterminateCheckbox
+              setChecked={(checked) => setUpdateField({ favorite: checked })}
+              checked={updateInput.favorite ?? undefined}
+              label={intl.formatMessage({ id: "favourite" })}
+            />
           </Form.Group>
 
-          <Form.Group controlId="favorite">
-            <Form.Check
-              type="checkbox"
-              label="Favorite"
-              checked={favorite}
-              ref={checkboxRef}
-              onChange={() => cycleFavorite()}
+          <Form.Group>
+            <Form.Label>
+              <FormattedMessage id="gender" />
+            </Form.Label>
+            <Form.Control
+              as="select"
+              className="input-control"
+              value={genderToString(updateInput.gender ?? undefined)}
+              onChange={(event) =>
+                setUpdateField({
+                  gender: stringToGender(event.currentTarget.value),
+                })
+              }
+            >
+              {genderOptions.map((opt) => (
+                <option value={opt} key={opt}>
+                  {opt}
+                </option>
+              ))}
+            </Form.Control>
+          </Form.Group>
+
+          {renderTextField("birthdate", updateInput.birthdate, (v) =>
+            setUpdateField({ birthdate: v })
+          )}
+          {renderTextField("death_date", updateInput.death_date, (v) =>
+            setUpdateField({ death_date: v })
+          )}
+          {renderTextField("country", updateInput.country, (v) =>
+            setUpdateField({ country: v })
+          )}
+          {renderTextField("ethnicity", updateInput.ethnicity, (v) =>
+            setUpdateField({ ethnicity: v })
+          )}
+          {renderTextField("hair_color", updateInput.hair_color, (v) =>
+            setUpdateField({ hair_color: v })
+          )}
+          {renderTextField("eye_color", updateInput.eye_color, (v) =>
+            setUpdateField({ eye_color: v })
+          )}
+          {renderTextField("height", updateInput.height, (v) =>
+            setUpdateField({ height: v })
+          )}
+          {renderTextField("weight", weight, (v) => setWeight(v))}
+          {renderTextField("measurements", updateInput.measurements, (v) =>
+            setUpdateField({ measurements: v })
+          )}
+          {renderTextField("fake_tits", updateInput.fake_tits, (v) =>
+            setUpdateField({ fake_tits: v })
+          )}
+          {renderTextField("tattoos", updateInput.tattoos, (v) =>
+            setUpdateField({ tattoos: v })
+          )}
+          {renderTextField("piercings", updateInput.piercings, (v) =>
+            setUpdateField({ piercings: v })
+          )}
+          {renderTextField("career_length", updateInput.career_length, (v) =>
+            setUpdateField({ career_length: v })
+          )}
+          {renderTextField("url", updateInput.url, (v) =>
+            setUpdateField({ url: v })
+          )}
+          {renderTextField("twitter", updateInput.twitter, (v) =>
+            setUpdateField({ twitter: v })
+          )}
+          {renderTextField("instagram", updateInput.instagram, (v) =>
+            setUpdateField({ instagram: v })
+          )}
+
+          <Form.Group controlId="tags">
+            <Form.Label>
+              <FormattedMessage id="tags" />
+            </Form.Label>
+            <MultiSet
+              type="tags"
+              disabled={isUpdating}
+              onUpdate={(itemIDs) => setTagIds({ ...tagIds, ids: itemIDs })}
+              onSetMode={(newMode) => setTagIds({ ...tagIds, mode: newMode })}
+              existingIds={existingTagIds ?? []}
+              ids={tagIds.ids ?? []}
+              mode={tagIds.mode}
+            />
+          </Form.Group>
+
+          <Form.Group controlId="ignore-auto-tags">
+            <IndeterminateCheckbox
+              label={intl.formatMessage({ id: "ignore_auto_tag" })}
+              setChecked={(checked) =>
+                setUpdateField({ ignore_auto_tag: checked })
+              }
+              checked={updateInput.ignore_auto_tag ?? undefined}
             />
           </Form.Group>
         </Form>

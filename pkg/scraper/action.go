@@ -1,6 +1,11 @@
 package scraper
 
-import "github.com/stashapp/stash/pkg/models"
+import (
+	"context"
+	"net/http"
+
+	"github.com/stashapp/stash/pkg/models"
+)
 
 type scraperAction string
 
@@ -11,13 +16,6 @@ const (
 	scraperActionJson   scraperAction = "scrapeJson"
 )
 
-var allScraperAction = []scraperAction{
-	scraperActionScript,
-	scraperActionStash,
-	scraperActionXPath,
-	scraperActionJson,
-}
-
 func (e scraperAction) IsValid() bool {
 	switch e {
 	case scraperActionScript, scraperActionStash, scraperActionXPath, scraperActionJson:
@@ -26,36 +24,25 @@ func (e scraperAction) IsValid() bool {
 	return false
 }
 
-type scrapeOptions struct {
-	scraper      scraperTypeConfig
-	config       config
-	globalConfig GlobalConfig
+type scraperActionImpl interface {
+	scrapeByURL(ctx context.Context, url string, ty models.ScrapeContentType) (models.ScrapedContent, error)
+	scrapeByName(ctx context.Context, name string, ty models.ScrapeContentType) ([]models.ScrapedContent, error)
+	scrapeByFragment(ctx context.Context, input Input) (models.ScrapedContent, error)
+
+	scrapeSceneByScene(ctx context.Context, scene *models.Scene) (*models.ScrapedScene, error)
+	scrapeGalleryByGallery(ctx context.Context, gallery *models.Gallery) (*models.ScrapedGallery, error)
 }
 
-type scraper interface {
-	scrapePerformersByName(name string) ([]*models.ScrapedPerformer, error)
-	scrapePerformerByFragment(scrapedPerformer models.ScrapedPerformerInput) (*models.ScrapedPerformer, error)
-	scrapePerformerByURL(url string) (*models.ScrapedPerformer, error)
-
-	scrapeSceneByFragment(scene models.SceneUpdateInput) (*models.ScrapedScene, error)
-	scrapeSceneByURL(url string) (*models.ScrapedScene, error)
-
-	scrapeGalleryByFragment(scene models.GalleryUpdateInput) (*models.ScrapedGallery, error)
-	scrapeGalleryByURL(url string) (*models.ScrapedGallery, error)
-
-	scrapeMovieByURL(url string) (*models.ScrapedMovie, error)
-}
-
-func getScraper(scraper scraperTypeConfig, txnManager models.TransactionManager, config config, globalConfig GlobalConfig) scraper {
+func (c config) getScraper(scraper scraperTypeConfig, client *http.Client, txnManager models.TransactionManager, globalConfig GlobalConfig) scraperActionImpl {
 	switch scraper.Action {
 	case scraperActionScript:
-		return newScriptScraper(scraper, config, globalConfig)
+		return newScriptScraper(scraper, c, globalConfig)
 	case scraperActionStash:
-		return newStashScraper(scraper, txnManager, config, globalConfig)
+		return newStashScraper(scraper, client, txnManager, c, globalConfig)
 	case scraperActionXPath:
-		return newXpathScraper(scraper, txnManager, config, globalConfig)
+		return newXpathScraper(scraper, client, txnManager, c, globalConfig)
 	case scraperActionJson:
-		return newJsonScraper(scraper, txnManager, config, globalConfig)
+		return newJsonScraper(scraper, client, txnManager, c, globalConfig)
 	}
 
 	panic("unknown scraper action: " + scraper.Action)

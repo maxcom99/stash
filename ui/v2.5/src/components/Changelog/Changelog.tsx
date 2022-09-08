@@ -11,6 +11,16 @@ import V050 from "./versions/v050.md";
 import V060 from "./versions/v060.md";
 import V070 from "./versions/v070.md";
 import V080 from "./versions/v080.md";
+import V090 from "./versions/v090.md";
+import V0100 from "./versions/v0100.md";
+import V0110 from "./versions/v0110.md";
+import V0120 from "./versions/v0120.md";
+import V0130 from "./versions/v0130.md";
+import V0131 from "./versions/v0131.md";
+import V0140 from "./versions/v0140.md";
+import V0150 from "./versions/v0150.md";
+import V0160 from "./versions/v0160.md";
+import V0161 from "./versions/v0161.md";
 import { MarkdownPage } from "../Shared/MarkdownPage";
 
 // to avoid use of explicit any
@@ -19,8 +29,8 @@ type Module = typeof V010;
 const Changelog: React.FC = () => {
   const [{ data, loading }, setOpenState] = useChangelogStorage();
 
-  const stashVersion = process.env.REACT_APP_STASH_VERSION;
-  const buildTime = process.env.REACT_APP_DATE;
+  const stashVersion = import.meta.env.VITE_APP_STASH_VERSION;
+  const buildTime = import.meta.env.VITE_APP_DATE;
 
   let buildDate;
   if (buildTime) {
@@ -49,9 +59,9 @@ const Changelog: React.FC = () => {
   // after new release:
   // add entry to releases, using the current* fields
   // then update the current fields.
-  const currentVersion = stashVersion || "v0.8.0";
+  const currentVersion = stashVersion || "v0.16.1";
   const currentDate = buildDate;
-  const currentPage = V080;
+  const currentPage = V0161;
 
   const releases: IStashRelease[] = [
     {
@@ -59,6 +69,56 @@ const Changelog: React.FC = () => {
       date: currentDate,
       page: currentPage,
       defaultOpen: true,
+    },
+    {
+      version: "v0.16.0",
+      date: "2022-07-05",
+      page: V0160,
+    },
+    {
+      version: "v0.15.0",
+      date: "2022-05-18",
+      page: V0150,
+    },
+    {
+      version: "v0.14.0",
+      date: "2022-04-11",
+      page: V0140,
+    },
+    {
+      version: "v0.13.1",
+      date: "2022-03-16",
+      page: V0131,
+    },
+    {
+      version: "v0.13.0",
+      date: "2022-03-08",
+      page: V0130,
+    },
+    {
+      version: "v0.12.0",
+      date: "2021-12-29",
+      page: V0120,
+    },
+    {
+      version: "v0.11.0",
+      date: "2021-11-16",
+      page: V0110,
+    },
+    {
+      version: "v0.10.0",
+      date: "2021-10-11",
+      page: V0100,
+    },
+    {
+      version: "v0.9.0",
+      date: "2021-09-06",
+      page: V090,
+    },
+    {
+      version: "v0.8.0",
+      date: "2021-07-02",
+      page: V080,
     },
     {
       version: "v0.7.0",

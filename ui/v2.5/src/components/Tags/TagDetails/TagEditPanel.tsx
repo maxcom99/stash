@@ -1,9 +1,10 @@
 import React, { useEffect } from "react";
+import { FormattedMessage, useIntl } from "react-intl";
 import * as GQL from "src/core/generated-graphql";
 import * as yup from "yup";
-import { DetailsEditNavbar } from "src/components/Shared";
+import { DetailsEditNavbar, TagSelect } from "src/components/Shared";
 import { Form, Col, Row } from "react-bootstrap";
-import { ImageUtils } from "src/utils";
+import { FormUtils, ImageUtils } from "src/utils";
 import { useFormik } from "formik";
 import { Prompt, useHistory } from "react-router-dom";
 import Mousetrap from "mousetrap";
@@ -27,6 +28,7 @@ export const TagEditPanel: React.FC<ITagEditPanel> = ({
   onDelete,
   setImage,
 }) => {
+  const intl = useIntl();
   const history = useHistory();
 
   const isNew = tag === undefined;
@@ -47,13 +49,19 @@ export const TagEditPanel: React.FC<ITagEditPanel> = ({
         test: (value: any) => {
           return (value ?? []).length === new Set(value).size;
         },
-        message: "aliases must be unique",
+        message: intl.formatMessage({ id: "dialogs.aliases_must_be_unique" }),
       }),
+    parent_ids: yup.array(yup.string().required()).optional().nullable(),
+    child_ids: yup.array(yup.string().required()).optional().nullable(),
+    ignore_auto_tag: yup.boolean().optional(),
   });
 
   const initialValues = {
     name: tag?.name,
     aliases: tag?.aliases,
+    parent_ids: (tag?.parents ?? []).map((t) => t.id),
+    child_ids: (tag?.children ?? []).map((t) => t.id),
+    ignore_auto_tag: tag?.ignore_auto_tag ?? false,
   };
 
   type InputValues = typeof initialValues;
@@ -102,7 +110,14 @@ export const TagEditPanel: React.FC<ITagEditPanel> = ({
   // TODO: CSS class
   return (
     <div>
-      {isNew && <h2>Add Tag</h2>}
+      {isNew && (
+        <h2>
+          <FormattedMessage
+            id="actions.add_entity"
+            values={{ entityType: intl.formatMessage({ id: "tag" }) }}
+          />
+        </h2>
+      )}
 
       <Prompt
         when={formik.dirty}
@@ -110,19 +125,19 @@ export const TagEditPanel: React.FC<ITagEditPanel> = ({
           if (!isNew && location.pathname.startsWith(`/tags/${tag?.id}`)) {
             return true;
           }
-          return "Unsaved changes. Are you sure you want to leave?";
+          return intl.formatMessage({ id: "dialogs.unsaved_changes" });
         }}
       />
 
       <Form noValidate onSubmit={formik.handleSubmit} id="tag-edit">
         <Form.Group controlId="name" as={Row}>
           <Form.Label column xs={labelXS} xl={labelXL}>
-            Name
+            <FormattedMessage id="name" />
           </Form.Label>
           <Col xs={fieldXS} xl={fieldXL}>
             <Form.Control
               className="text-input"
-              placeholder="Name"
+              placeholder={intl.formatMessage({ id: "name" })}
               {...formik.getFieldProps("name")}
               isInvalid={!!formik.errors.name}
             />
@@ -134,7 +149,7 @@ export const TagEditPanel: React.FC<ITagEditPanel> = ({
 
         <Form.Group controlId="aliases" as={Row}>
           <Form.Label column xs={labelXS} xl={labelXL}>
-            Aliases
+            <FormattedMessage id="aliases" />
           </Form.Label>
           <Col xs={fieldXS} xl={fieldXL}>
             <StringListInput
@@ -144,10 +159,80 @@ export const TagEditPanel: React.FC<ITagEditPanel> = ({
             />
           </Col>
         </Form.Group>
+
+        <Form.Group controlId="parent_tags" as={Row}>
+          {FormUtils.renderLabel({
+            title: intl.formatMessage({ id: "parent_tags" }),
+            labelProps: {
+              column: true,
+              sm: 3,
+              xl: 12,
+            },
+          })}
+          <Col sm={9} xl={12}>
+            <TagSelect
+              isMulti
+              onSelect={(items) =>
+                formik.setFieldValue(
+                  "parent_ids",
+                  items.map((item) => item.id)
+                )
+              }
+              ids={formik.values.parent_ids}
+              excludeIds={(tag?.id ? [tag.id] : []).concat(
+                ...formik.values.child_ids
+              )}
+              creatable={false}
+            />
+          </Col>
+        </Form.Group>
+
+        <Form.Group controlId="sub_tags" as={Row}>
+          {FormUtils.renderLabel({
+            title: intl.formatMessage({ id: "sub_tags" }),
+            labelProps: {
+              column: true,
+              sm: 3,
+              xl: 12,
+            },
+          })}
+          <Col sm={9} xl={12}>
+            <TagSelect
+              isMulti
+              onSelect={(items) =>
+                formik.setFieldValue(
+                  "child_ids",
+                  items.map((item) => item.id)
+                )
+              }
+              ids={formik.values.child_ids}
+              excludeIds={(tag?.id ? [tag.id] : []).concat(
+                ...formik.values.parent_ids
+              )}
+              creatable={false}
+            />
+          </Col>
+        </Form.Group>
+
+        <hr />
+
+        <Form.Group controlId="ignore-auto-tag" as={Row}>
+          <Form.Label column xs={labelXS} xl={labelXL}>
+            <FormattedMessage id="ignore_auto_tag" />
+          </Form.Label>
+          <Col xs={fieldXS} xl={fieldXL}>
+            <Form.Check
+              {...formik.getFieldProps({
+                name: "ignore_auto_tag",
+                type: "checkbox",
+              })}
+            />
+          </Col>
+        </Form.Group>
       </Form>
 
       <DetailsEditNavbar
-        objectName={tag?.name ?? "tag"}
+        objectName={tag?.name ?? intl.formatMessage({ id: "tag" })}
         isNew={isNew}
         isEditing={isEditing}
         onToggleEdit={onCancel}
@@ -158,6 +243,7 @@ export const TagEditPanel: React.FC<ITagEditPanel> = ({
           setImage(null);
         }}
         onDelete={onDelete}
+        acceptSVG
       />
     </div>
   );

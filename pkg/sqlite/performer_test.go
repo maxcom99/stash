@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package sqlite_test
@@ -5,6 +6,7 @@ package sqlite_test
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,8 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/stashapp/stash/pkg/hash/md5"
 	"github.com/stashapp/stash/pkg/models"
-	"github.com/stashapp/stash/pkg/utils"
 )
 
 func TestPerformerFindBySceneID(t *testing.T) {
@@ -164,7 +166,7 @@ func TestPerformerQueryEthnicityAndRating(t *testing.T) {
 	})
 }
 
-func TestPerformerQueryPathNotRating(t *testing.T) {
+func TestPerformerQueryEthnicityNotRating(t *testing.T) {
 	const performerIdx = 1
 
 	performerRating := getRating(performerIdx)
@@ -237,11 +239,31 @@ func TestPerformerIllegalQuery(t *testing.T) {
 	})
 }
 
+func TestPerformerQueryIgnoreAutoTag(t *testing.T) {
+	withTxn(func(r models.Repository) error {
+		ignoreAutoTag := true
+		performerFilter := models.PerformerFilterType{
+			IgnoreAutoTag: &ignoreAutoTag,
+		}
+
+		sqb := r.Performer()
+
+		performers := queryPerformers(t, sqb, &performerFilter, nil)
+
+		assert.Len(t, performers, int(math.Ceil(float64(totalPerformers)/5)))
+		for _, p := range performers {
+			assert.True(t, p.IgnoreAutoTag)
+		}
+
+		return nil
+	})
+}
+
 func TestPerformerQueryForAutoTag(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		tqb := r.Performer()
 
-		name := performerNames[performerIdxWithScene] // find a performer by name
+		name := performerNames[performerIdx1WithScene] // find a performer by name
 
 		performers, err := tqb.QueryForAutoTag([]string{name})
 
@@ -250,8 +272,8 @@ func TestPerformerQueryForAutoTag(t *testing.T) {
 		}
 
 		assert.Len(t, performers, 2)
-		assert.Equal(t, strings.ToLower(performerNames[performerIdxWithScene]), strings.ToLower(performers[0].Name.String))
-		assert.Equal(t, strings.ToLower(performerNames[performerIdxWithScene]), strings.ToLower(performers[1].Name.String))
+		assert.Equal(t, strings.ToLower(performerNames[performerIdx1WithScene]), strings.ToLower(performers[0].Name.String))
+		assert.Equal(t, strings.ToLower(performerNames[performerIdx1WithScene]), strings.ToLower(performers[1].Name.String))
 
 		return nil
 	})
@@ -265,7 +287,7 @@ func TestPerformerUpdatePerformerImage(t *testing.T) {
 		const name = "TestPerformerUpdatePerformerImage"
 		performer := models.Performer{
 			Name:     sql.NullString{String: name, Valid: true},
-			Checksum: utils.MD5FromString(name),
+			Checksum: md5.FromString(name),
 			Favorite: sql.NullBool{Bool: false, Valid: true},
 		}
 		created, err := qb.Create(performer)
@@ -306,7 +328,7 @@ func TestPerformerDestroyPerformerImage(t *testing.T) {
 		const name = "TestPerformerDestroyPerformerImage"
 		performer := models.Performer{
 			Name:     sql.NullString{String: name, Valid: true},
-			Checksum: utils.MD5FromString(name),
+			Checksum: md5.FromString(name),
 			Favorite: sql.NullBool{Bool: false, Valid: true},
 		}
 		created, err := qb.Create(performer)
@@ -499,7 +521,7 @@ func queryPerformers(t *testing.T, qb models.PerformerReader, performerFilter *m
 func TestPerformerQueryTags(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Performer()
-		tagCriterion := models.MultiCriterionInput{
+		tagCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdxWithPerformer]),
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
@@ -518,7 +540,7 @@ func TestPerformerQueryTags(t *testing.T) {
 			assert.True(t, performer.ID == performerIDs[performerIdxWithTag] || performer.ID == performerIDs[performerIdxWithTwoTags])
 		}
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
 				strconv.Itoa(tagIDs[tagIdx2WithPerformer]),
@@ -531,7 +553,7 @@ func TestPerformerQueryTags(t *testing.T) {
 		assert.Len(t, performers, 1)
 		assert.Equal(t, sceneIDs[performerIdxWithTwoTags], performers[0].ID)
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
 			},
@@ -664,18 +686,24 @@ func verifyPerformersImageCount(t *testing.T, imageCountCriterion models.IntCrit
 		for _, performer := range performers {
 			pp := 0
 
-			_, count, err := r.Image().Query(&models.ImageFilterType{
-				Performers: &models.MultiCriterionInput{
-					Value:    []string{strconv.Itoa(performer.ID)},
-					Modifier: models.CriterionModifierIncludes,
+			result, err := r.Image().Query(models.ImageQueryOptions{
+				QueryOptions: models.QueryOptions{
+					FindFilter: &models.FindFilterType{
+						PerPage: &pp,
+					},
+					Count: true,
 				},
-			}, &models.FindFilterType{
-				PerPage: &pp,
+				ImageFilter: &models.ImageFilterType{
+					Performers: &models.MultiCriterionInput{
+						Value:    []string{strconv.Itoa(performer.ID)},
+						Modifier: models.CriterionModifierIncludes,
+					},
+				},
 			})
 			if err != nil {
 				return err
 			}
-			verifyInt(t, count, imageCountCriterion)
+			verifyInt(t, result.Count, imageCountCriterion)
 		}
 
 		return nil
@@ -746,7 +774,7 @@ func TestPerformerQueryStudio(t *testing.T) {
 		sqb := r.Performer()
 
 		for _, tc := range testCases {
-			studioCriterion := models.MultiCriterionInput{
+			studioCriterion := models.HierarchicalMultiCriterionInput{
 				Value: []string{
 					strconv.Itoa(studioIDs[tc.studioIndex]),
 				},
@@ -764,7 +792,7 @@ func TestPerformerQueryStudio(t *testing.T) {
 			// ensure id is correct
 			assert.Equal(t, performerIDs[tc.performerIndex], performers[0].ID)
 
-			studioCriterion = models.MultiCriterionInput{
+			studioCriterion = models.HierarchicalMultiCriterionInput{
 				Value: []string{
 					strconv.Itoa(studioIDs[tc.studioIndex]),
 				},
@@ -780,6 +808,34 @@ func TestPerformerQueryStudio(t *testing.T) {
 			assert.Len(t, performers, 0)
 		}
 
+		// test NULL/not NULL
+		q := getPerformerStringValue(performerIdx1WithImage, "Name")
+		performerFilter := &models.PerformerFilterType{
+			Studios: &models.HierarchicalMultiCriterionInput{
+				Modifier: models.CriterionModifierIsNull,
+			},
+		}
+		findFilter := &models.FindFilterType{
+			Q: &q,
+		}
+
+		performers := queryPerformers(t, sqb, performerFilter, findFilter)
+		assert.Len(t, performers, 1)
+		assert.Equal(t, imageIDs[performerIdx1WithImage], performers[0].ID)
+
+		q = getPerformerStringValue(performerIdxWithSceneStudio, "Name")
+		performers = queryPerformers(t, sqb, performerFilter, findFilter)
+		assert.Len(t, performers, 0)
+
+		performerFilter.Studios.Modifier = models.CriterionModifierNotNull
+		performers = queryPerformers(t, sqb, performerFilter, findFilter)
+		assert.Len(t, performers, 1)
+		assert.Equal(t, imageIDs[performerIdxWithSceneStudio], performers[0].ID)
+
+		q = getPerformerStringValue(performerIdx1WithImage, "Name")
+		performers = queryPerformers(t, sqb, performerFilter, findFilter)
+		assert.Len(t, performers, 0)
+
 		return nil
 	})
 }
@@ -792,7 +848,7 @@ func TestPerformerStashIDs(t *testing.T) {
 		const name = "TestStashIDs"
 		performer := models.Performer{
 			Name:     sql.NullString{String: name, Valid: true},
-			Checksum: utils.MD5FromString(name),
+			Checksum: md5.FromString(name),
 			Favorite: sql.NullBool{Bool: false, Valid: true},
 		}
 		created, err := qb.Create(performer)

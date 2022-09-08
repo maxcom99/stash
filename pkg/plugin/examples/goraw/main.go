@@ -1,10 +1,12 @@
+//go:build plugin_example
 // +build plugin_example
 
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"os"
 	"time"
 
@@ -22,7 +24,7 @@ func main() {
 	input := common.PluginInput{}
 
 	if len(os.Args) < 2 {
-		inData, _ := ioutil.ReadAll(os.Stdin)
+		inData, _ := io.ReadAll(os.Stdin)
 		log.Debugf("Raw input: %s", string(inData))
 		decodeErr := json.Unmarshal(inData, &input)
 
@@ -53,14 +55,14 @@ func main() {
 
 func Run(input common.PluginInput, output *common.PluginOutput) error {
 	modeArg := input.Args.String("mode")
-
+	ctx := context.TODO()
 	var err error
 	if modeArg == "" || modeArg == "add" {
 		client := util.NewClient(input.ServerConnection)
-		err = exampleCommon.AddTag(client)
+		err = exampleCommon.AddTag(ctx, client)
 	} else if modeArg == "remove" {
 		client := util.NewClient(input.ServerConnection)
-		err = exampleCommon.RemoveTag(client)
+		err = exampleCommon.RemoveTag(ctx, client)
 	} else if modeArg == "long" {
 		err = doLongTask()
 	} else if modeArg == "indef" {

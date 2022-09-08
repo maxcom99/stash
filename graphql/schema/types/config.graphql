@@ -39,14 +39,20 @@ input ConfigGeneralInput {
   databasePath: String
   """Path to generated files"""
   generatedPath: String
+  """Path to import/export files"""
+  metadataPath: String
+  """Path to scrapers"""
+  scrapersPath: String
   """Path to cache"""
   cachePath: String
   """Whether to calculate MD5 checksums for scene video files"""
-  calculateMD5: Boolean!
+  calculateMD5: Boolean
   """Hash algorithm to use for generated file naming"""
-  videoFileNamingAlgorithm: HashAlgorithm!
+  videoFileNamingAlgorithm: HashAlgorithm
   """Number of parallel tasks to start during scan/generate"""
   parallelTasks: Int
+  """Include audio stream in previews"""
+  previewAudio: Boolean
   """Number of segments in a preview file"""
   previewSegments: Int
   """Preview segment duration, in seconds"""
@@ -61,22 +67,26 @@ input ConfigGeneralInput {
   maxTranscodeSize: StreamingResolutionEnum
   """Max streaming transcode size"""
   maxStreamingTranscodeSize: StreamingResolutionEnum
+  """Write image thumbnails to disk when generating on the fly"""
+  writeImageThumbnails: Boolean
   """Username"""
   username: String
   """Password"""
   password: String
   """Maximum session cookie age"""
   maxSessionAge: Int
+  """Comma separated list of proxies to allow traffic from"""
+  trustedProxies: [String!] @deprecated(reason: "no longer supported")
   """Name of the log file"""
   logFile: String
   """Whether to also output to stderr"""
-  logOut: Boolean!
+  logOut: Boolean
   """Minimum log level"""
-  logLevel: String!
+  logLevel: String
   """Whether to log http access"""
-  logAccess: Boolean!
+  logAccess: Boolean
   """True if galleries should be created from folders with images"""
-  createGalleriesFromFolders: Boolean!
+  createGalleriesFromFolders: Boolean
   """Array of video file extensions"""
   videoExtensions: [String!]
   """Array of image file extensions"""
@@ -87,14 +97,18 @@ input ConfigGeneralInput {
   excludes: [String!]
   """Array of file regexp to exclude from Image Scans"""
   imageExcludes: [String!]
+  """Custom Performer Image Location"""
+  customPerformerImageLocation: String
   """Scraper user agent string"""
-  scraperUserAgent: String
+  scraperUserAgent: String @deprecated(reason: "use mutation ConfigureScraping(input: ConfigScrapingInput) instead")
   """Scraper CDP path. Path to chrome executable or remote address"""
-  scraperCDPPath: String
+  scraperCDPPath: String @deprecated(reason: "use mutation ConfigureScraping(input: ConfigScrapingInput) instead")
   """Whether the scraper should check for invalid certificates"""
-  scraperCertCheck: Boolean!
+  scraperCertCheck: Boolean @deprecated(reason: "use mutation ConfigureScraping(input: ConfigScrapingInput) instead")
   """Stash-box instances used for tagging"""
-  stashBoxes: [StashBoxInput!]!
+  stashBoxes: [StashBoxInput!]
+  """Python path - resolved using path if unset"""
+  pythonPath: String
 }
 
 type ConfigGeneralResult {
@@ -104,6 +118,8 @@ type ConfigGeneralResult {
   databasePath: String!
   """Path to generated files"""
   generatedPath: String!
+  """Path to import/export files"""
+  metadataPath: String!
   """Path to the config file used"""
   configFilePath: String!
   """Path to scrapers"""
@@ -116,6 +132,8 @@ type ConfigGeneralResult {
   videoFileNamingAlgorithm: HashAlgorithm!
   """Number of parallel tasks to start during scan/generate"""
   parallelTasks: Int!
+  """Include audio stream in previews"""
+  previewAudio: Boolean!
   """Number of segments in a preview file"""
   previewSegments: Int!
   """Preview segment duration, in seconds"""
@@ -130,6 +148,8 @@ type ConfigGeneralResult {
   maxTranscodeSize: StreamingResolutionEnum
   """Max streaming transcode size"""
   maxStreamingTranscodeSize: StreamingResolutionEnum
+  """Write image thumbnails to disk when generating on the fly"""
+  writeImageThumbnails: Boolean!
   """API Key"""
   apiKey: String!
   """Username"""
@@ -138,6 +158,8 @@ type ConfigGeneralResult {
   password: String!
   """Maximum session cookie age"""
   maxSessionAge: Int!
+  """Comma separated list of proxies to allow traffic from"""
+  trustedProxies: [String!] @deprecated(reason: "no longer supported")
   """Name of the log file"""
   logFile: String
   """Whether to also output to stderr"""
@@ -158,66 +180,164 @@ type ConfigGeneralResult {
   excludes: [String!]!
   """Array of file regexp to exclude from Image Scans"""
   imageExcludes: [String!]!
+  """Custom Performer Image Location"""
+  customPerformerImageLocation: String
   """Scraper user agent string"""
-  scraperUserAgent: String
+  scraperUserAgent: String @deprecated(reason: "use ConfigResult.scraping instead")
   """Scraper CDP path. Path to chrome executable or remote address"""
-  scraperCDPPath: String
+  scraperCDPPath: String @deprecated(reason: "use ConfigResult.scraping instead")
   """Whether the scraper should check for invalid certificates"""
-  scraperCertCheck: Boolean!
+  scraperCertCheck: Boolean! @deprecated(reason: "use ConfigResult.scraping instead")
   """Stash-box instances used for tagging"""
   stashBoxes: [StashBox!]!
+  """Python path - resolved using path if unset"""
+  pythonPath: String!
+}
+
+input ConfigDisableDropdownCreateInput {
+  performer: Boolean
+  tag: Boolean
+  studio: Boolean
+}
+
+enum ImageLightboxDisplayMode {
+  ORIGINAL
+  FIT_XY
+  FIT_X
+}
+
+enum ImageLightboxScrollMode {
+  ZOOM
+  PAN_Y
+}
+
+input ConfigImageLightboxInput {
+  slideshowDelay: Int
+  displayMode: ImageLightboxDisplayMode
+  scaleUp: Boolean
+  resetZoomOnNav: Boolean
+  scrollMode: ImageLightboxScrollMode
+  scrollAttemptsBeforeChange: Int
+}
+
+type ConfigImageLightboxResult {
+  slideshowDelay: Int
+  displayMode: ImageLightboxDisplayMode
+  scaleUp: Boolean
+  resetZoomOnNav: Boolean
+  scrollMode: ImageLightboxScrollMode
+  scrollAttemptsBeforeChange: Int!
 }
 
 input ConfigInterfaceInput {
   """Ordered list of items that should be shown in the menu"""
   menuItems: [String!]
+
   """Enable sound on mouseover previews"""
   soundOnPreview: Boolean
+  
   """Show title and tags in wall view"""
   wallShowTitle: Boolean
   """Wall playback type"""
   wallPlayback: String
+
+  """Show scene scrubber by default"""
+  showScrubber: Boolean
+  
   """Maximum duration (in seconds) in which a scene video will loop in the scene player"""
   maximumLoopDuration: Int
   """If true, video will autostart on load in the scene player"""
   autostartVideo: Boolean
+  """If true, video will autostart when loading from play random or play selected"""
+  autostartVideoOnPlaySelected: Boolean
+  """If true, next scene in playlist will be played at video end by default"""
+  continuePlaylistDefault: Boolean
+  
   """If true, studio overlays will be shown as text instead of logo images"""
   showStudioAsText: Boolean
+  
   """Custom CSS"""
   css: String
   cssEnabled: Boolean
+  
   """Interface language"""
   language: String
+
   """Slideshow Delay"""
-  slideshowDelay: Int
+  slideshowDelay: Int @deprecated(reason: "Use imageLightbox.slideshowDelay")
+  
+  imageLightbox: ConfigImageLightboxInput
+  
+  """Set to true to disable creating new objects via the dropdown menus"""
+  disableDropdownCreate: ConfigDisableDropdownCreateInput
+  
   """Handy Connection Key"""
   handyKey: String
+  """Funscript Time Offset"""
+  funscriptOffset: Int
+  """True if we should not auto-open a browser window on startup"""
+  noBrowser: Boolean
+  """True if we should send notifications to the desktop"""
+  notificationsEnabled: Boolean
+}
+
+type ConfigDisableDropdownCreate {
+  performer: Boolean!
+  tag: Boolean!
+  studio: Boolean!
 }
 
 type ConfigInterfaceResult {
   """Ordered list of items that should be shown in the menu"""
   menuItems: [String!]
+
   """Enable sound on mouseover previews"""
   soundOnPreview: Boolean
+
   """Show title and tags in wall view"""
   wallShowTitle: Boolean
   """Wall playback type"""
   wallPlayback: String
+
+  """Show scene scrubber by default"""
+  showScrubber: Boolean
+
   """Maximum duration (in seconds) in which a scene video will loop in the scene player"""
   maximumLoopDuration: Int
+  """True if we should not auto-open a browser window on startup"""
+  noBrowser: Boolean
+  """True if we should send desktop notifications"""
+  notificationsEnabled: Boolean
   """If true, video will autostart on load in the scene player"""
   autostartVideo: Boolean
+  """If true, video will autostart when loading from play random or play selected"""
+  autostartVideoOnPlaySelected: Boolean
+  """If true, next scene in playlist will be played at video end by default"""
+  continuePlaylistDefault: Boolean
+
   """If true, studio overlays will be shown as text instead of logo images"""
   showStudioAsText: Boolean
+
   """Custom CSS"""
   css: String
   cssEnabled: Boolean
+
   """Interface language"""
   language: String
+
   """Slideshow Delay"""
-  slideshowDelay: Int
+  slideshowDelay: Int @deprecated(reason: "Use imageLightbox.slideshowDelay")
+
+  imageLightbox: ConfigImageLightboxResult!
+
+  """Fields are true if creating via dropdown menus are disabled"""
+  disableDropdownCreate: ConfigDisableDropdownCreate!
+  disabledDropdownCreate: ConfigDisableDropdownCreate! @deprecated(reason: "Use disableDropdownCreate")
+
   """Handy Connection Key"""
   handyKey: String
+  """Funscript Time Offset"""
+  funscriptOffset: Int
 }
 
 input ConfigDLNAInput {
@@ -240,11 +360,60 @@ type ConfigDLNAResult {
   interfaces: [String!]!
 }
 
+input ConfigScrapingInput {
+  """Scraper user agent string"""
+  scraperUserAgent: String
+  """Scraper CDP path. Path to chrome executable or remote address"""
+  scraperCDPPath: String
+  """Whether the scraper should check for invalid certificates"""
+  scraperCertCheck: Boolean
+  """Tags blacklist during scraping"""
+  excludeTagPatterns: [String!]
+}
+
+type ConfigScrapingResult {
+  """Scraper user agent string"""
+  scraperUserAgent: String
+  """Scraper CDP path. Path to chrome executable or remote address"""
+  scraperCDPPath: String
+  """Whether the scraper should check for invalid certificates"""
+  scraperCertCheck: Boolean!
+  """Tags blacklist during scraping"""
+  excludeTagPatterns: [String!]!
+}
+
+type ConfigDefaultSettingsResult {
+  scan: ScanMetadataOptions
+  identify: IdentifyMetadataTaskOptions
+  autoTag: AutoTagMetadataOptions
+  generate: GenerateMetadataOptions
+  
+  """If true, delete file checkbox will be checked by default"""
+  deleteFile: Boolean
+  """If true, delete generated supporting files checkbox will be checked by default"""
+  deleteGenerated: Boolean
+}
+
+input ConfigDefaultSettingsInput {
+  scan: ScanMetadataInput
+  identify: IdentifyMetadataInput
+  autoTag: AutoTagMetadataInput
+  generate: GenerateMetadataInput
+
+  """If true, delete file checkbox will be checked by default"""
+  deleteFile: Boolean
+  """If true, delete generated files checkbox will be checked by default"""
+  deleteGenerated: Boolean
+}
+
 """All configuration settings"""
 type ConfigResult {
   general: ConfigGeneralResult!
   interface: ConfigInterfaceResult!
   dlna: ConfigDLNAResult!
+  scraping: ConfigScrapingResult!
+  defaults: ConfigDefaultSettingsResult!
+  ui: Map!
 }
 
 """Directory structure of a path"""
@@ -269,4 +438,9 @@ type StashConfig {
 
 input GenerateAPIKeyInput {
   clear: Boolean
+}
+
+type StashBoxValidationResult {
+  valid: Boolean!
+  status: String!
 }

@@ -1,5 +1,7 @@
+import { faCheck, faList, faTimes } from "@fortawesome/free-solid-svg-icons";
 import React, { useState } from "react";
-import { Button } from "react-bootstrap";
+import { Button, Row, Col } from "react-bootstrap";
+import { useIntl } from "react-intl";
 
 import { Modal, Icon } from "src/components/Shared";
 import { TextUtils } from "src/utils";
@@ -17,6 +19,7 @@ const PerformerFieldSelect: React.FC<IProps> = ({
   excludedFields,
   onSelect,
 }) => {
+  const intl = useIntl();
   const [excluded, setExcluded] = useState<Record<string, boolean>>(
     excludedFields.reduce((dict, field) => ({ ...dict, [field]: true }), {})
   );
@@ -28,25 +31,25 @@ const PerformerFieldSelect: React.FC<IProps> = ({
     });
 
   const renderField = (name: string) => (
-    <div className="mb-1" key={name}>
+    <Col xs={6} className="mb-1" key={name}>
       <Button
         onClick={() => toggleField(name)}
         variant="secondary"
         className={excluded[name] ? "text-muted" : "text-success"}
       >
-        <Icon icon={excluded[name] ? "times" : "check"} />
+        <Icon icon={excluded[name] ? faTimes : faCheck} />
       </Button>
       <span className="ml-3">{TextUtils.capitalize(name)}</span>
-    </div>
+    </Col>
   );
 
   return (
     <Modal
       show={show}
-      icon="list"
+      icon={faList}
       dialogClassName="FieldSelect"
       accept={{
-        text: "Save",
+        text: intl.formatMessage({ id: "actions.save" }),
         onClick: () =>
           onSelect(Object.keys(excluded).filter((f) => excluded[f])),
       }}
@@ -55,7 +58,7 @@ const PerformerFieldSelect: React.FC<IProps> = ({
       <div className="mb-2">
         These fields will be tagged by default. Click the button to toggle.
       </div>
-      {fields.map((f) => renderField(f))}
+      <Row>{fields.map((f) => renderField(f))}</Row>
     </Modal>
   );
 };

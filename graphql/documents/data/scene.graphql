@@ -12,6 +12,13 @@ fragment SceneData on Scene {
   path
   phash
   interactive
+  interactive_speed
+  captions {
+    language_code
+    caption_type
+  }
+  created_at
+  updated_at
 
   file {
     size
@@ -31,7 +38,10 @@ fragment SceneData on Scene {
     webp
     vtt
     chapters_vtt
+    sprite
     funscript
+    interactive_heatmap
+    caption
   }
 
   scene_markers {
@@ -64,5 +74,11 @@ fragment SceneData on Scene {
   stash_ids {
     endpoint
     stash_id
+  }
+
+  sceneStreams {
+    url
+    mime_type
+    label
   }
 }

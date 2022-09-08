@@ -1,8 +1,46 @@
 package models
 
-type SceneReader interface {
-	Find(id int) (*Scene, error)
+type SceneQueryOptions struct {
+	QueryOptions
+	SceneFilter *SceneFilterType
+
+	TotalDuration bool
+	TotalSize     bool
+}
+
+type SceneQueryResult struct {
+	QueryResult
+	TotalDuration float64
+	TotalSize     float64
+
+	finder     SceneFinder
+	scenes     []*Scene
+	resolveErr error
+}
+
+func NewSceneQueryResult(finder SceneFinder) *SceneQueryResult {
+	return &SceneQueryResult{
+		finder: finder,
+	}
+}
+
+func (r *SceneQueryResult) Resolve() ([]*Scene, error) {
+	// cache results
+	if r.scenes == nil && r.resolveErr == nil {
+		r.scenes, r.resolveErr = r.finder.FindMany(r.IDs)
+	}
+	return r.scenes, r.resolveErr
+}
+
+type SceneFinder interface {
+	// TODO - rename this to Find and remove existing method
 	FindMany(ids []int) ([]*Scene, error)
+}
+
+type SceneReader interface {
+	SceneFinder
+	// TODO - remove this in another PR
+	Find(id int) (*Scene, error)
 	FindByChecksum(checksum string) (*Scene, error)
 	FindByOSHash(oshash string) (*Scene, error)
 	FindByPath(path string) (*Scene, error)
@@ -15,6 +53,7 @@ type SceneReader interface {
 	CountByMovieID(movieID int) (int, error)
 	Count() (int, error)
 	Size() (float64, error)
+	Duration() (float64, error)
 	// SizeCount() (string, error)
 	CountByStudioID(studioID int) (int, error)
 	CountByTagID(tagID int) (int, error)
@@ -22,7 +61,8 @@ type SceneReader interface {
 	CountMissingOSHash() (int, error)
 	Wall(q *string) ([]*Scene, error)
 	All() ([]*Scene, error)
-	Query(sceneFilter *SceneFilterType, findFilter *FindFilterType) ([]*Scene, int, error)
+	Query(options SceneQueryOptions) (*SceneQueryResult, error)
+	GetCaptions(sceneID int) ([]*SceneCaption, error)
 	GetCover(sceneID int) ([]byte, error)
 	GetMovies(sceneID int) ([]MoviesScenes, error)
 	GetTagIDs(sceneID int) ([]int, error)
@@ -40,6 +80,7 @@ type SceneWriter interface {
 	ResetOCounter(id int) (int, error)
 	UpdateFileModTime(id int, modTime NullSQLiteTimestamp) error
 	Destroy(id int) error
+	UpdateCaptions(id int, captions []*SceneCaption) error
 	UpdateCover(sceneID int, cover []byte) error
 	DestroyCover(sceneID int) error
 	UpdatePerformers(sceneID int, performerIDs []int) error

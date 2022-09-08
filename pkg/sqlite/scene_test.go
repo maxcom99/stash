@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package sqlite_test
@@ -5,14 +6,15 @@ package sqlite_test
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/stashapp/stash/pkg/hash/md5"
 	"github.com/stashapp/stash/pkg/models"
-	"github.com/stashapp/stash/pkg/utils"
 )
 
 func TestSceneFind(t *testing.T) {
@@ -140,9 +142,19 @@ func TestSceneQueryQ(t *testing.T) {
 
 func queryScene(t *testing.T, sqb models.SceneReader, sceneFilter *models.SceneFilterType, findFilter *models.FindFilterType) []*models.Scene {
 	t.Helper()
-	scenes, _, err := sqb.Query(sceneFilter, findFilter)
+	result, err := sqb.Query(models.SceneQueryOptions{
+		QueryOptions: models.QueryOptions{
+			FindFilter: findFilter,
+		},
+		SceneFilter: sceneFilter,
+	})
 	if err != nil {
-		t.Errorf("Error querying scene: %s", err.Error())
+		t.Errorf("Error querying scene: %v", err)
+	}
+
+	scenes, err := result.Resolve()
+	if err != nil {
+		t.Errorf("Error resolving scenes: %v", err)
 	}
 
 	return scenes
@@ -345,17 +357,21 @@ func TestSceneIllegalQuery(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Scene()
 
-		_, _, err := sqb.Query(sceneFilter, nil)
+		queryOptions := models.SceneQueryOptions{
+			SceneFilter: sceneFilter,
+		}
+
+		_, err := sqb.Query(queryOptions)
 		assert.NotNil(err)
 
 		sceneFilter.Or = nil
 		sceneFilter.Not = &subFilter
-		_, _, err = sqb.Query(sceneFilter, nil)
+		_, err = sqb.Query(queryOptions)
 		assert.NotNil(err)
 
 		sceneFilter.And = nil
 		sceneFilter.Or = &subFilter
-		_, _, err = sqb.Query(sceneFilter, nil)
+		_, err = sqb.Query(queryOptions)
 		assert.NotNil(err)
 
 		return nil
@@ -648,7 +664,10 @@ func verifyScenesResolution(t *testing.T, resolution models.ResolutionEnum) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Scene()
 		sceneFilter := models.SceneFilterType{
-			Resolution: &resolution,
+			Resolution: &models.ResolutionCriterionInput{
+				Value:    resolution,
+				Modifier: models.CriterionModifierEquals,
+			},
 		}
 
 		scenes := queryScene(t, sqb, &sceneFilter, nil)
@@ -679,6 +698,76 @@ func verifySceneResolution(t *testing.T, height sql.NullInt64, resolution models
 	}
 }
 
+func TestAllResolutionsHaveResolutionRange(t *testing.T) {
+	for _, resolution := range models.AllResolutionEnum {
+		assert.NotZero(t, resolution.GetMinResolution(), "Define resolution range for %s in extension_resolution.go", resolution)
+		assert.NotZero(t, resolution.GetMaxResolution(), "Define resolution range for %s in extension_resolution.go", resolution)
+	}
+}
+
+func TestSceneQueryResolutionModifiers(t *testing.T) {
+	if err := withRollbackTxn(func(r models.Repository) error {
+		qb := r.Scene()
+		sceneNoResolution, _ := createScene(qb, 0, 0)
+		firstScene540P, _ := createScene(qb, 960, 540)
+		secondScene540P, _ := createScene(qb, 1280, 719)
+		firstScene720P, _ := createScene(qb, 1280, 720)
+		secondScene720P, _ := createScene(qb, 1280, 721)
+		thirdScene720P, _ := createScene(qb, 1920, 1079)
+		scene1080P, _ := createScene(qb, 1920, 1080)
+
+		scenesEqualTo720P := queryScenes(t, qb, models.ResolutionEnumStandardHd, models.CriterionModifierEquals)
+		scenesNotEqualTo720P := queryScenes(t, qb, models.ResolutionEnumStandardHd, models.CriterionModifierNotEquals)
+		scenesGreaterThan720P := queryScenes(t, qb, models.ResolutionEnumStandardHd, models.CriterionModifierGreaterThan)
+		scenesLessThan720P := queryScenes(t, qb, models.ResolutionEnumStandardHd, models.CriterionModifierLessThan)
+
+		assert.Subset(t, scenesEqualTo720P, []*models.Scene{firstScene720P, secondScene720P, thirdScene720P})
+		assert.NotSubset(t, scenesEqualTo720P, []*models.Scene{sceneNoResolution, firstScene540P, secondScene540P, scene1080P})
+
+		assert.Subset(t, scenesNotEqualTo720P, []*models.Scene{sceneNoResolution, firstScene540P, secondScene540P, scene1080P})
+		assert.NotSubset(t, scenesNotEqualTo720P, []*models.Scene{firstScene720P, secondScene720P, thirdScene720P})
+
+		assert.Subset(t, scenesGreaterThan720P, []*models.Scene{scene1080P})
+		assert.NotSubset(t, scenesGreaterThan720P, []*models.Scene{sceneNoResolution, firstScene540P, secondScene540P, firstScene720P, secondScene720P, thirdScene720P})
+
+		assert.Subset(t, scenesLessThan720P, []*models.Scene{sceneNoResolution, firstScene540P, secondScene540P})
+		assert.NotSubset(t, scenesLessThan720P, []*models.Scene{scene1080P, firstScene720P, secondScene720P, thirdScene720P})
+
+		return nil
+	}); err != nil {
+		t.Error(err.Error())
+	}
+}
+
+func queryScenes(t *testing.T, queryBuilder models.SceneReaderWriter, resolution models.ResolutionEnum, modifier models.CriterionModifier) []*models.Scene {
+	sceneFilter := models.SceneFilterType{
+		Resolution: &models.ResolutionCriterionInput{
+			Value:    resolution,
+			Modifier: modifier,
+		},
+	}
+
+	return queryScene(t, queryBuilder, &sceneFilter, nil)
+}
+
+func createScene(queryBuilder models.SceneReaderWriter, width int64, height int64) (*models.Scene, error) {
+	name := fmt.Sprintf("TestSceneQueryResolutionModifiers %d %d", width, height)
+	scene := models.Scene{
+		Path: name,
+		Width: sql.NullInt64{
+			Int64: width,
+			Valid: true,
+		},
+		Height: sql.NullInt64{
+			Int64: height,
+			Valid: true,
+		},
+		Checksum: sql.NullString{String: md5.FromString(name), Valid: true},
+	}
+
+	return queryBuilder.Create(scene)
+}
+
 func TestSceneQueryHasMarkers(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Scene()
@@ -687,7 +776,7 @@ func TestSceneQueryHasMarkers(t *testing.T) {
 			HasMarkers: &hasMarkers,
 		}
 
-		q := getSceneStringValue(sceneIdxWithMarker, titleField)
+		q := getSceneStringValue(sceneIdxWithMarkers, titleField)
 		findFilter := models.FindFilterType{
 			Q: &q,
 		}
@@ -695,7 +784,7 @@ func TestSceneQueryHasMarkers(t *testing.T) {
 		scenes := queryScene(t, sqb, &sceneFilter, &findFilter)
 
 		assert.Len(t, scenes, 1)
-		assert.Equal(t, sceneIDs[sceneIdxWithMarker], scenes[0].ID)
+		assert.Equal(t, sceneIDs[sceneIdxWithMarkers], scenes[0].ID)
 
 		hasMarkers = "false"
 		scenes = queryScene(t, sqb, &sceneFilter, &findFilter)
@@ -708,7 +797,7 @@ func TestSceneQueryHasMarkers(t *testing.T) {
 
 		// ensure non of the ids equal the one with gallery
 		for _, scene := range scenes {
-			assert.NotEqual(t, sceneIDs[sceneIdxWithMarker], scene.ID)
+			assert.NotEqual(t, sceneIDs[sceneIdxWithMarkers], scene.ID)
 		}
 
 		return nil
@@ -843,7 +932,8 @@ func TestSceneQueryIsMissingDate(t *testing.T) {
 
 		scenes := queryScene(t, sqb, &sceneFilter, nil)
 
-		assert.True(t, len(scenes) > 0)
+		// three in four scenes have no date
+		assert.Len(t, scenes, int(math.Ceil(float64(totalScenes)/4*3)))
 
 		// ensure date is null, empty or "0001-01-01"
 		for _, scene := range scenes {
@@ -960,7 +1050,7 @@ func TestSceneQueryPerformers(t *testing.T) {
 func TestSceneQueryTags(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Scene()
-		tagCriterion := models.MultiCriterionInput{
+		tagCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdxWithScene]),
 				strconv.Itoa(tagIDs[tagIdx1WithScene]),
@@ -980,7 +1070,7 @@ func TestSceneQueryTags(t *testing.T) {
 			assert.True(t, scene.ID == sceneIDs[sceneIdxWithTag] || scene.ID == sceneIDs[sceneIdxWithTwoTags])
 		}
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithScene]),
 				strconv.Itoa(tagIDs[tagIdx2WithScene]),
@@ -993,7 +1083,7 @@ func TestSceneQueryTags(t *testing.T) {
 		assert.Len(t, scenes, 1)
 		assert.Equal(t, sceneIDs[sceneIdxWithTwoTags], scenes[0].ID)
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithScene]),
 			},
@@ -1015,7 +1105,7 @@ func TestSceneQueryTags(t *testing.T) {
 func TestSceneQueryPerformerTags(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Scene()
-		tagCriterion := models.MultiCriterionInput{
+		tagCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdxWithPerformer]),
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
@@ -1035,7 +1125,7 @@ func TestSceneQueryPerformerTags(t *testing.T) {
 			assert.True(t, scene.ID == sceneIDs[sceneIdxWithPerformerTag] || scene.ID == sceneIDs[sceneIdxWithPerformerTwoTags])
 		}
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
 				strconv.Itoa(tagIDs[tagIdx2WithPerformer]),
@@ -1048,7 +1138,7 @@ func TestSceneQueryPerformerTags(t *testing.T) {
 		assert.Len(t, scenes, 1)
 		assert.Equal(t, sceneIDs[sceneIdxWithPerformerTwoTags], scenes[0].ID)
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
 			},
@@ -1060,6 +1150,29 @@ func TestSceneQueryPerformerTags(t *testing.T) {
 			Q: &q,
 		}
 
+		scenes = queryScene(t, sqb, &sceneFilter, &findFilter)
+		assert.Len(t, scenes, 0)
+
+		tagCriterion = models.HierarchicalMultiCriterionInput{
+			Modifier: models.CriterionModifierIsNull,
+		}
+		q = getSceneStringValue(sceneIdx1WithPerformer, titleField)
+
+		scenes = queryScene(t, sqb, &sceneFilter, &findFilter)
+		assert.Len(t, scenes, 1)
+		assert.Equal(t, sceneIDs[sceneIdx1WithPerformer], scenes[0].ID)
+
+		q = getSceneStringValue(sceneIdxWithPerformerTag, titleField)
+		scenes = queryScene(t, sqb, &sceneFilter, &findFilter)
+		assert.Len(t, scenes, 0)
+
+		tagCriterion.Modifier = models.CriterionModifierNotNull
+
+		scenes = queryScene(t, sqb, &sceneFilter, &findFilter)
+		assert.Len(t, scenes, 1)
+		assert.Equal(t, sceneIDs[sceneIdxWithPerformerTag], scenes[0].ID)
+
+		q = getSceneStringValue(sceneIdx1WithPerformer, titleField)
 		scenes = queryScene(t, sqb, &sceneFilter, &findFilter)
 		assert.Len(t, scenes, 0)
 
@@ -1075,7 +1188,6 @@ func TestSceneQueryStudio(t *testing.T) {
 				strconv.Itoa(studioIDs[studioIdxWithScene]),
 			},
 			Modifier: models.CriterionModifierIncludes,
-			Depth:    0,
 		}
 
 		sceneFilter := models.SceneFilterType{
@@ -1094,7 +1206,6 @@ func TestSceneQueryStudio(t *testing.T) {
 				strconv.Itoa(studioIDs[studioIdxWithScene]),
 			},
 			Modifier: models.CriterionModifierExcludes,
-			Depth:    0,
 		}
 
 		q := getSceneStringValue(sceneIdxWithStudio, titleField)
@@ -1112,12 +1223,13 @@ func TestSceneQueryStudio(t *testing.T) {
 func TestSceneQueryStudioDepth(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Scene()
+		depth := 2
 		studioCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(studioIDs[studioIdxWithGrandChild]),
 			},
 			Modifier: models.CriterionModifierIncludes,
-			Depth:    2,
+			Depth:    &depth,
 		}
 
 		sceneFilter := models.SceneFilterType{
@@ -1127,7 +1239,7 @@ func TestSceneQueryStudioDepth(t *testing.T) {
 		scenes := queryScene(t, sqb, &sceneFilter, nil)
 		assert.Len(t, scenes, 1)
 
-		studioCriterion.Depth = 1
+		depth = 1
 
 		scenes = queryScene(t, sqb, &sceneFilter, nil)
 		assert.Len(t, scenes, 0)
@@ -1138,13 +1250,14 @@ func TestSceneQueryStudioDepth(t *testing.T) {
 
 		// ensure id is correct
 		assert.Equal(t, sceneIDs[sceneIdxWithGrandChildStudio], scenes[0].ID)
+		depth = 2
 
 		studioCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(studioIDs[studioIdxWithGrandChild]),
 			},
 			Modifier: models.CriterionModifierExcludes,
-			Depth:    2,
+			Depth:    &depth,
 		}
 
 		q := getSceneStringValue(sceneIdxWithGrandChildStudio, titleField)
@@ -1155,7 +1268,7 @@ func TestSceneQueryStudioDepth(t *testing.T) {
 		scenes = queryScene(t, sqb, &sceneFilter, &findFilter)
 		assert.Len(t, scenes, 0)
 
-		studioCriterion.Depth = 1
+		depth = 1
 		scenes = queryScene(t, sqb, &sceneFilter, &findFilter)
 		assert.Len(t, scenes, 1)
 
@@ -1486,7 +1599,7 @@ func TestSceneUpdateSceneCover(t *testing.T) {
 		const name = "TestSceneUpdateSceneCover"
 		scene := models.Scene{
 			Path:     name,
-			Checksum: sql.NullString{String: utils.MD5FromString(name), Valid: true},
+			Checksum: sql.NullString{String: md5.FromString(name), Valid: true},
 		}
 		created, err := qb.Create(scene)
 		if err != nil {
@@ -1526,7 +1639,7 @@ func TestSceneDestroySceneCover(t *testing.T) {
 		const name = "TestSceneDestroySceneCover"
 		scene := models.Scene{
 			Path:     name,
-			Checksum: sql.NullString{String: utils.MD5FromString(name), Valid: true},
+			Checksum: sql.NullString{String: md5.FromString(name), Valid: true},
 		}
 		created, err := qb.Create(scene)
 		if err != nil {
@@ -1565,7 +1678,7 @@ func TestSceneStashIDs(t *testing.T) {
 		const name = "TestSceneStashIDs"
 		scene := models.Scene{
 			Path:     name,
-			Checksum: sql.NullString{String: utils.MD5FromString(name), Valid: true},
+			Checksum: sql.NullString{String: md5.FromString(name), Valid: true},
 		}
 		created, err := qb.Create(scene)
 		if err != nil {

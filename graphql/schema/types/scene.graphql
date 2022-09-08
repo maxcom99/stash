@@ -18,11 +18,18 @@ type ScenePathsType {
   chapters_vtt: String # Resolver
   sprite: String # Resolver
   funscript: String # Resolver
+  interactive_heatmap: String # Resolver
+  caption: String # Resolver
 }
 
 type SceneMovie {
   movie: Movie!
   scene_index: Int
+}
+
+type SceneCaption {
+  language_code: String!
+  caption_type: String!
 }
 
 type Scene {
@@ -39,6 +46,8 @@ type Scene {
   path: String!
   phash: String
   interactive: Boolean!
+  interactive_speed: Int
+  captions: [SceneCaption!]
   created_at: Time!
   updated_at: Time!
   file_mod_time: Time
@@ -53,6 +62,9 @@ type Scene {
   tags: [Tag!]!
   performers: [Performer!]!
   stash_ids: [StashID!]!
+
+  """Return valid stream paths"""
+  sceneStreams: [SceneStreamEndpoint!]!
 }
 
 input SceneMovieInput {
@@ -103,6 +115,7 @@ input BulkSceneUpdateInput {
   gallery_ids: BulkUpdateIds
   performer_ids: BulkUpdateIds
   tag_ids: BulkUpdateIds
+  movie_ids:  BulkUpdateIds
 }
 
 input SceneDestroyInput {
@@ -119,13 +132,18 @@ input ScenesDestroyInput {
 
 type FindScenesResultType {
   count: Int!
+  """Total duration in seconds"""
+  duration: Float!
+  """Total file size in bytes"""
+  filesize: Float!
   scenes: [Scene!]!
 }
 
 input SceneParserInput {
   ignoreWords: [String!],
   whitespaceCharacters: String,
-  capitalizeTitle: Boolean
+  capitalizeTitle: Boolean,
+  ignoreOrganized: Boolean
 }
 
 type SceneMovieID {

@@ -17,6 +17,7 @@ type Movie {
   front_image_path: String # Resolver
   back_image_path: String # Resolver
   scene_count: Int # Resolver
+  scenes: [Scene!]!
 }
 
 input MovieCreateInput {
@@ -51,6 +52,14 @@ input MovieUpdateInput {
   front_image: String
   """This should be a URL or a base64 encoded data URL"""
   back_image: String
+}
+
+input BulkMovieUpdateInput {
+  clientMutationId: String
+  ids: [ID!]
+  rating: Int
+  studio_id: ID
+  director: String
 }
 
 input MovieDestroyInput {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { useHistory } from "react-router-dom";
+import { FormattedMessage, useIntl } from "react-intl";
+import { useHistory, Prompt } from "react-router-dom";
 import {
   Button,
   Dropdown,
@@ -10,6 +11,7 @@ import {
 } from "react-bootstrap";
 import Mousetrap from "mousetrap";
 import * as GQL from "src/core/generated-graphql";
+import * as yup from "yup";
 import {
   queryScrapeGallery,
   queryScrapeGalleryURL,
@@ -25,11 +27,14 @@ import {
   StudioSelect,
   Icon,
   LoadingIndicator,
+  URLField,
 } from "src/components/Shared";
 import { useToast } from "src/hooks";
-import { FormUtils, EditableTextUtils, TextUtils } from "src/utils";
+import { useFormik } from "formik";
+import { FormUtils, TextUtils } from "src/utils";
 import { RatingStars } from "src/components/Scenes/SceneDetails/RatingStars";
 import { GalleryScrapeDialog } from "./GalleryScrapeDialog";
+import { faSyncAlt } from "@fortawesome/free-solid-svg-icons";
 
 interface IProps {
   isVisible: boolean;
@@ -49,27 +54,14 @@ interface IExistingProps {
 export const GalleryEditPanel: React.FC<
   IProps & (INewProps | IExistingProps)
 > = ({ gallery, isNew, isVisible, onDelete }) => {
+  const intl = useIntl();
   const Toast = useToast();
   const history = useHistory();
-  const [title, setTitle] = useState<string>(gallery?.title ?? "");
-  const [details, setDetails] = useState<string>(gallery?.details ?? "");
-  const [url, setUrl] = useState<string>(gallery?.url ?? "");
-  const [date, setDate] = useState<string>(gallery?.date ?? "");
-  const [rating, setRating] = useState<number>(gallery?.rating ?? NaN);
-  const [studioId, setStudioId] = useState<string | undefined>(
-    gallery?.studio?.id ?? undefined
-  );
-  const [performerIds, setPerformerIds] = useState<string[]>(
-    gallery?.performers.map((p) => p.id) ?? []
-  );
-  const [tagIds, setTagIds] = useState<string[]>(
-    gallery?.tags.map((t) => t.id) ?? []
-  );
   const [scenes, setScenes] = useState<{ id: string; title: string }[]>(
-    gallery?.scenes.map((s) => ({
+    (gallery?.scenes ?? []).map((s) => ({
       id: s.id,
       title: s.title ?? TextUtils.fileNameFromPath(s.path ?? ""),
-    })) ?? []
+    }))
   );
 
   const Scrapers = useListGalleryScrapers();
@@ -86,10 +78,59 @@ export const GalleryEditPanel: React.FC<
   const [createGallery] = useGalleryCreate();
   const [updateGallery] = useGalleryUpdate();
 
+  const schema = yup.object({
+    title: yup.string().required(),
+    details: yup.string().optional().nullable(),
+    url: yup.string().optional().nullable(),
+    date: yup.string().optional().nullable(),
+    rating: yup.number().optional().nullable(),
+    studio_id: yup.string().optional().nullable(),
+    performer_ids: yup.array(yup.string().required()).optional().nullable(),
+    tag_ids: yup.array(yup.string().required()).optional().nullable(),
+    scene_ids: yup.array(yup.string().required()).optional().nullable(),
+  });
+
+  const initialValues = {
+    title: gallery?.title ?? "",
+    details: gallery?.details ?? "",
+    url: gallery?.url ?? "",
+    date: gallery?.date ?? "",
+    rating: gallery?.rating ?? null,
+    studio_id: gallery?.studio?.id,
+    performer_ids: (gallery?.performers ?? []).map((p) => p.id),
+    tag_ids: (gallery?.tags ?? []).map((t) => t.id),
+    scene_ids: (gallery?.scenes ?? []).map((s) => s.id),
+  };
+
+  type InputValues = typeof initialValues;
+
+  const formik = useFormik({
+    initialValues,
+    validationSchema: schema,
+    onSubmit: (values) => onSave(getGalleryInput(values)),
+  });
+
+  function setRating(v: number) {
+    formik.setFieldValue("rating", v);
+  }
+
+  interface ISceneSelectValue {
+    id: string;
+    title: string;
+  }
+
+  function onSetScenes(items: ISceneSelectValue[]) {
+    setScenes(items);
+    formik.setFieldValue(
+      "scene_ids",
+      items.map((i) => i.id)
+    );
+  }
+
   useEffect(() => {
     if (isVisible) {
       Mousetrap.bind("s s", () => {
-        onSave();
+        formik.handleSubmit();
       });
       Mousetrap.bind("d d", () => {
         onDelete();
@@ -138,42 +179,57 @@ export const GalleryEditPanel: React.FC<
     setQueryableScrapers(newQueryableScrapers);
   }, [Scrapers]);
 
-  function getGalleryInput() {
+  function getGalleryInput(
+    input: InputValues
+  ): GQL.GalleryCreateInput | GQL.GalleryUpdateInput {
     return {
       id: isNew ? undefined : gallery?.id ?? "",
-      title: title ?? "",
-      details,
-      url,
-      date,
-      rating: rating ?? null,
-      studio_id: studioId ?? null,
-      performer_ids: performerIds,
-      tag_ids: tagIds,
-      scene_ids: scenes.map((s) => s.id),
+      ...input,
     };
   }
 
-  async function onSave() {
+  async function onSave(
+    input: GQL.GalleryCreateInput | GQL.GalleryUpdateInput
+  ) {
     setIsLoading(true);
     try {
       if (isNew) {
         const result = await createGallery({
           variables: {
-            input: getGalleryInput(),
+            input: input as GQL.GalleryCreateInput,
           },
         });
         if (result.data?.galleryCreate) {
           history.push(`/galleries/${result.data.galleryCreate.id}`);
-          Toast.success({ content: "Created gallery" });
+          Toast.success({
+            content: intl.formatMessage(
+              { id: "toast.created_entity" },
+              {
+                entity: intl
+                  .formatMessage({ id: "gallery" })
+                  .toLocaleLowerCase(),
+              }
+            ),
+          });
         }
       } else {
         const result = await updateGallery({
           variables: {
-            input: getGalleryInput() as GQL.GalleryUpdateInput,
+            input: input as GQL.GalleryUpdateInput,
           },
         });
         if (result.data?.galleryUpdate) {
-          Toast.success({ content: "Updated gallery" });
+          Toast.success({
+            content: intl.formatMessage(
+              { id: "toast.updated_entity" },
+              {
+                entity: intl
+                  .formatMessage({ id: "gallery" })
+                  .toLocaleLowerCase(),
+              }
+            ),
+          });
+          formik.resetForm({ values: formik.values });
         }
       }
     } catch (e) {
@@ -183,17 +239,18 @@ export const GalleryEditPanel: React.FC<
   }
 
   async function onScrapeClicked(scraper: GQL.Scraper) {
+    if (!gallery) return;
+
     setIsLoading(true);
     try {
-      const galleryInput = getGalleryInput() as GQL.GalleryUpdateInput;
-      const result = await queryScrapeGallery(scraper.id, galleryInput);
-      if (!result.data || !result.data.scrapeGallery) {
+      const result = await queryScrapeGallery(scraper.id, gallery.id);
+      if (!result.data || !result.data.scrapeSingleGallery?.length) {
         Toast.success({
           content: "No galleries found",
         });
         return;
       }
-      setScrapedGallery(result.data.scrapeGallery);
+      setScrapedGallery(result.data.scrapeSingleGallery[0]);
     } catch (e) {
       Toast.error(e);
     } finally {
@@ -227,7 +284,7 @@ export const GalleryEditPanel: React.FC<
       return;
     }
 
-    const currentGallery = getGalleryInput();
+    const currentGallery = getGalleryInput(formik.values);
 
     return (
       <GalleryScrapeDialog
@@ -249,7 +306,7 @@ export const GalleryEditPanel: React.FC<
       <DropdownButton
         className="d-inline-block"
         id="gallery-scrape"
-        title="Scrape with..."
+        title={intl.formatMessage({ id: "actions.scrape_with" })}
       >
         {queryableScrapers.map((s) => (
           <Dropdown.Item key={s.name} onClick={() => onScrapeClicked(s)}>
@@ -258,9 +315,11 @@ export const GalleryEditPanel: React.FC<
         ))}
         <Dropdown.Item onClick={() => onReloadScrapers()}>
           <span className="fa-icon">
-            <Icon icon="sync-alt" />
+            <Icon icon={faSyncAlt} />
           </span>
-          <span>Reload scrapers</span>
+          <span>
+            <FormattedMessage id="actions.reload_scrapers" />
+          </span>
         </Dropdown.Item>
       </DropdownButton>
     );
@@ -276,23 +335,23 @@ export const GalleryEditPanel: React.FC<
     galleryData: GQL.ScrapedGalleryDataFragment
   ) {
     if (galleryData.title) {
-      setTitle(galleryData.title);
+      formik.setFieldValue("title", galleryData.title);
     }
 
     if (galleryData.details) {
-      setDetails(galleryData.details);
+      formik.setFieldValue("details", galleryData.details);
     }
 
     if (galleryData.date) {
-      setDate(galleryData.date);
+      formik.setFieldValue("date", galleryData.date);
     }
 
     if (galleryData.url) {
-      setUrl(galleryData.url);
+      formik.setFieldValue("url", galleryData.url);
     }
 
     if (galleryData.studio?.stored_id) {
-      setStudioId(galleryData.studio.stored_id);
+      formik.setFieldValue("studio_id", galleryData.studio.stored_id);
     }
 
     if (galleryData.performers?.length) {
@@ -302,7 +361,7 @@ export const GalleryEditPanel: React.FC<
 
       if (idPerfs.length > 0) {
         const newIds = idPerfs.map((p) => p.stored_id);
-        setPerformerIds(newIds as string[]);
+        formik.setFieldValue("performer_ids", newIds as string[]);
       }
     }
 
@@ -313,18 +372,18 @@ export const GalleryEditPanel: React.FC<
 
       if (idTags.length > 0) {
         const newIds = idTags.map((t) => t.stored_id);
-        setTagIds(newIds as string[]);
+        formik.setFieldValue("tag_ids", newIds as string[]);
       }
     }
   }
 
   async function onScrapeGalleryURL() {
-    if (!url) {
+    if (!formik.values.url) {
       return;
     }
     setIsLoading(true);
     try {
-      const result = await queryScrapeGalleryURL(url);
+      const result = await queryScrapeGalleryURL(formik.values.url);
       if (!result || !result.data || !result.data.scrapeGalleryURL) {
         return;
       }
@@ -336,18 +395,24 @@ export const GalleryEditPanel: React.FC<
     }
   }
 
-  function maybeRenderScrapeButton() {
-    if (!url || !urlScrapable(url)) {
-      return undefined;
-    }
+  function renderTextField(field: string, title: string, placeholder?: string) {
     return (
-      <Button
-        className="minimal scrape-url-button"
-        onClick={onScrapeGalleryURL}
-        title="Scrape"
-      >
-        <Icon className="fa-fw" icon="file-download" />
-      </Button>
+      <Form.Group controlId={title} as={Row}>
+        {FormUtils.renderLabel({
+          title,
+        })}
+        <Col xs={9}>
+          <Form.Control
+            className="text-input"
+            placeholder={placeholder ?? title}
+            {...formik.getFieldProps(field)}
+            isInvalid={!!formik.getFieldMeta(field).error}
+          />
+          <Form.Control.Feedback type="invalid">
+            {formik.getFieldMeta(field).error}
+          </Form.Control.Feedback>
+        </Col>
+      </Form.Group>
     );
   }
 
@@ -355,150 +420,169 @@ export const GalleryEditPanel: React.FC<
 
   return (
     <div id="gallery-edit-details">
+      <Prompt
+        when={formik.dirty}
+        message={intl.formatMessage({ id: "dialogs.unsaved_changes" })}
+      />
+
       {maybeRenderScrapeDialog()}
-      <div className="form-container row px-3 pt-3">
-        <div className="col edit-buttons mb-3 pl-0">
-          <Button className="edit-button" variant="primary" onClick={onSave}>
-            Save
-          </Button>
-          <Button
-            className="edit-button"
-            variant="danger"
-            onClick={() => onDelete()}
-          >
-            Delete
-          </Button>
+      <Form noValidate onSubmit={formik.handleSubmit}>
+        <div className="form-container row px-3 pt-3">
+          <div className="col edit-buttons mb-3 pl-0">
+            <Button
+              className="edit-button"
+              variant="primary"
+              disabled={!formik.dirty}
+              onClick={() => formik.submitForm()}
+            >
+              <FormattedMessage id="actions.save" />
+            </Button>
+            <Button
+              className="edit-button"
+              variant="danger"
+              onClick={() => onDelete()}
+            >
+              <FormattedMessage id="actions.delete" />
+            </Button>
+          </div>
+          <Col xs={6} className="text-right">
+            {renderScraperMenu()}
+          </Col>
         </div>
-        <Col xs={6} className="text-right">
-          {renderScraperMenu()}
-        </Col>
-      </div>
-      <div className="form-container row px-3">
-        <div className="col-12 col-lg-6 col-xl-12">
-          {FormUtils.renderInputGroup({
-            title: "Title",
-            value: title,
-            onChange: setTitle,
-            isEditing: true,
-          })}
-          <Form.Group controlId="url" as={Row}>
-            <Col xs={3} className="pr-0 url-label">
-              <Form.Label className="col-form-label">URL</Form.Label>
-              <div className="float-right scrape-button-container">
-                {maybeRenderScrapeButton()}
-              </div>
-            </Col>
-            <Col xs={9}>
-              {EditableTextUtils.renderInputGroup({
-                title: "URL",
-                value: url,
-                onChange: setUrl,
-                isEditing: true,
+        <div className="form-container row px-3">
+          <div className="col-12 col-lg-6 col-xl-12">
+            {renderTextField("title", intl.formatMessage({ id: "title" }))}
+            <Form.Group controlId="url" as={Row}>
+              <Col xs={3} className="pr-0 url-label">
+                <Form.Label className="col-form-label">
+                  <FormattedMessage id="url" />
+                </Form.Label>
+              </Col>
+              <Col xs={9}>
+                <URLField
+                  {...formik.getFieldProps("url")}
+                  onScrapeClick={onScrapeGalleryURL}
+                  urlScrapable={urlScrapable}
+                  isInvalid={!!formik.getFieldMeta("url").error}
+                />
+              </Col>
+            </Form.Group>
+            {renderTextField(
+              "date",
+              intl.formatMessage({ id: "date" }),
+              "YYYY-MM-DD"
+            )}
+            <Form.Group controlId="rating" as={Row}>
+              {FormUtils.renderLabel({
+                title: intl.formatMessage({ id: "rating" }),
               })}
-            </Col>
-          </Form.Group>
-          {FormUtils.renderInputGroup({
-            title: "Date",
-            value: date,
-            isEditing: true,
-            onChange: setDate,
-            placeholder: "YYYY-MM-DD",
-          })}
-          <Form.Group controlId="rating" as={Row}>
-            {FormUtils.renderLabel({
-              title: "Rating",
-            })}
-            <Col xs={9}>
-              <RatingStars
-                value={rating}
-                onSetRating={(value) => setRating(value ?? NaN)}
-              />
-            </Col>
-          </Form.Group>
+              <Col xs={9}>
+                <RatingStars
+                  value={formik.values.rating ?? undefined}
+                  onSetRating={(value) =>
+                    formik.setFieldValue("rating", value ?? null)
+                  }
+                />
+              </Col>
+            </Form.Group>
 
-          <Form.Group controlId="studio" as={Row}>
-            {FormUtils.renderLabel({
-              title: "Studio",
-            })}
-            <Col xs={9}>
-              <StudioSelect
-                onSelect={(items) =>
-                  setStudioId(items.length > 0 ? items[0]?.id : undefined)
+            <Form.Group controlId="studio" as={Row}>
+              {FormUtils.renderLabel({
+                title: intl.formatMessage({ id: "studio" }),
+              })}
+              <Col xs={9}>
+                <StudioSelect
+                  onSelect={(items) =>
+                    formik.setFieldValue(
+                      "studio_id",
+                      items.length > 0 ? items[0]?.id : null
+                    )
+                  }
+                  ids={formik.values.studio_id ? [formik.values.studio_id] : []}
+                />
+              </Col>
+            </Form.Group>
+
+            <Form.Group controlId="performers" as={Row}>
+              {FormUtils.renderLabel({
+                title: intl.formatMessage({ id: "performers" }),
+                labelProps: {
+                  column: true,
+                  sm: 3,
+                  xl: 12,
+                },
+              })}
+              <Col sm={9} xl={12}>
+                <PerformerSelect
+                  isMulti
+                  onSelect={(items) =>
+                    formik.setFieldValue(
+                      "performer_ids",
+                      items.map((item) => item.id)
+                    )
+                  }
+                  ids={formik.values.performer_ids}
+                />
+              </Col>
+            </Form.Group>
+
+            <Form.Group controlId="tags" as={Row}>
+              {FormUtils.renderLabel({
+                title: intl.formatMessage({ id: "tags" }),
+                labelProps: {
+                  column: true,
+                  sm: 3,
+                  xl: 12,
+                },
+              })}
+              <Col sm={9} xl={12}>
+                <TagSelect
+                  isMulti
+                  onSelect={(items) =>
+                    formik.setFieldValue(
+                      "tag_ids",
+                      items.map((item) => item.id)
+                    )
+                  }
+                  ids={formik.values.tag_ids}
+                />
+              </Col>
+            </Form.Group>
+
+            <Form.Group controlId="scenes" as={Row}>
+              {FormUtils.renderLabel({
+                title: intl.formatMessage({ id: "scenes" }),
+                labelProps: {
+                  column: true,
+                  sm: 3,
+                  xl: 12,
+                },
+              })}
+              <Col sm={9} xl={12}>
+                <SceneSelect
+                  scenes={scenes}
+                  onSelect={(items) => onSetScenes(items)}
+                />
+              </Col>
+            </Form.Group>
+          </div>
+          <div className="col-12 col-lg-6 col-xl-12">
+            <Form.Group controlId="details">
+              <Form.Label>
+                <FormattedMessage id="details" />
+              </Form.Label>
+              <Form.Control
+                as="textarea"
+                className="gallery-description text-input"
+                onChange={(newValue: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  formik.setFieldValue("details", newValue.currentTarget.value)
                 }
-                ids={studioId ? [studioId] : []}
+                value={formik.values.details}
               />
-            </Col>
-          </Form.Group>
-
-          <Form.Group controlId="performers" as={Row}>
-            {FormUtils.renderLabel({
-              title: "Performers",
-              labelProps: {
-                column: true,
-                sm: 3,
-                xl: 12,
-              },
-            })}
-            <Col sm={9} xl={12}>
-              <PerformerSelect
-                isMulti
-                onSelect={(items) =>
-                  setPerformerIds(items.map((item) => item.id))
-                }
-                ids={performerIds}
-              />
-            </Col>
-          </Form.Group>
-
-          <Form.Group controlId="tags" as={Row}>
-            {FormUtils.renderLabel({
-              title: "Tags",
-              labelProps: {
-                column: true,
-                sm: 3,
-                xl: 12,
-              },
-            })}
-            <Col sm={9} xl={12}>
-              <TagSelect
-                isMulti
-                onSelect={(items) => setTagIds(items.map((item) => item.id))}
-                ids={tagIds}
-              />
-            </Col>
-          </Form.Group>
-
-          <Form.Group controlId="scenes" as={Row}>
-            {FormUtils.renderLabel({
-              title: "Scenes",
-              labelProps: {
-                column: true,
-                sm: 3,
-                xl: 12,
-              },
-            })}
-            <Col sm={9} xl={12}>
-              <SceneSelect
-                scenes={scenes}
-                onSelect={(items) => setScenes(items)}
-              />
-            </Col>
-          </Form.Group>
+            </Form.Group>
+          </div>
         </div>
-        <div className="col-12 col-lg-6 col-xl-12">
-          <Form.Group controlId="details">
-            <Form.Label>Details</Form.Label>
-            <Form.Control
-              as="textarea"
-              className="gallery-description text-input"
-              onChange={(newValue: React.ChangeEvent<HTMLTextAreaElement>) =>
-                setDetails(newValue.currentTarget.value)
-              }
-              value={details}
-            />
-          </Form.Group>
-        </div>
-      </div>
+      </Form>
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useIntl } from "react-intl";
 import * as GQL from "src/core/generated-graphql";
 import {
   ScrapeDialog,
@@ -10,6 +11,8 @@ import {
 } from "src/components/Shared/ScrapeDialog";
 import { StudioSelect } from "src/components/Shared";
 import { DurationUtils } from "src/utils";
+import { useStudioCreate } from "src/core/StashService";
+import { useToast } from "src/hooks";
 
 function renderScrapedStudio(
   result: ScrapeResult<string>,
@@ -35,7 +38,9 @@ function renderScrapedStudio(
 
 function renderScrapedStudioRow(
   result: ScrapeResult<string>,
-  onChange: (value: ScrapeResult<string>) => void
+  onChange: (value: ScrapeResult<string>) => void,
+  newStudio?: GQL.ScrapedStudio,
+  onCreateNew?: (value: GQL.ScrapedStudio) => void
 ) {
   return (
     <ScrapeDialogRow
@@ -48,6 +53,12 @@ function renderScrapedStudioRow(
         )
       }
       onChange={onChange}
+      newValues={newStudio ? [newStudio] : undefined}
+      onCreateNew={() => {
+        if (onCreateNew && newStudio) {
+          onCreateNew(newStudio);
+        }
+      }}
     />
   );
 }
@@ -62,6 +73,8 @@ interface IMovieScrapeDialogProps {
 export const MovieScrapeDialog: React.FC<IMovieScrapeDialogProps> = (
   props: IMovieScrapeDialogProps
 ) => {
+  const intl = useIntl();
+
   const [name, setName] = useState<ScrapeResult<string>>(
     new ScrapeResult<string>(props.movie.name, props.scraped.name)
   );
@@ -84,7 +97,10 @@ export const MovieScrapeDialog: React.FC<IMovieScrapeDialogProps> = (
     new ScrapeResult<string>(props.movie.synopsis, props.scraped.synopsis)
   );
   const [studio, setStudio] = useState<ScrapeResult<string>>(
-    new ScrapeResult<string>(props.movie.studio_id, props.scraped.studio?.id)
+    new ScrapeResult<string>(
+      props.movie.studio_id,
+      props.scraped.studio?.stored_id
+    )
   );
   const [url, setURL] = useState<ScrapeResult<string>>(
     new ScrapeResult<string>(props.movie.url, props.scraped.url)
@@ -95,6 +111,43 @@ export const MovieScrapeDialog: React.FC<IMovieScrapeDialogProps> = (
   const [backImage, setBackImage] = useState<ScrapeResult<string>>(
     new ScrapeResult<string>(props.movie.back_image, props.scraped.back_image)
   );
+
+  const [newStudio, setNewStudio] = useState<GQL.ScrapedStudio | undefined>(
+    props.scraped.studio && !props.scraped.studio.stored_id
+      ? props.scraped.studio
+      : undefined
+  );
+
+  const [createStudio] = useStudioCreate();
+
+  const Toast = useToast();
+
+  async function createNewStudio(toCreate: GQL.ScrapedStudio) {
+    try {
+      const result = await createStudio({
+        variables: {
+          input: {
+            name: toCreate.name,
+            url: toCreate.url,
+          },
+        },
+      });
+
+      // set the new studio as the value
+      setStudio(studio.cloneWithValue(result.data!.studioCreate!.id));
+      setNewStudio(undefined);
+
+      Toast.success({
+        content: (
+          <span>
+            Created studio: <b>{toCreate.name}</b>
+          </span>
+        ),
+      });
+    } catch (e) {
+      Toast.error(e);
+    }
+  }
 
   const allFields = [
     name,
@@ -116,19 +169,19 @@ export const MovieScrapeDialog: React.FC<IMovieScrapeDialogProps> = (
 
   // todo: reenable
   function makeNewScrapedItem(): GQL.ScrapedMovie {
-    const newStudio = studio.getNewValue();
+    const newVal = studio.getNewValue();
     const durationString = duration.getNewValue();
 
     return {
-      name: name.getNewValue(),
+      name: name.getNewValue() ?? "",
       aliases: aliases.getNewValue(),
       duration: durationString,
       date: date.getNewValue(),
       director: director.getNewValue(),
       synopsis: synopsis.getNewValue(),
-      studio: newStudio
+      studio: newVal
         ? {
-            id: newStudio,
+            stored_id: newVal,
             name: "",
           }
         : undefined,
@@ -142,37 +195,42 @@ export const MovieScrapeDialog: React.FC<IMovieScrapeDialogProps> = (
     return (
       <>
         <ScrapedInputGroupRow
-          title="Name"
+          title={intl.formatMessage({ id: "name" })}
           result={name}
           onChange={(value) => setName(value)}
         />
         <ScrapedInputGroupRow
-          title="Aliases"
+          title={intl.formatMessage({ id: "aliases" })}
           result={aliases}
           onChange={(value) => setAliases(value)}
         />
         <ScrapedInputGroupRow
-          title="Duration"
+          title={intl.formatMessage({ id: "duration" })}
           result={duration}
           onChange={(value) => setDuration(value)}
         />
         <ScrapedInputGroupRow
-          title="Date"
+          title={intl.formatMessage({ id: "date" })}
           placeholder="YYYY-MM-DD"
           result={date}
           onChange={(value) => setDate(value)}
         />
         <ScrapedInputGroupRow
-          title="Director"
+          title={intl.formatMessage({ id: "director" })}
           result={director}
           onChange={(value) => setDirector(value)}
         />
         <ScrapedTextAreaRow
-          title="Synopsis"
+          title={intl.formatMessage({ id: "synopsis" })}
           result={synopsis}
           onChange={(value) => setSynopsis(value)}
         />
-        {renderScrapedStudioRow(studio, (value) => setStudio(value))}
+        {renderScrapedStudioRow(
+          studio,
+          (value) => setStudio(value),
+          newStudio,
+          createNewStudio
+        )}
         <ScrapedInputGroupRow
           title="URL"
           result={url}
@@ -196,7 +254,10 @@ export const MovieScrapeDialog: React.FC<IMovieScrapeDialogProps> = (
 
   return (
     <ScrapeDialog
-      title="Movie Scrape Results"
+      title={intl.formatMessage(
+        { id: "dialogs.scrape_entity_title" },
+        { entity_type: intl.formatMessage({ id: "movie" }) }
+      )}
       renderScrapeRows={renderScrapeRows}
       onClose={(apply) => {
         props.onClose(apply ? makeNewScrapedItem() : undefined);

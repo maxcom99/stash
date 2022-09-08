@@ -6,8 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
+	"github.com/stashapp/stash/pkg/sliceutil/stringslice"
 	"github.com/stashapp/stash/pkg/utils"
 )
 
@@ -57,9 +58,9 @@ func (i *Importer) PreImport() error {
 
 	var err error
 	if len(i.Input.Cover) > 0 {
-		_, i.coverImageData, err = utils.ProcessBase64Image(i.Input.Cover)
+		i.coverImageData, err = utils.ProcessBase64Image(i.Input.Cover)
 		if err != nil {
-			return fmt.Errorf("invalid cover image: %s", err.Error())
+			return fmt.Errorf("invalid cover image: %v", err)
 		}
 	}
 
@@ -138,7 +139,7 @@ func (i *Importer) populateStudio() error {
 	if i.Input.Studio != "" {
 		studio, err := i.StudioWriter.FindByName(i.Input.Studio, false)
 		if err != nil {
-			return fmt.Errorf("error finding studio by name: %s", err.Error())
+			return fmt.Errorf("error finding studio by name: %v", err)
 		}
 
 		if studio == nil {
@@ -192,8 +193,8 @@ func (i *Importer) populateGalleries() error {
 			pluckedChecksums = append(pluckedChecksums, gallery.Checksum)
 		}
 
-		missingGalleries := utils.StrFilter(checksums, func(checksum string) bool {
-			return !utils.StrInclude(pluckedChecksums, checksum)
+		missingGalleries := stringslice.StrFilter(checksums, func(checksum string) bool {
+			return !stringslice.StrInclude(pluckedChecksums, checksum)
 		})
 
 		if len(missingGalleries) > 0 {
@@ -226,8 +227,8 @@ func (i *Importer) populatePerformers() error {
 			pluckedNames = append(pluckedNames, performer.Name.String)
 		}
 
-		missingPerformers := utils.StrFilter(names, func(name string) bool {
-			return !utils.StrInclude(pluckedNames, name)
+		missingPerformers := stringslice.StrFilter(names, func(name string) bool {
+			return !stringslice.StrInclude(pluckedNames, name)
 		})
 
 		if len(missingPerformers) > 0 {
@@ -238,7 +239,7 @@ func (i *Importer) populatePerformers() error {
 			if i.MissingRefBehaviour == models.ImportMissingRefEnumCreate {
 				createdPerformers, err := i.createPerformers(missingPerformers)
 				if err != nil {
-					return fmt.Errorf("error creating scene performers: %s", err.Error())
+					return fmt.Errorf("error creating scene performers: %v", err)
 				}
 
 				performers = append(performers, createdPerformers...)
@@ -274,7 +275,7 @@ func (i *Importer) populateMovies() error {
 		for _, inputMovie := range i.Input.Movies {
 			movie, err := i.MovieWriter.FindByName(inputMovie.MovieName, false)
 			if err != nil {
-				return fmt.Errorf("error finding scene movie: %s", err.Error())
+				return fmt.Errorf("error finding scene movie: %v", err)
 			}
 
 			if movie == nil {
@@ -285,7 +286,7 @@ func (i *Importer) populateMovies() error {
 				if i.MissingRefBehaviour == models.ImportMissingRefEnumCreate {
 					movie, err = i.createMovie(inputMovie.MovieName)
 					if err != nil {
-						return fmt.Errorf("error creating scene movie: %s", err.Error())
+						return fmt.Errorf("error creating scene movie: %v", err)
 					}
 				}
 
@@ -341,7 +342,7 @@ func (i *Importer) populateTags() error {
 func (i *Importer) PostImport(id int) error {
 	if len(i.coverImageData) > 0 {
 		if err := i.ReaderWriter.UpdateCover(id, i.coverImageData); err != nil {
-			return fmt.Errorf("error setting scene images: %s", err.Error())
+			return fmt.Errorf("error setting scene images: %v", err)
 		}
 	}
 
@@ -352,7 +353,7 @@ func (i *Importer) PostImport(id int) error {
 		}
 
 		if err := i.ReaderWriter.UpdateGalleries(id, galleryIDs); err != nil {
-			return fmt.Errorf("failed to associate galleries: %s", err.Error())
+			return fmt.Errorf("failed to associate galleries: %v", err)
 		}
 	}
 
@@ -363,7 +364,7 @@ func (i *Importer) PostImport(id int) error {
 		}
 
 		if err := i.ReaderWriter.UpdatePerformers(id, performerIDs); err != nil {
-			return fmt.Errorf("failed to associate performers: %s", err.Error())
+			return fmt.Errorf("failed to associate performers: %v", err)
 		}
 	}
 
@@ -372,7 +373,7 @@ func (i *Importer) PostImport(id int) error {
 			i.movies[index].SceneID = id
 		}
 		if err := i.ReaderWriter.UpdateMovies(id, i.movies); err != nil {
-			return fmt.Errorf("failed to associate movies: %s", err.Error())
+			return fmt.Errorf("failed to associate movies: %v", err)
 		}
 	}
 
@@ -382,7 +383,13 @@ func (i *Importer) PostImport(id int) error {
 			tagIDs = append(tagIDs, t.ID)
 		}
 		if err := i.ReaderWriter.UpdateTags(id, tagIDs); err != nil {
-			return fmt.Errorf("failed to associate tags: %s", err.Error())
+			return fmt.Errorf("failed to associate tags: %v", err)
+		}
+	}
+
+	if len(i.Input.StashIDs) > 0 {
+		if err := i.ReaderWriter.UpdateStashIDs(id, i.Input.StashIDs); err != nil {
+			return fmt.Errorf("error setting stash id: %v", err)
 		}
 	}
 
@@ -396,11 +403,13 @@ func (i *Importer) Name() string {
 func (i *Importer) FindExistingID() (*int, error) {
 	var existing *models.Scene
 	var err error
-	if i.FileNamingAlgorithm == models.HashAlgorithmMd5 {
+
+	switch i.FileNamingAlgorithm {
+	case models.HashAlgorithmMd5:
 		existing, err = i.ReaderWriter.FindByChecksum(i.Input.Checksum)
-	} else if i.FileNamingAlgorithm == models.HashAlgorithmOshash {
+	case models.HashAlgorithmOshash:
 		existing, err = i.ReaderWriter.FindByOSHash(i.Input.OSHash)
-	} else {
+	default:
 		panic("unknown file naming algorithm")
 	}
 
@@ -419,7 +428,7 @@ func (i *Importer) FindExistingID() (*int, error) {
 func (i *Importer) Create() (*int, error) {
 	created, err := i.ReaderWriter.Create(i.scene)
 	if err != nil {
-		return nil, fmt.Errorf("error creating scene: %s", err.Error())
+		return nil, fmt.Errorf("error creating scene: %v", err)
 	}
 
 	id := created.ID
@@ -433,7 +442,7 @@ func (i *Importer) Update(id int) error {
 	i.ID = id
 	_, err := i.ReaderWriter.UpdateFull(scene)
 	if err != nil {
-		return fmt.Errorf("error updating existing scene: %s", err.Error())
+		return fmt.Errorf("error updating existing scene: %v", err)
 	}
 
 	return nil
@@ -450,8 +459,8 @@ func importTags(tagWriter models.TagReaderWriter, names []string, missingRefBeha
 		pluckedNames = append(pluckedNames, tag.Name)
 	}
 
-	missingTags := utils.StrFilter(names, func(name string) bool {
-		return !utils.StrInclude(pluckedNames, name)
+	missingTags := stringslice.StrFilter(names, func(name string) bool {
+		return !stringslice.StrInclude(pluckedNames, name)
 	})
 
 	if len(missingTags) > 0 {
@@ -462,7 +471,7 @@ func importTags(tagWriter models.TagReaderWriter, names []string, missingRefBeha
 		if missingRefBehaviour == models.ImportMissingRefEnumCreate {
 			createdTags, err := createTags(tagWriter, missingTags)
 			if err != nil {
-				return nil, fmt.Errorf("error creating tags: %s", err.Error())
+				return nil, fmt.Errorf("error creating tags: %v", err)
 			}
 
 			tags = append(tags, createdTags...)

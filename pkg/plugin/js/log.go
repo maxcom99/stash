@@ -2,17 +2,23 @@ package js
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 
 	"github.com/robertkrimen/otto"
 	"github.com/stashapp/stash/pkg/logger"
 )
 
+const pluginPrefix = "[Plugin] "
+
 func argToString(call otto.FunctionCall) string {
 	arg := call.Argument(0)
 	if arg.IsObject() {
 		o, _ := arg.Export()
-		data, _ := json.Marshal(o)
+		data, err := json.Marshal(o)
+		if err != nil {
+			logger.Warnf("Couldn't json encode object")
+		}
 		return string(data)
 	}
 
@@ -20,27 +26,27 @@ func argToString(call otto.FunctionCall) string {
 }
 
 func logTrace(call otto.FunctionCall) otto.Value {
-	logger.Trace(argToString(call))
+	logger.Trace(pluginPrefix + argToString(call))
 	return otto.UndefinedValue()
 }
 
 func logDebug(call otto.FunctionCall) otto.Value {
-	logger.Debug(argToString(call))
+	logger.Debug(pluginPrefix + argToString(call))
 	return otto.UndefinedValue()
 }
 
 func logInfo(call otto.FunctionCall) otto.Value {
-	logger.Info(argToString(call))
+	logger.Info(pluginPrefix + argToString(call))
 	return otto.UndefinedValue()
 }
 
 func logWarn(call otto.FunctionCall) otto.Value {
-	logger.Warn(argToString(call))
+	logger.Warn(pluginPrefix + argToString(call))
 	return otto.UndefinedValue()
 }
 
 func logError(call otto.FunctionCall) otto.Value {
-	logger.Error(argToString(call))
+	logger.Error(pluginPrefix + argToString(call))
 	return otto.UndefinedValue()
 }
 
@@ -62,14 +68,29 @@ func logProgressFunc(c chan float64) func(call otto.FunctionCall) otto.Value {
 	}
 }
 
-func AddLogAPI(vm *otto.Otto, progress chan float64) {
+func AddLogAPI(vm *otto.Otto, progress chan float64) error {
 	log, _ := vm.Object("({})")
-	log.Set("Trace", logTrace)
-	log.Set("Debug", logDebug)
-	log.Set("Info", logInfo)
-	log.Set("Warn", logWarn)
-	log.Set("Error", logError)
-	log.Set("Progress", logProgressFunc(progress))
+	if err := log.Set("Trace", logTrace); err != nil {
+		return fmt.Errorf("error setting Trace: %w", err)
+	}
+	if err := log.Set("Debug", logDebug); err != nil {
+		return fmt.Errorf("error setting Debug: %w", err)
+	}
+	if err := log.Set("Info", logInfo); err != nil {
+		return fmt.Errorf("error setting Info: %w", err)
+	}
+	if err := log.Set("Warn", logWarn); err != nil {
+		return fmt.Errorf("error setting Warn: %w", err)
+	}
+	if err := log.Set("Error", logError); err != nil {
+		return fmt.Errorf("error setting Error: %w", err)
+	}
+	if err := log.Set("Progress", logProgressFunc(progress)); err != nil {
+		return fmt.Errorf("error setting Progress: %v", err)
+	}
+	if err := vm.Set("log", log); err != nil {
+		return fmt.Errorf("unable to set log: %w", err)
+	}
 
-	vm.Set("log", log)
+	return nil
 }

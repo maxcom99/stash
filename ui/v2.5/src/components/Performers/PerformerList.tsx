@@ -1,5 +1,6 @@
-import _ from "lodash";
+import cloneDeep from "lodash-es/cloneDeep";
 import React, { useState } from "react";
+import { useIntl } from "react-intl";
 import { useHistory } from "react-router-dom";
 import Mousetrap from "mousetrap";
 import {
@@ -31,22 +32,23 @@ export const PerformerList: React.FC<IPerformerList> = ({
   persistState,
   extraCriteria,
 }) => {
+  const intl = useIntl();
   const history = useHistory();
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExportAll, setIsExportAll] = useState(false);
 
   const otherOperations = [
     {
-      text: "Open Random",
+      text: intl.formatMessage({ id: "actions.open_random" }),
       onClick: getRandom,
     },
     {
-      text: "Export...",
+      text: intl.formatMessage({ id: "actions.export" }),
       onClick: onExport,
       isDisplayed: showWhenSelected,
     },
     {
-      text: "Export all...",
+      text: intl.formatMessage({ id: "actions.export_all" }),
       onClick: onExportAll,
     },
   ];
@@ -112,8 +114,8 @@ export const PerformerList: React.FC<IPerformerList> = ({
     <DeleteEntityDialog
       selected={selectedPerformers}
       onClose={onClose}
-      singularEntity="performer"
-      pluralEntity="performers"
+      singularEntity={intl.formatMessage({ id: "performer" })}
+      pluralEntity={intl.formatMessage({ id: "performers" })}
       destroyMutation={usePerformersDestroy}
     />
   );
@@ -136,7 +138,7 @@ export const PerformerList: React.FC<IPerformerList> = ({
     if (result.data?.findPerformers) {
       const { count } = result.data.findPerformers;
       const index = Math.floor(Math.random() * count);
-      const filterCopy = _.cloneDeep(filter);
+      const filterCopy = cloneDeep(filter);
       filterCopy.itemsPerPage = 1;
       filterCopy.currentPage = index + 1;
       const singleResult = await queryFindPerformers(filterCopy);

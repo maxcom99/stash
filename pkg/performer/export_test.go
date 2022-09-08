@@ -4,10 +4,11 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
+	"github.com/stashapp/stash/pkg/hash/md5"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/json"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/models/mocks"
-	"github.com/stashapp/stash/pkg/utils"
 	"github.com/stretchr/testify/assert"
 
 	"testing"
@@ -21,28 +22,37 @@ const (
 )
 
 const (
-	performerName = "testPerformer"
-	url           = "url"
-	aliases       = "aliases"
-	careerLength  = "careerLength"
-	country       = "country"
-	ethnicity     = "ethnicity"
-	eyeColor      = "eyeColor"
-	fakeTits      = "fakeTits"
-	gender        = "gender"
-	height        = "height"
-	instagram     = "instagram"
-	measurements  = "measurements"
-	piercings     = "piercings"
-	tattoos       = "tattoos"
-	twitter       = "twitter"
-	rating        = 5
-	details       = "details"
-	hairColor     = "hairColor"
-	weight        = 60
+	performerName  = "testPerformer"
+	url            = "url"
+	aliases        = "aliases"
+	careerLength   = "careerLength"
+	country        = "country"
+	ethnicity      = "ethnicity"
+	eyeColor       = "eyeColor"
+	fakeTits       = "fakeTits"
+	gender         = "gender"
+	height         = "height"
+	instagram      = "instagram"
+	measurements   = "measurements"
+	piercings      = "piercings"
+	tattoos        = "tattoos"
+	twitter        = "twitter"
+	rating         = 5
+	details        = "details"
+	hairColor      = "hairColor"
+	weight         = 60
+	autoTagIgnored = true
 )
 
 var imageBytes = []byte("imageBytes")
+
+var stashID = models.StashID{
+	StashID:  "StashID",
+	Endpoint: "Endpoint",
+}
+var stashIDs = []*models.StashID{
+	&stashID,
+}
 
 const image = "aW1hZ2VCeXRlcw=="
 
@@ -54,14 +64,17 @@ var deathDate = models.SQLiteDate{
 	String: "2021-02-02",
 	Valid:  true,
 }
-var createTime time.Time = time.Date(2001, 01, 01, 0, 0, 0, 0, time.Local)
-var updateTime time.Time = time.Date(2002, 01, 01, 0, 0, 0, 0, time.Local)
+
+var (
+	createTime = time.Date(2001, 01, 01, 0, 0, 0, 0, time.Local)
+	updateTime = time.Date(2002, 01, 01, 0, 0, 0, 0, time.Local)
+)
 
 func createFullPerformer(id int, name string) *models.Performer {
 	return &models.Performer{
 		ID:           id,
 		Name:         models.NullString(name),
-		Checksum:     utils.MD5FromString(name),
+		Checksum:     md5.FromString(name),
 		URL:          models.NullString(url),
 		Aliases:      models.NullString(aliases),
 		Birthdate:    birthDate,
@@ -95,6 +108,7 @@ func createFullPerformer(id int, name string) *models.Performer {
 			Int64: weight,
 			Valid: true,
 		},
+		IgnoreAutoTag: autoTagIgnored,
 	}
 }
 
@@ -129,10 +143,10 @@ func createFullJSONPerformer(name string, image string) *jsonschema.Performer {
 		Piercings:    piercings,
 		Tattoos:      tattoos,
 		Twitter:      twitter,
-		CreatedAt: models.JSONTime{
+		CreatedAt: json.JSONTime{
 			Time: createTime,
 		},
-		UpdatedAt: models.JSONTime{
+		UpdatedAt: json.JSONTime{
 			Time: updateTime,
 		},
 		Rating:    rating,
@@ -141,15 +155,19 @@ func createFullJSONPerformer(name string, image string) *jsonschema.Performer {
 		DeathDate: deathDate.String,
 		HairColor: hairColor,
 		Weight:    weight,
+		StashIDs: []models.StashID{
+			stashID,
+		},
+		IgnoreAutoTag: autoTagIgnored,
 	}
 }
 
 func createEmptyJSONPerformer() *jsonschema.Performer {
 	return &jsonschema.Performer{
-		CreatedAt: models.JSONTime{
+		CreatedAt: json.JSONTime{
 			Time: createTime,
 		},
-		UpdatedAt: models.JSONTime{
+		UpdatedAt: json.JSONTime{
 			Time: updateTime,
 		},
 	}
@@ -165,17 +183,17 @@ var scenarios []testScenario
 
 func initTestTable() {
 	scenarios = []testScenario{
-		testScenario{
+		{
 			*createFullPerformer(performerID, performerName),
 			createFullJSONPerformer(performerName, image),
 			false,
 		},
-		testScenario{
+		{
 			createEmptyPerformer(noImageID),
 			createEmptyJSONPerformer(),
 			false,
 		},
-		testScenario{
+		{
 			*createFullPerformer(errImageID, performerName),
 			nil,
 			true,
@@ -194,15 +212,19 @@ func TestToJSON(t *testing.T) {
 	mockPerformerReader.On("GetImage", noImageID).Return(nil, nil).Once()
 	mockPerformerReader.On("GetImage", errImageID).Return(nil, imageErr).Once()
 
+	mockPerformerReader.On("GetStashIDs", performerID).Return(stashIDs, nil).Once()
+	mockPerformerReader.On("GetStashIDs", noImageID).Return(nil, nil).Once()
+
 	for i, s := range scenarios {
 		tag := s.input
 		json, err := ToJSON(mockPerformerReader, &tag)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}

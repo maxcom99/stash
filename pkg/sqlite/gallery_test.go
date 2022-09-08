@@ -1,8 +1,10 @@
+//go:build integration
 // +build integration
 
 package sqlite_test
 
 import (
+	"math"
 	"strconv"
 	"testing"
 
@@ -561,6 +563,28 @@ func TestGalleryQueryIsMissingTags(t *testing.T) {
 	})
 }
 
+func TestGalleryQueryIsMissingDate(t *testing.T) {
+	withTxn(func(r models.Repository) error {
+		sqb := r.Gallery()
+		isMissing := "date"
+		galleryFilter := models.GalleryFilterType{
+			IsMissing: &isMissing,
+		}
+
+		galleries := queryGallery(t, sqb, &galleryFilter, nil)
+
+		// three in four scenes have no date
+		assert.Len(t, galleries, int(math.Ceil(float64(totalGalleries)/4*3)))
+
+		// ensure date is null, empty or "0001-01-01"
+		for _, g := range galleries {
+			assert.True(t, !g.Date.Valid || g.Date.String == "" || g.Date.String == "0001-01-01")
+		}
+
+		return nil
+	})
+}
+
 func TestGalleryQueryPerformers(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Gallery()
@@ -620,7 +644,7 @@ func TestGalleryQueryPerformers(t *testing.T) {
 func TestGalleryQueryTags(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Gallery()
-		tagCriterion := models.MultiCriterionInput{
+		tagCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdxWithGallery]),
 				strconv.Itoa(tagIDs[tagIdx1WithGallery]),
@@ -640,7 +664,7 @@ func TestGalleryQueryTags(t *testing.T) {
 			assert.True(t, gallery.ID == galleryIDs[galleryIdxWithTag] || gallery.ID == galleryIDs[galleryIdxWithTwoTags])
 		}
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithGallery]),
 				strconv.Itoa(tagIDs[tagIdx2WithGallery]),
@@ -653,7 +677,7 @@ func TestGalleryQueryTags(t *testing.T) {
 		assert.Len(t, galleries, 1)
 		assert.Equal(t, galleryIDs[galleryIdxWithTwoTags], galleries[0].ID)
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithGallery]),
 			},
@@ -680,7 +704,6 @@ func TestGalleryQueryStudio(t *testing.T) {
 				strconv.Itoa(studioIDs[studioIdxWithGallery]),
 			},
 			Modifier: models.CriterionModifierIncludes,
-			Depth:    0,
 		}
 
 		galleryFilter := models.GalleryFilterType{
@@ -699,7 +722,6 @@ func TestGalleryQueryStudio(t *testing.T) {
 				strconv.Itoa(studioIDs[studioIdxWithGallery]),
 			},
 			Modifier: models.CriterionModifierExcludes,
-			Depth:    0,
 		}
 
 		q := getGalleryStringValue(galleryIdxWithStudio, titleField)
@@ -717,12 +739,13 @@ func TestGalleryQueryStudio(t *testing.T) {
 func TestGalleryQueryStudioDepth(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Gallery()
+		depth := 2
 		studioCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(studioIDs[studioIdxWithGrandChild]),
 			},
 			Modifier: models.CriterionModifierIncludes,
-			Depth:    2,
+			Depth:    &depth,
 		}
 
 		galleryFilter := models.GalleryFilterType{
@@ -732,7 +755,7 @@ func TestGalleryQueryStudioDepth(t *testing.T) {
 		galleries := queryGallery(t, sqb, &galleryFilter, nil)
 		assert.Len(t, galleries, 1)
 
-		studioCriterion.Depth = 1
+		depth = 1
 
 		galleries = queryGallery(t, sqb, &galleryFilter, nil)
 		assert.Len(t, galleries, 0)
@@ -744,12 +767,14 @@ func TestGalleryQueryStudioDepth(t *testing.T) {
 		// ensure id is correct
 		assert.Equal(t, galleryIDs[galleryIdxWithGrandChildStudio], galleries[0].ID)
 
+		depth = 2
+
 		studioCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(studioIDs[studioIdxWithGrandChild]),
 			},
 			Modifier: models.CriterionModifierExcludes,
-			Depth:    2,
+			Depth:    &depth,
 		}
 
 		q := getGalleryStringValue(galleryIdxWithGrandChildStudio, pathField)
@@ -760,7 +785,7 @@ func TestGalleryQueryStudioDepth(t *testing.T) {
 		galleries = queryGallery(t, sqb, &galleryFilter, &findFilter)
 		assert.Len(t, galleries, 0)
 
-		studioCriterion.Depth = 1
+		depth = 1
 		galleries = queryGallery(t, sqb, &galleryFilter, &findFilter)
 		assert.Len(t, galleries, 1)
 
@@ -775,7 +800,7 @@ func TestGalleryQueryStudioDepth(t *testing.T) {
 func TestGalleryQueryPerformerTags(t *testing.T) {
 	withTxn(func(r models.Repository) error {
 		sqb := r.Gallery()
-		tagCriterion := models.MultiCriterionInput{
+		tagCriterion := models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdxWithPerformer]),
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
@@ -795,7 +820,7 @@ func TestGalleryQueryPerformerTags(t *testing.T) {
 			assert.True(t, gallery.ID == galleryIDs[galleryIdxWithPerformerTag] || gallery.ID == galleryIDs[galleryIdxWithPerformerTwoTags])
 		}
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
 				strconv.Itoa(tagIDs[tagIdx2WithPerformer]),
@@ -808,7 +833,7 @@ func TestGalleryQueryPerformerTags(t *testing.T) {
 		assert.Len(t, galleries, 1)
 		assert.Equal(t, galleryIDs[galleryIdxWithPerformerTwoTags], galleries[0].ID)
 
-		tagCriterion = models.MultiCriterionInput{
+		tagCriterion = models.HierarchicalMultiCriterionInput{
 			Value: []string{
 				strconv.Itoa(tagIDs[tagIdx1WithPerformer]),
 			},
@@ -820,6 +845,29 @@ func TestGalleryQueryPerformerTags(t *testing.T) {
 			Q: &q,
 		}
 
+		galleries = queryGallery(t, sqb, &galleryFilter, &findFilter)
+		assert.Len(t, galleries, 0)
+
+		tagCriterion = models.HierarchicalMultiCriterionInput{
+			Modifier: models.CriterionModifierIsNull,
+		}
+		q = getGalleryStringValue(galleryIdx1WithImage, titleField)
+
+		galleries = queryGallery(t, sqb, &galleryFilter, &findFilter)
+		assert.Len(t, galleries, 1)
+		assert.Equal(t, galleryIDs[galleryIdx1WithImage], galleries[0].ID)
+
+		q = getGalleryStringValue(galleryIdxWithPerformerTag, titleField)
+		galleries = queryGallery(t, sqb, &galleryFilter, &findFilter)
+		assert.Len(t, galleries, 0)
+
+		tagCriterion.Modifier = models.CriterionModifierNotNull
+
+		galleries = queryGallery(t, sqb, &galleryFilter, &findFilter)
+		assert.Len(t, galleries, 1)
+		assert.Equal(t, galleryIDs[galleryIdxWithPerformerTag], galleries[0].ID)
+
+		q = getGalleryStringValue(galleryIdx1WithImage, titleField)
 		galleries = queryGallery(t, sqb, &galleryFilter, &findFilter)
 		assert.Len(t, galleries, 0)
 
@@ -914,7 +962,10 @@ func TestGalleryQueryAverageResolution(t *testing.T) {
 		qb := r.Gallery()
 		resolution := models.ResolutionEnumLow
 		galleryFilter := models.GalleryFilterType{
-			AverageResolution: &resolution,
+			AverageResolution: &models.ResolutionCriterionInput{
+				Value:    resolution,
+				Modifier: models.CriterionModifierEquals,
+			},
 		}
 
 		// not verifying average - just ensure we get at least one
@@ -957,18 +1008,24 @@ func verifyGalleriesImageCount(t *testing.T, imageCountCriterion models.IntCrite
 		for _, gallery := range galleries {
 			pp := 0
 
-			_, count, err := r.Image().Query(&models.ImageFilterType{
-				Galleries: &models.MultiCriterionInput{
-					Value:    []string{strconv.Itoa(gallery.ID)},
-					Modifier: models.CriterionModifierIncludes,
+			result, err := r.Image().Query(models.ImageQueryOptions{
+				QueryOptions: models.QueryOptions{
+					FindFilter: &models.FindFilterType{
+						PerPage: &pp,
+					},
+					Count: true,
 				},
-			}, &models.FindFilterType{
-				PerPage: &pp,
+				ImageFilter: &models.ImageFilterType{
+					Galleries: &models.MultiCriterionInput{
+						Value:    []string{strconv.Itoa(gallery.ID)},
+						Modifier: models.CriterionModifierIncludes,
+					},
+				},
 			})
 			if err != nil {
 				return err
 			}
-			verifyInt(t, count, imageCountCriterion)
+			verifyInt(t, result.Count, imageCountCriterion)
 		}
 
 		return nil

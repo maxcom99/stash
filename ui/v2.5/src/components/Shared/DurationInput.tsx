@@ -1,6 +1,11 @@
+import {
+  faChevronDown,
+  faChevronUp,
+  faClock,
+} from "@fortawesome/free-solid-svg-icons";
 import React, { useState, useEffect } from "react";
 import { Button, ButtonGroup, InputGroup, Form } from "react-bootstrap";
-import { Icon } from "src/components/Shared";
+import Icon from "src/components/Shared/Icon";
 import { DurationUtils } from "src/utils";
 
 interface IProps {
@@ -13,6 +18,7 @@ interface IProps {
   ): void;
   onReset?(): void;
   className?: string;
+  placeholder?: string;
 }
 
 export const DurationInput: React.FC<IProps> = (props: IProps) => {
@@ -60,7 +66,7 @@ export const DurationInput: React.FC<IProps> = (props: IProps) => {
             disabled={props.disabled}
             onClick={() => increment()}
           >
-            <Icon icon="chevron-up" />
+            <Icon icon={faChevronUp} />
           </Button>
           <Button
             variant="secondary"
@@ -68,7 +74,7 @@ export const DurationInput: React.FC<IProps> = (props: IProps) => {
             disabled={props.disabled}
             onClick={() => decrement()}
           >
-            <Icon icon="chevron-down" />
+            <Icon icon={faChevronDown} />
           </Button>
         </ButtonGroup>
       );
@@ -85,14 +91,14 @@ export const DurationInput: React.FC<IProps> = (props: IProps) => {
     if (props.onReset) {
       return (
         <Button variant="secondary" onClick={onReset}>
-          <Icon icon="clock" />
+          <Icon icon={faClock} />
         </Button>
       );
     }
   }
 
   return (
-    <Form.Group className={`duration-input ${props.className}`}>
+    <div className={`duration-input ${props.className}`}>
       <InputGroup>
         <Form.Control
           className="duration-control text-input"
@@ -108,13 +114,19 @@ export const DurationInput: React.FC<IProps> = (props: IProps) => {
               props.onValueChange(undefined);
             }
           }}
-          placeholder={!props.disabled ? "hh:mm:ss" : undefined}
+          placeholder={
+            !props.disabled
+              ? props.placeholder
+                ? `${props.placeholder} (hh:mm:ss)`
+                : "hh:mm:ss"
+              : undefined
+          }
         />
         <InputGroup.Append>
           {maybeRenderReset()}
           {renderButtons()}
         </InputGroup.Append>
       </InputGroup>
-    </Form.Group>
+    </div>
   );
 };

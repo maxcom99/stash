@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -32,7 +33,7 @@ func (r *repository) get(id int, dest interface{}) error {
 
 func (r *repository) getAll(id int, f func(rows *sqlx.Rows) error) error {
 	stmt := fmt.Sprintf("SELECT * FROM %s WHERE %s = ?", r.tableName, r.idColumn)
-	return r.queryFunc(stmt, []interface{}{id}, f)
+	return r.queryFunc(stmt, []interface{}{id}, false, f)
 }
 
 func (r *repository) insert(obj interface{}) (sql.Result, error) {
@@ -132,7 +133,7 @@ func (r *repository) runCountQuery(query string, args []interface{}) (int, error
 	}{0}
 
 	// Perform query and fetch result
-	if err := r.tx.Get(&result, query, args...); err != nil && err != sql.ErrNoRows {
+	if err := r.tx.Get(&result, query, args...); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
 
@@ -144,7 +145,7 @@ func (r *repository) runIdsQuery(query string, args []interface{}) ([]int, error
 		Int int `db:"id"`
 	}
 
-	if err := r.tx.Select(&result, query, args...); err != nil && err != sql.ErrNoRows {
+	if err := r.tx.Select(&result, query, args...); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return []int{}, err
 	}
 
@@ -162,17 +163,19 @@ func (r *repository) runSumQuery(query string, args []interface{}) (float64, err
 	}{0}
 
 	// Perform query and fetch result
-	if err := r.tx.Get(&result, query, args...); err != nil && err != sql.ErrNoRows {
+	if err := r.tx.Get(&result, query, args...); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
 
 	return result.Float64, nil
 }
 
-func (r *repository) queryFunc(query string, args []interface{}, f func(rows *sqlx.Rows) error) error {
+func (r *repository) queryFunc(query string, args []interface{}, single bool, f func(rows *sqlx.Rows) error) error {
+	logger.Tracef("SQL: %s, args: %v", query, args)
+
 	rows, err := r.tx.Queryx(query, args...)
 
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	defer rows.Close()
@@ -180,6 +183,9 @@ func (r *repository) queryFunc(query string, args []interface{}, f func(rows *sq
 	for rows.Next() {
 		if err := f(rows); err != nil {
 			return err
+		}
+		if single {
+			break
 		}
 	}
 
@@ -191,32 +197,29 @@ func (r *repository) queryFunc(query string, args []interface{}, f func(rows *sq
 }
 
 func (r *repository) query(query string, args []interface{}, out objectList) error {
-	rows, err := r.tx.Queryx(query, args...)
-
-	if err != nil && err != sql.ErrNoRows {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
+	return r.queryFunc(query, args, false, func(rows *sqlx.Rows) error {
 		object := out.New()
 		if err := rows.StructScan(object); err != nil {
 			return err
 		}
 		out.Append(object)
-	}
+		return nil
+	})
+}
 
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	return nil
+func (r *repository) queryStruct(query string, args []interface{}, out interface{}) error {
+	return r.queryFunc(query, args, true, func(rows *sqlx.Rows) error {
+		if err := rows.StructScan(out); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func (r *repository) querySimple(query string, args []interface{}, out interface{}) error {
 	rows, err := r.tx.Queryx(query, args...)
 
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	defer rows.Close()
@@ -238,20 +241,24 @@ func (r *repository) buildQueryBody(body string, whereClauses []string, havingCl
 	if len(whereClauses) > 0 {
 		body = body + " WHERE " + strings.Join(whereClauses, " AND ") // TODO handle AND or OR
 	}
-	body = body + " GROUP BY " + r.tableName + ".id "
 	if len(havingClauses) > 0 {
+		body = body + " GROUP BY " + r.tableName + ".id "
 		body = body + " HAVING " + strings.Join(havingClauses, " AND ") // TODO handle AND or OR
 	}
 
 	return body
 }
 
-func (r *repository) executeFindQuery(body string, args []interface{}, sortAndPagination string, whereClauses []string, havingClauses []string, withClauses []string) ([]int, int, error) {
+func (r *repository) executeFindQuery(body string, args []interface{}, sortAndPagination string, whereClauses []string, havingClauses []string, withClauses []string, recursiveWith bool) ([]int, int, error) {
 	body = r.buildQueryBody(body, whereClauses, havingClauses)
 
 	withClause := ""
 	if len(withClauses) > 0 {
-		withClause = "WITH " + strings.Join(withClauses, ", ") + " "
+		var recursive string
+		if recursiveWith {
+			recursive = " RECURSIVE "
+		}
+		withClause = "WITH " + recursive + strings.Join(withClauses, ", ") + " "
 	}
 
 	countQuery := withClause + r.buildCountQuery(body)
@@ -269,10 +276,10 @@ func (r *repository) executeFindQuery(body string, args []interface{}, sortAndPa
 	idsResult, idsErr = r.runIdsQuery(idsQuery, args)
 
 	if countErr != nil {
-		return nil, 0, fmt.Errorf("Error executing count query with SQL: %s, args: %v, error: %s", countQuery, args, countErr.Error())
+		return nil, 0, fmt.Errorf("error executing count query with SQL: %s, args: %v, error: %s", countQuery, args, countErr.Error())
 	}
 	if idsErr != nil {
-		return nil, 0, fmt.Errorf("Error executing find query with SQL: %s, args: %v, error: %s", idsQuery, args, idsErr.Error())
+		return nil, 0, fmt.Errorf("error executing find query with SQL: %s, args: %v, error: %s", idsQuery, args, idsErr.Error())
 	}
 
 	return idsResult, countResult, nil
@@ -289,11 +296,21 @@ func (r *repository) join(j joiner, as string, parentIDCol string) {
 	if as != "" {
 		t = as
 	}
-	j.addJoin(r.tableName, as, fmt.Sprintf("%s.%s = %s", t, r.idColumn, parentIDCol))
+	j.addLeftJoin(r.tableName, as, fmt.Sprintf("%s.%s = %s", t, r.idColumn, parentIDCol))
+}
+
+//nolint:golint,unused
+func (r *repository) innerJoin(j joiner, as string, parentIDCol string) {
+	t := r.tableName
+	if as != "" {
+		t = as
+	}
+	j.addInnerJoin(r.tableName, as, fmt.Sprintf("%s.%s = %s", t, r.idColumn, parentIDCol))
 }
 
 type joiner interface {
-	addJoin(table, as, onClause string)
+	addLeftJoin(table, as, onClause string)
+	addInnerJoin(table, as, onClause string)
 }
 
 type joinRepository struct {
@@ -348,6 +365,52 @@ func (r *imageRepository) replace(id int, image []byte) error {
 	return err
 }
 
+type captionRepository struct {
+	repository
+}
+
+func (r *captionRepository) get(id int) ([]*models.SceneCaption, error) {
+	query := fmt.Sprintf("SELECT %s, %s, %s from %s WHERE %s = ?", sceneCaptionCodeColumn, sceneCaptionFilenameColumn, sceneCaptionTypeColumn, r.tableName, r.idColumn)
+	var ret []*models.SceneCaption
+	err := r.queryFunc(query, []interface{}{id}, false, func(rows *sqlx.Rows) error {
+		var captionCode string
+		var captionFilename string
+		var captionType string
+
+		if err := rows.Scan(&captionCode, &captionFilename, &captionType); err != nil {
+			return err
+		}
+
+		caption := &models.SceneCaption{
+			LanguageCode: captionCode,
+			Filename:     captionFilename,
+			CaptionType:  captionType,
+		}
+		ret = append(ret, caption)
+		return nil
+	})
+	return ret, err
+}
+
+func (r *captionRepository) insert(id int, caption *models.SceneCaption) (sql.Result, error) {
+	stmt := fmt.Sprintf("INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?)", r.tableName, r.idColumn, sceneCaptionCodeColumn, sceneCaptionFilenameColumn, sceneCaptionTypeColumn)
+	return r.tx.Exec(stmt, id, caption.LanguageCode, caption.Filename, caption.CaptionType)
+}
+
+func (r *captionRepository) replace(id int, captions []*models.SceneCaption) error {
+	if err := r.destroy([]int{id}); err != nil {
+		return err
+	}
+
+	for _, caption := range captions {
+		if _, err := r.insert(id, caption); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 type stringRepository struct {
 	repository
 	stringColumn string
@@ -356,7 +419,7 @@ type stringRepository struct {
 func (r *stringRepository) get(id int) ([]string, error) {
 	query := fmt.Sprintf("SELECT %s from %s WHERE %s = ?", r.stringColumn, r.tableName, r.idColumn)
 	var ret []string
-	err := r.queryFunc(query, []interface{}{id}, func(rows *sqlx.Rows) error {
+	err := r.queryFunc(query, []interface{}{id}, false, func(rows *sqlx.Rows) error {
 		var out string
 		if err := rows.Scan(&out); err != nil {
 			return err
@@ -427,7 +490,7 @@ func listKeys(i interface{}, addPrefix bool) string {
 	var query []string
 	v := reflect.ValueOf(i)
 	for i := 0; i < v.NumField(); i++ {
-		//get key for struct tag
+		// Get key for struct tag
 		rawKey := v.Type().Field(i).Tag.Get("db")
 		key := strings.Split(rawKey, ",")[0]
 		if key == "id" {
@@ -445,7 +508,7 @@ func updateSet(i interface{}, partial bool) string {
 	var query []string
 	v := reflect.ValueOf(i)
 	for i := 0; i < v.NumField(); i++ {
-		//get key for struct tag
+		// Get key for struct tag
 		rawKey := v.Type().Field(i).Tag.Get("db")
 		key := strings.Split(rawKey, ",")[0]
 		if key == "id" {

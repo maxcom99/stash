@@ -11,12 +11,28 @@ import (
 	"github.com/99designs/gqlgen/graphql"
 )
 
+type DraftData interface {
+	IsDraftData()
+}
+
 type EditDetails interface {
 	IsEditDetails()
 }
 
 type EditTarget interface {
 	IsEditTarget()
+}
+
+type SceneDraftPerformer interface {
+	IsSceneDraftPerformer()
+}
+
+type SceneDraftStudio interface {
+	IsSceneDraftStudio()
+}
+
+type SceneDraftTag interface {
+	IsSceneDraftTag()
 }
 
 type ActivateNewUserInput struct {
@@ -32,22 +48,22 @@ type ApplyEditInput struct {
 
 type BodyModification struct {
 	Location    string  `json:"location"`
-	Description *string `json:"description"`
+	Description *string `json:"description,omitempty"`
 }
 
 type BodyModificationCriterionInput struct {
-	Location    *string           `json:"location"`
-	Description *string           `json:"description"`
+	Location    *string           `json:"location,omitempty"`
+	Description *string           `json:"description,omitempty"`
 	Modifier    CriterionModifier `json:"modifier"`
 }
 
 type BodyModificationInput struct {
 	Location    string  `json:"location"`
-	Description *string `json:"description"`
+	Description *string `json:"description,omitempty"`
 }
 
 type BreastTypeCriterionInput struct {
-	Value    *BreastTypeEnum   `json:"value"`
+	Value    *BreastTypeEnum   `json:"value,omitempty"`
 	Modifier CriterionModifier `json:"modifier"`
 }
 
@@ -60,31 +76,68 @@ type DateCriterionInput struct {
 	Modifier CriterionModifier `json:"modifier"`
 }
 
+type Draft struct {
+	ID      string    `json:"id"`
+	Created time.Time `json:"created"`
+	Expires time.Time `json:"expires"`
+	Data    DraftData `json:"data,omitempty"`
+}
+
+type DraftEntity struct {
+	Name string  `json:"name"`
+	ID   *string `json:"id,omitempty"`
+}
+
+func (DraftEntity) IsSceneDraftPerformer() {}
+func (DraftEntity) IsSceneDraftStudio()    {}
+func (DraftEntity) IsSceneDraftTag()       {}
+
+type DraftEntityInput struct {
+	Name string  `json:"name"`
+	ID   *string `json:"id,omitempty"`
+}
+
+type DraftFingerprint struct {
+	Hash      string               `json:"hash"`
+	Algorithm FingerprintAlgorithm `json:"algorithm"`
+	Duration  int                  `json:"duration"`
+}
+
+type DraftSubmissionStatus struct {
+	ID *string `json:"id,omitempty"`
+}
+
 type Edit struct {
 	ID   string `json:"id"`
-	User *User  `json:"user"`
+	User *User  `json:"user,omitempty"`
 	// Object being edited - null if creating a new object
-	Target     EditTarget     `json:"target"`
+	Target     EditTarget     `json:"target,omitempty"`
 	TargetType TargetTypeEnum `json:"target_type"`
 	// Objects to merge with the target. Only applicable to merges
-	MergeSources []EditTarget  `json:"merge_sources"`
+	MergeSources []EditTarget  `json:"merge_sources,omitempty"`
 	Operation    OperationEnum `json:"operation"`
-	Details      EditDetails   `json:"details"`
+	Details      EditDetails   `json:"details,omitempty"`
 	// Previous state of fields being modified - null if operation is create or delete.
-	OldDetails EditDetails `json:"old_details"`
+	OldDetails EditDetails `json:"old_details,omitempty"`
 	// Entity specific options
-	Options  *PerformerEditOptions `json:"options"`
-	Comments []*EditComment        `json:"comments"`
-	Votes    []*VoteComment        `json:"votes"`
+	Options  *PerformerEditOptions `json:"options,omitempty"`
+	Comments []*EditComment        `json:"comments,omitempty"`
+	Votes    []*EditVote           `json:"votes,omitempty"`
 	//  = Accepted - Rejected
-	VoteCount int            `json:"vote_count"`
-	Status    VoteStatusEnum `json:"status"`
-	Applied   bool           `json:"applied"`
-	Created   time.Time      `json:"created"`
+	VoteCount int `json:"vote_count"`
+	// Is the edit considered destructive.
+	Destructive bool           `json:"destructive"`
+	Status      VoteStatusEnum `json:"status"`
+	Applied     bool           `json:"applied"`
+	Created     time.Time      `json:"created"`
+	Updated     *time.Time     `json:"updated,omitempty"`
+	Closed      *time.Time     `json:"closed,omitempty"`
+	Expires     *time.Time     `json:"expires,omitempty"`
 }
 
 type EditComment struct {
-	User    *User     `json:"user"`
+	ID      string    `json:"id"`
+	User    *User     `json:"user,omitempty"`
 	Date    time.Time `json:"date"`
 	Comment string    `json:"comment"`
 }
@@ -94,52 +147,77 @@ type EditCommentInput struct {
 	Comment string `json:"comment"`
 }
 
-type EditFilterType struct {
-	// Filter by user id
-	UserID *string `json:"user_id"`
-	// Filter by status
-	Status *VoteStatusEnum `json:"status"`
-	// Filter by operation
-	Operation *OperationEnum `json:"operation"`
-	// Filter by vote count
-	VoteCount *IntCriterionInput `json:"vote_count"`
-	// Filter by applied status
-	Applied *bool `json:"applied"`
-	// Filter by target type
-	TargetType *TargetTypeEnum `json:"target_type"`
-	// Filter by target id
-	TargetID *string `json:"target_id"`
-}
-
 type EditInput struct {
 	// Not required for create type
-	ID        *string       `json:"id"`
+	ID        *string       `json:"id,omitempty"`
 	Operation OperationEnum `json:"operation"`
-	// Required for amending an existing edit
-	EditID *string `json:"edit_id"`
 	// Only required for merge type
-	MergeSourceIds []string `json:"merge_source_ids"`
-	Comment        *string  `json:"comment"`
+	MergeSourceIds []string `json:"merge_source_ids,omitempty"`
+	Comment        *string  `json:"comment,omitempty"`
+}
+
+type EditQueryInput struct {
+	// Filter by user id
+	UserID *string `json:"user_id,omitempty"`
+	// Filter by status
+	Status *VoteStatusEnum `json:"status,omitempty"`
+	// Filter by operation
+	Operation *OperationEnum `json:"operation,omitempty"`
+	// Filter by vote count
+	VoteCount *IntCriterionInput `json:"vote_count,omitempty"`
+	// Filter by applied status
+	Applied *bool `json:"applied,omitempty"`
+	// Filter by target type
+	TargetType *TargetTypeEnum `json:"target_type,omitempty"`
+	// Filter by target id
+	TargetID *string `json:"target_id,omitempty"`
+	// Filter by favorite status
+	IsFavorite *bool             `json:"is_favorite,omitempty"`
+	Page       int               `json:"page"`
+	PerPage    int               `json:"per_page"`
+	Direction  SortDirectionEnum `json:"direction"`
+	Sort       EditSortEnum      `json:"sort"`
+}
+
+type EditVote struct {
+	User *User        `json:"user,omitempty"`
+	Date time.Time    `json:"date"`
+	Vote VoteTypeEnum `json:"vote"`
 }
 
 type EditVoteInput struct {
-	ID      string       `json:"id"`
-	Comment *string      `json:"comment"`
-	Type    VoteTypeEnum `json:"type"`
+	ID   string       `json:"id"`
+	Vote VoteTypeEnum `json:"vote"`
 }
 
 type EyeColorCriterionInput struct {
-	Value    *EyeColorEnum     `json:"value"`
+	Value    *EyeColorEnum     `json:"value,omitempty"`
 	Modifier CriterionModifier `json:"modifier"`
 }
 
 type Fingerprint struct {
-	Hash      string               `json:"hash"`
-	Algorithm FingerprintAlgorithm `json:"algorithm"`
-	Duration  int                  `json:"duration"`
+	Hash          string               `json:"hash"`
+	Algorithm     FingerprintAlgorithm `json:"algorithm"`
+	Duration      int                  `json:"duration"`
+	Submissions   int                  `json:"submissions"`
+	Created       time.Time            `json:"created"`
+	Updated       time.Time            `json:"updated"`
+	UserSubmitted bool                 `json:"user_submitted"`
+}
+
+type FingerprintEditInput struct {
+	UserIds     []string             `json:"user_ids,omitempty"`
+	Hash        string               `json:"hash"`
+	Algorithm   FingerprintAlgorithm `json:"algorithm"`
+	Duration    int                  `json:"duration"`
+	Created     time.Time            `json:"created"`
+	Submissions *int                 `json:"submissions,omitempty"`
+	Updated     *time.Time           `json:"updated,omitempty"`
 }
 
 type FingerprintInput struct {
+	// assumes current user if omitted. Ignored for non-modify Users
+	UserIds   []string             `json:"user_ids,omitempty"`
 	Hash      string               `json:"hash"`
 	Algorithm FingerprintAlgorithm `json:"algorithm"`
 	Duration  int                  `json:"duration"`
@@ -152,15 +230,11 @@ type FingerprintQueryInput struct {
 
 type FingerprintSubmission struct {
 	SceneID     string            `json:"scene_id"`
-	Fingerprint *FingerprintInput `json:"fingerprint"`
+	Fingerprint *FingerprintInput `json:"fingerprint,omitempty"`
+	Unmatch     *bool             `json:"unmatch,omitempty"`
 }
 
 type FuzzyDate struct {
-	Date     string           `json:"date"`
-	Accuracy DateAccuracyEnum `json:"accuracy"`
-}
-
-type FuzzyDateInput struct {
 	Date     string           `json:"date"`
 	Accuracy DateAccuracyEnum `json:"accuracy"`
 }
@@ -171,12 +245,12 @@ type GrantInviteInput struct {
 }
 
 type HairColorCriterionInput struct {
-	Value    *HairColorEnum    `json:"value"`
+	Value    *HairColorEnum    `json:"value,omitempty"`
 	Modifier CriterionModifier `json:"modifier"`
 }
 
 type IDCriterionInput struct {
-	Value    []string          `json:"value"`
+	Value    []string          `json:"value,omitempty"`
 	Modifier CriterionModifier `json:"modifier"`
 }
 
@@ -188,8 +262,8 @@ type Image struct {
 }
 
 type ImageCreateInput struct {
-	URL  *string         `json:"url"`
-	File *graphql.Upload `json:"file"`
+	URL  *string         `json:"url,omitempty"`
+	File *graphql.Upload `json:"file,omitempty"`
 }
 
 type ImageDestroyInput struct {
@@ -198,7 +272,7 @@ type ImageDestroyInput struct {
 
 type ImageUpdateInput struct {
 	ID  string  `json:"id"`
-	URL *string `json:"url"`
+	URL *string `json:"url,omitempty"`
 }
 
 type IntCriterionInput struct {
@@ -207,263 +281,341 @@ type IntCriterionInput struct {
 }
 
 type Measurements struct {
-	CupSize  *string `json:"cup_size"`
-	BandSize *int    `json:"band_size"`
-	Waist    *int    `json:"waist"`
-	Hip      *int    `json:"hip"`
-}
-
-type MeasurementsInput struct {
-	CupSize  *string `json:"cup_size"`
-	BandSize *int    `json:"band_size"`
-	Waist    *int    `json:"waist"`
-	Hip      *int    `json:"hip"`
+	CupSize  *string `json:"cup_size,omitempty"`
+	BandSize *int    `json:"band_size,omitempty"`
+	Waist    *int    `json:"waist,omitempty"`
+	Hip      *int    `json:"hip,omitempty"`
 }
 
 type MultiIDCriterionInput struct {
-	Value    []string          `json:"value"`
+	Value    []string          `json:"value,omitempty"`
+	Modifier CriterionModifier `json:"modifier"`
+}
+
+type MultiStringCriterionInput struct {
+	Value    []string          `json:"value,omitempty"`
 	Modifier CriterionModifier `json:"modifier"`
 }
 
 type NewUserInput struct {
 	Email     string  `json:"email"`
-	InviteKey *string `json:"invite_key"`
+	InviteKey *string `json:"invite_key,omitempty"`
 }
 
 type Performer struct {
 	ID             string         `json:"id"`
 	Name           string         `json:"name"`
-	Disambiguation *string        `json:"disambiguation"`
-	Aliases        []string       `json:"aliases"`
-	Gender         *GenderEnum    `json:"gender"`
-	Urls           []*URL         `json:"urls"`
-	Birthdate      *FuzzyDate     `json:"birthdate"`
-	Age            *int           `json:"age"`
-	Ethnicity      *EthnicityEnum `json:"ethnicity"`
-	Country        *string        `json:"country"`
-	EyeColor       *EyeColorEnum  `json:"eye_color"`
-	HairColor      *HairColorEnum `json:"hair_color"`
+	Disambiguation *string        `json:"disambiguation,omitempty"`
+	Aliases        []string       `json:"aliases,omitempty"`
+	Gender         *GenderEnum    `json:"gender,omitempty"`
+	Urls           []*URL         `json:"urls,omitempty"`
+	Birthdate      *FuzzyDate     `json:"birthdate,omitempty"`
+	BirthDate      *string        `json:"birth_date,omitempty"`
+	Age            *int           `json:"age,omitempty"`
+	Ethnicity      *EthnicityEnum `json:"ethnicity,omitempty"`
+	Country        *string        `json:"country,omitempty"`
+	EyeColor       *EyeColorEnum  `json:"eye_color,omitempty"`
+	HairColor      *HairColorEnum `json:"hair_color,omitempty"`
 	// Height in cm
-	Height          *int                `json:"height"`
-	Measurements    *Measurements       `json:"measurements"`
-	BreastType      *BreastTypeEnum     `json:"breast_type"`
-	CareerStartYear *int                `json:"career_start_year"`
-	CareerEndYear   *int                `json:"career_end_year"`
-	Tattoos         []*BodyModification `json:"tattoos"`
-	Piercings       []*BodyModification `json:"piercings"`
-	Images          []*Image            `json:"images"`
+	Height          *int                `json:"height,omitempty"`
+	Measurements    *Measurements       `json:"measurements,omitempty"`
+	CupSize         *string             `json:"cup_size,omitempty"`
+	BandSize        *int                `json:"band_size,omitempty"`
+	WaistSize       *int                `json:"waist_size,omitempty"`
+	HipSize         *int                `json:"hip_size,omitempty"`
+	BreastType      *BreastTypeEnum     `json:"breast_type,omitempty"`
+	CareerStartYear *int                `json:"career_start_year,omitempty"`
+	CareerEndYear   *int                `json:"career_end_year,omitempty"`
+	Tattoos         []*BodyModification `json:"tattoos,omitempty"`
+	Piercings       []*BodyModification `json:"piercings,omitempty"`
+	Images          []*Image            `json:"images,omitempty"`
 	Deleted         bool                `json:"deleted"`
-	Edits           []*Edit             `json:"edits"`
+	Edits           []*Edit             `json:"edits,omitempty"`
 	SceneCount      int                 `json:"scene_count"`
+	MergedIds       []string            `json:"merged_ids,omitempty"`
+	Studios         []*PerformerStudio  `json:"studios,omitempty"`
+	IsFavorite      bool                `json:"is_favorite"`
+	Created         time.Time           `json:"created"`
+	Updated         time.Time           `json:"updated"`
 }
 
-func (Performer) IsEditTarget() {}
+func (Performer) IsSceneDraftPerformer() {}
+func (Performer) IsEditTarget()          {}
 
 type PerformerAppearance struct {
-	Performer *Performer `json:"performer"`
+	Performer *Performer `json:"performer,omitempty"`
 	// Performing as alias
-	As *string `json:"as"`
+	As *string `json:"as,omitempty"`
 }
 
 type PerformerAppearanceInput struct {
 	PerformerID string `json:"performer_id"`
 	// Performing as alias
-	As *string `json:"as"`
+	As *string `json:"as,omitempty"`
 }
 
 type PerformerCreateInput struct {
 	Name            string                   `json:"name"`
-	Disambiguation  *string                  `json:"disambiguation"`
-	Aliases         []string                 `json:"aliases"`
-	Gender          *GenderEnum              `json:"gender"`
-	Urls            []*URLInput              `json:"urls"`
-	Birthdate       *FuzzyDateInput          `json:"birthdate"`
-	Ethnicity       *EthnicityEnum           `json:"ethnicity"`
-	Country         *string                  `json:"country"`
-	EyeColor        *EyeColorEnum            `json:"eye_color"`
-	HairColor       *HairColorEnum           `json:"hair_color"`
-	Height          *int                     `json:"height"`
-	Measurements    *MeasurementsInput       `json:"measurements"`
-	BreastType      *BreastTypeEnum          `json:"breast_type"`
-	CareerStartYear *int                     `json:"career_start_year"`
-	CareerEndYear   *int                     `json:"career_end_year"`
-	Tattoos         []*BodyModificationInput `json:"tattoos"`
-	Piercings       []*BodyModificationInput `json:"piercings"`
-	ImageIds        []string                 `json:"image_ids"`
+	Disambiguation  *string                  `json:"disambiguation,omitempty"`
+	Aliases         []string                 `json:"aliases,omitempty"`
+	Gender          *GenderEnum              `json:"gender,omitempty"`
+	Urls            []*URLInput              `json:"urls,omitempty"`
+	Birthdate       *string                  `json:"birthdate,omitempty"`
+	Ethnicity       *EthnicityEnum           `json:"ethnicity,omitempty"`
+	Country         *string                  `json:"country,omitempty"`
+	EyeColor        *EyeColorEnum            `json:"eye_color,omitempty"`
+	HairColor       *HairColorEnum           `json:"hair_color,omitempty"`
+	Height          *int                     `json:"height,omitempty"`
+	CupSize         *string                  `json:"cup_size,omitempty"`
+	BandSize        *int                     `json:"band_size,omitempty"`
+	WaistSize       *int                     `json:"waist_size,omitempty"`
+	HipSize         *int                     `json:"hip_size,omitempty"`
+	BreastType      *BreastTypeEnum          `json:"breast_type,omitempty"`
+	CareerStartYear *int                     `json:"career_start_year,omitempty"`
+	CareerEndYear   *int                     `json:"career_end_year,omitempty"`
+	Tattoos         []*BodyModificationInput `json:"tattoos,omitempty"`
+	Piercings       []*BodyModificationInput `json:"piercings,omitempty"`
+	ImageIds        []string                 `json:"image_ids,omitempty"`
+	DraftID         *string                  `json:"draft_id,omitempty"`
 }
 
 type PerformerDestroyInput struct {
 	ID string `json:"id"`
 }
 
+type PerformerDraft struct {
+	ID              *string  `json:"id,omitempty"`
+	Name            string   `json:"name"`
+	Aliases         *string  `json:"aliases,omitempty"`
+	Gender          *string  `json:"gender,omitempty"`
+	Birthdate       *string  `json:"birthdate,omitempty"`
+	Urls            []string `json:"urls,omitempty"`
+	Ethnicity       *string  `json:"ethnicity,omitempty"`
+	Country         *string  `json:"country,omitempty"`
+	EyeColor        *string  `json:"eye_color,omitempty"`
+	HairColor       *string  `json:"hair_color,omitempty"`
+	Height          *string  `json:"height,omitempty"`
+	Measurements    *string  `json:"measurements,omitempty"`
+	BreastType      *string  `json:"breast_type,omitempty"`
+	Tattoos         *string  `json:"tattoos,omitempty"`
+	Piercings       *string  `json:"piercings,omitempty"`
+	CareerStartYear *int     `json:"career_start_year,omitempty"`
+	CareerEndYear   *int     `json:"career_end_year,omitempty"`
+	Image           *Image   `json:"image,omitempty"`
+}
+
+func (PerformerDraft) IsDraftData() {}
+
+type PerformerDraftInput struct {
+	ID              *string         `json:"id,omitempty"`
+	Name            string          `json:"name"`
+	Aliases         *string         `json:"aliases,omitempty"`
+	Gender          *string         `json:"gender,omitempty"`
+	Birthdate       *string         `json:"birthdate,omitempty"`
+	Urls            []string        `json:"urls,omitempty"`
+	Ethnicity       *string         `json:"ethnicity,omitempty"`
+	Country         *string         `json:"country,omitempty"`
+	EyeColor        *string         `json:"eye_color,omitempty"`
+	HairColor       *string         `json:"hair_color,omitempty"`
+	Height          *string         `json:"height,omitempty"`
+	Measurements    *string         `json:"measurements,omitempty"`
+	BreastType      *string         `json:"breast_type,omitempty"`
+	Tattoos         *string         `json:"tattoos,omitempty"`
+	Piercings       *string         `json:"piercings,omitempty"`
+	CareerStartYear *int            `json:"career_start_year,omitempty"`
+	CareerEndYear   *int            `json:"career_end_year,omitempty"`
+	Image           *graphql.Upload `json:"image,omitempty"`
+}
+
 type PerformerEdit struct {
-	Name              *string        `json:"name"`
-	Disambiguation    *string        `json:"disambiguation"`
-	AddedAliases      []string       `json:"added_aliases"`
-	RemovedAliases    []string       `json:"removed_aliases"`
-	Gender            *GenderEnum    `json:"gender"`
-	AddedUrls         []*URL         `json:"added_urls"`
-	RemovedUrls       []*URL         `json:"removed_urls"`
-	Birthdate         *string        `json:"birthdate"`
-	BirthdateAccuracy *string        `json:"birthdate_accuracy"`
-	Ethnicity         *EthnicityEnum `json:"ethnicity"`
-	Country           *string        `json:"country"`
-	EyeColor          *EyeColorEnum  `json:"eye_color"`
-	HairColor         *HairColorEnum `json:"hair_color"`
+	Name           *string        `json:"name,omitempty"`
+	Disambiguation *string        `json:"disambiguation,omitempty"`
+	AddedAliases   []string       `json:"added_aliases,omitempty"`
+	RemovedAliases []string       `json:"removed_aliases,omitempty"`
+	Gender         *GenderEnum    `json:"gender,omitempty"`
+	AddedUrls      []*URL         `json:"added_urls,omitempty"`
+	RemovedUrls    []*URL         `json:"removed_urls,omitempty"`
+	Birthdate      *string        `json:"birthdate,omitempty"`
+	Ethnicity      *EthnicityEnum `json:"ethnicity,omitempty"`
+	Country        *string        `json:"country,omitempty"`
+	EyeColor       *EyeColorEnum  `json:"eye_color,omitempty"`
+	HairColor      *HairColorEnum `json:"hair_color,omitempty"`
 	// Height in cm
-	Height           *int                `json:"height"`
-	CupSize          *string             `json:"cup_size"`
-	BandSize         *int                `json:"band_size"`
-	WaistSize        *int                `json:"waist_size"`
-	HipSize          *int                `json:"hip_size"`
-	BreastType       *BreastTypeEnum     `json:"breast_type"`
-	CareerStartYear  *int                `json:"career_start_year"`
-	CareerEndYear    *int                `json:"career_end_year"`
-	AddedTattoos     []*BodyModification `json:"added_tattoos"`
-	RemovedTattoos   []*BodyModification `json:"removed_tattoos"`
-	AddedPiercings   []*BodyModification `json:"added_piercings"`
-	RemovedPiercings []*BodyModification `json:"removed_piercings"`
-	AddedImages      []*Image            `json:"added_images"`
-	RemovedImages    []*Image            `json:"removed_images"`
+	Height           *int                `json:"height,omitempty"`
+	CupSize          *string             `json:"cup_size,omitempty"`
+	BandSize         *int                `json:"band_size,omitempty"`
+	WaistSize        *int                `json:"waist_size,omitempty"`
+	HipSize          *int                `json:"hip_size,omitempty"`
+	BreastType       *BreastTypeEnum     `json:"breast_type,omitempty"`
+	CareerStartYear  *int                `json:"career_start_year,omitempty"`
+	CareerEndYear    *int                `json:"career_end_year,omitempty"`
+	AddedTattoos     []*BodyModification `json:"added_tattoos,omitempty"`
+	RemovedTattoos   []*BodyModification `json:"removed_tattoos,omitempty"`
+	AddedPiercings   []*BodyModification `json:"added_piercings,omitempty"`
+	RemovedPiercings []*BodyModification `json:"removed_piercings,omitempty"`
+	AddedImages      []*Image            `json:"added_images,omitempty"`
+	RemovedImages    []*Image            `json:"removed_images,omitempty"`
+	DraftID          *string             `json:"draft_id,omitempty"`
+	Aliases          []string            `json:"aliases,omitempty"`
+	Urls             []*URL              `json:"urls,omitempty"`
+	Images           []*Image            `json:"images,omitempty"`
+	Tattoos          []*BodyModification `json:"tattoos,omitempty"`
+	Piercings        []*BodyModification `json:"piercings,omitempty"`
 }
 
 func (PerformerEdit) IsEditDetails() {}
 
 type PerformerEditDetailsInput struct {
-	Name            *string                  `json:"name"`
-	Disambiguation  *string                  `json:"disambiguation"`
-	Aliases         []string                 `json:"aliases"`
-	Gender          *GenderEnum              `json:"gender"`
-	Urls            []*URLInput              `json:"urls"`
-	Birthdate       *FuzzyDateInput          `json:"birthdate"`
-	Ethnicity       *EthnicityEnum           `json:"ethnicity"`
-	Country         *string                  `json:"country"`
-	EyeColor        *EyeColorEnum            `json:"eye_color"`
-	HairColor       *HairColorEnum           `json:"hair_color"`
-	Height          *int                     `json:"height"`
-	Measurements    *MeasurementsInput       `json:"measurements"`
-	BreastType      *BreastTypeEnum          `json:"breast_type"`
-	CareerStartYear *int                     `json:"career_start_year"`
-	CareerEndYear   *int                     `json:"career_end_year"`
-	Tattoos         []*BodyModificationInput `json:"tattoos"`
-	Piercings       []*BodyModificationInput `json:"piercings"`
-	ImageIds        []string                 `json:"image_ids"`
+	Name            *string                  `json:"name,omitempty"`
+	Disambiguation  *string                  `json:"disambiguation,omitempty"`
+	Aliases         []string                 `json:"aliases,omitempty"`
+	Gender          *GenderEnum              `json:"gender,omitempty"`
+	Urls            []*URLInput              `json:"urls,omitempty"`
+	Birthdate       *string                  `json:"birthdate,omitempty"`
+	Ethnicity       *EthnicityEnum           `json:"ethnicity,omitempty"`
+	Country         *string                  `json:"country,omitempty"`
+	EyeColor        *EyeColorEnum            `json:"eye_color,omitempty"`
+	HairColor       *HairColorEnum           `json:"hair_color,omitempty"`
+	Height          *int                     `json:"height,omitempty"`
+	CupSize         *string                  `json:"cup_size,omitempty"`
+	BandSize        *int                     `json:"band_size,omitempty"`
+	WaistSize       *int                     `json:"waist_size,omitempty"`
+	HipSize         *int                     `json:"hip_size,omitempty"`
+	BreastType      *BreastTypeEnum          `json:"breast_type,omitempty"`
+	CareerStartYear *int                     `json:"career_start_year,omitempty"`
+	CareerEndYear   *int                     `json:"career_end_year,omitempty"`
+	Tattoos         []*BodyModificationInput `json:"tattoos,omitempty"`
+	Piercings       []*BodyModificationInput `json:"piercings,omitempty"`
+	ImageIds        []string                 `json:"image_ids,omitempty"`
+	DraftID         *string                  `json:"draft_id,omitempty"`
 }
 
 type PerformerEditInput struct {
-	Edit *EditInput `json:"edit"`
+	Edit *EditInput `json:"edit,omitempty"`
 	// Not required for destroy type
-	Details *PerformerEditDetailsInput `json:"details"`
+	Details *PerformerEditDetailsInput `json:"details,omitempty"`
 	// Controls aliases modification for merges and name modifications
-	Options *PerformerEditOptionsInput `json:"options"`
+	Options *PerformerEditOptionsInput `json:"options,omitempty"`
 }
 
 type PerformerEditOptions struct {
-	//  Set performer alias on scenes without alias to old name if name is changed
+	// Set performer alias on scenes without alias to old name if name is changed
 	SetModifyAliases bool `json:"set_modify_aliases"`
-	//  Set performer alias on scenes attached to merge sources to old name
+	// Set performer alias on scenes attached to merge sources to old name
 	SetMergeAliases bool `json:"set_merge_aliases"`
 }
 
 type PerformerEditOptionsInput struct {
-	//  Set performer alias on scenes without alias to old name if name is changed
-	SetModifyAliases *bool `json:"set_modify_aliases"`
-	//  Set performer alias on scenes attached to merge sources to old name
-	SetMergeAliases *bool `json:"set_merge_aliases"`
+	// Set performer alias on scenes without alias to old name if name is changed
+	SetModifyAliases *bool `json:"set_modify_aliases,omitempty"`
+	// Set performer alias on scenes attached to merge sources to old name
+	SetMergeAliases *bool `json:"set_merge_aliases,omitempty"`
 }
 
-type PerformerFilterType struct {
-	// Searches name and aliases - assumes like query unless quoted
-	Names *string `json:"names"`
+type PerformerQueryInput struct {
+	// Searches name and disambiguation - assumes like query unless quoted
+	Names *string `json:"names,omitempty"`
 	// Searches name only - assumes like query unless quoted
-	Name *string `json:"name"`
+	Name *string `json:"name,omitempty"`
 	// Search aliases only - assumes like query unless quoted
-	Alias          *string               `json:"alias"`
-	Disambiguation *StringCriterionInput `json:"disambiguation"`
-	Gender         *GenderFilterEnum     `json:"gender"`
+	Alias          *string               `json:"alias,omitempty"`
+	Disambiguation *StringCriterionInput `json:"disambiguation,omitempty"`
+	Gender         *GenderFilterEnum     `json:"gender,omitempty"`
 	// Filter to search urls - assumes like query unless quoted
-	URL             *string                         `json:"url"`
-	Birthdate       *DateCriterionInput             `json:"birthdate"`
-	BirthYear       *IntCriterionInput              `json:"birth_year"`
-	Age             *IntCriterionInput              `json:"age"`
-	Ethnicity       *EthnicityFilterEnum            `json:"ethnicity"`
-	Country         *StringCriterionInput           `json:"country"`
-	EyeColor        *EyeColorCriterionInput         `json:"eye_color"`
-	HairColor       *HairColorCriterionInput        `json:"hair_color"`
-	Height          *IntCriterionInput              `json:"height"`
-	CupSize         *StringCriterionInput           `json:"cup_size"`
-	BandSize        *IntCriterionInput              `json:"band_size"`
-	WaistSize       *IntCriterionInput              `json:"waist_size"`
-	HipSize         *IntCriterionInput              `json:"hip_size"`
-	BreastType      *BreastTypeCriterionInput       `json:"breast_type"`
-	CareerStartYear *IntCriterionInput              `json:"career_start_year"`
-	CareerEndYear   *IntCriterionInput              `json:"career_end_year"`
-	Tattoos         *BodyModificationCriterionInput `json:"tattoos"`
-	Piercings       *BodyModificationCriterionInput `json:"piercings"`
+	URL             *string                         `json:"url,omitempty"`
+	Birthdate       *DateCriterionInput             `json:"birthdate,omitempty"`
+	BirthYear       *IntCriterionInput              `json:"birth_year,omitempty"`
+	Age             *IntCriterionInput              `json:"age,omitempty"`
+	Ethnicity       *EthnicityFilterEnum            `json:"ethnicity,omitempty"`
+	Country         *StringCriterionInput           `json:"country,omitempty"`
+	EyeColor        *EyeColorCriterionInput         `json:"eye_color,omitempty"`
+	HairColor       *HairColorCriterionInput        `json:"hair_color,omitempty"`
+	Height          *IntCriterionInput              `json:"height,omitempty"`
+	CupSize         *StringCriterionInput           `json:"cup_size,omitempty"`
+	BandSize        *IntCriterionInput              `json:"band_size,omitempty"`
+	WaistSize       *IntCriterionInput              `json:"waist_size,omitempty"`
+	HipSize         *IntCriterionInput              `json:"hip_size,omitempty"`
+	BreastType      *BreastTypeCriterionInput       `json:"breast_type,omitempty"`
+	CareerStartYear *IntCriterionInput              `json:"career_start_year,omitempty"`
+	CareerEndYear   *IntCriterionInput              `json:"career_end_year,omitempty"`
+	Tattoos         *BodyModificationCriterionInput `json:"tattoos,omitempty"`
+	Piercings       *BodyModificationCriterionInput `json:"piercings,omitempty"`
+	// Filter by performerfavorite status for the current user
+	IsFavorite *bool             `json:"is_favorite,omitempty"`
+	Page       int               `json:"page"`
+	PerPage    int               `json:"per_page"`
+	Direction  SortDirectionEnum `json:"direction"`
+	Sort       PerformerSortEnum `json:"sort"`
+}
+
+type PerformerStudio struct {
+	Studio     *Studio `json:"studio,omitempty"`
+	SceneCount int     `json:"scene_count"`
 }
 
 type PerformerUpdateInput struct {
 	ID              string                   `json:"id"`
-	Name            *string                  `json:"name"`
-	Disambiguation  *string                  `json:"disambiguation"`
-	Aliases         []string                 `json:"aliases"`
-	Gender          *GenderEnum              `json:"gender"`
-	Urls            []*URLInput              `json:"urls"`
-	Birthdate       *FuzzyDateInput          `json:"birthdate"`
-	Ethnicity       *EthnicityEnum           `json:"ethnicity"`
-	Country         *string                  `json:"country"`
-	EyeColor        *EyeColorEnum            `json:"eye_color"`
-	HairColor       *HairColorEnum           `json:"hair_color"`
-	Height          *int                     `json:"height"`
-	Measurements    *MeasurementsInput       `json:"measurements"`
-	BreastType      *BreastTypeEnum          `json:"breast_type"`
-	CareerStartYear *int                     `json:"career_start_year"`
-	CareerEndYear   *int                     `json:"career_end_year"`
-	Tattoos         []*BodyModificationInput `json:"tattoos"`
-	Piercings       []*BodyModificationInput `json:"piercings"`
-	ImageIds        []string                 `json:"image_ids"`
+	Name            *string                  `json:"name,omitempty"`
+	Disambiguation  *string                  `json:"disambiguation,omitempty"`
+	Aliases         []string                 `json:"aliases,omitempty"`
+	Gender          *GenderEnum              `json:"gender,omitempty"`
+	Urls            []*URLInput              `json:"urls,omitempty"`
+	Birthdate       *string                  `json:"birthdate,omitempty"`
+	Ethnicity       *EthnicityEnum           `json:"ethnicity,omitempty"`
+	Country         *string                  `json:"country,omitempty"`
+	EyeColor        *EyeColorEnum            `json:"eye_color,omitempty"`
+	HairColor       *HairColorEnum           `json:"hair_color,omitempty"`
+	Height          *int                     `json:"height,omitempty"`
+	CupSize         *string                  `json:"cup_size,omitempty"`
+	BandSize        *int                     `json:"band_size,omitempty"`
+	WaistSize       *int                     `json:"waist_size,omitempty"`
+	HipSize         *int                     `json:"hip_size,omitempty"`
+	BreastType      *BreastTypeEnum          `json:"breast_type,omitempty"`
+	CareerStartYear *int                     `json:"career_start_year,omitempty"`
+	CareerEndYear   *int                     `json:"career_end_year,omitempty"`
+	Tattoos         []*BodyModificationInput `json:"tattoos,omitempty"`
+	Piercings       []*BodyModificationInput `json:"piercings,omitempty"`
+	ImageIds        []string                 `json:"image_ids,omitempty"`
 }
 
 type QueryEditsResultType struct {
 	Count int     `json:"count"`
-	Edits []*Edit `json:"edits"`
+	Edits []*Edit `json:"edits,omitempty"`
 }
 
 type QueryPerformersResultType struct {
 	Count      int          `json:"count"`
-	Performers []*Performer `json:"performers"`
+	Performers []*Performer `json:"performers,omitempty"`
 }
 
 type QueryScenesResultType struct {
 	Count  int      `json:"count"`
-	Scenes []*Scene `json:"scenes"`
+	Scenes []*Scene `json:"scenes,omitempty"`
 }
 
-type QuerySpec struct {
-	Page      *int               `json:"page"`
-	PerPage   *int               `json:"per_page"`
-	Sort      *string            `json:"sort"`
-	Direction *SortDirectionEnum `json:"direction"`
+type QuerySitesResultType struct {
+	Count int     `json:"count"`
+	Sites []*Site `json:"sites,omitempty"`
 }
 
 type QueryStudiosResultType struct {
 	Count   int       `json:"count"`
-	Studios []*Studio `json:"studios"`
+	Studios []*Studio `json:"studios,omitempty"`
 }
 
 type QueryTagCategoriesResultType struct {
 	Count         int            `json:"count"`
-	TagCategories []*TagCategory `json:"tag_categories"`
+	TagCategories []*TagCategory `json:"tag_categories,omitempty"`
 }
 
 type QueryTagsResultType struct {
 	Count int    `json:"count"`
-	Tags  []*Tag `json:"tags"`
+	Tags  []*Tag `json:"tags,omitempty"`
 }
 
 type QueryUsersResultType struct {
 	Count int     `json:"count"`
-	Users []*User `json:"users"`
+	Users []*User `json:"users,omitempty"`
 }
 
 type ResetPasswordInput struct {
@@ -476,123 +628,204 @@ type RevokeInviteInput struct {
 }
 
 type RoleCriterionInput struct {
-	Value    []RoleEnum        `json:"value"`
+	Value    []RoleEnum        `json:"value,omitempty"`
 	Modifier CriterionModifier `json:"modifier"`
 }
 
 type Scene struct {
 	ID           string                 `json:"id"`
-	Title        *string                `json:"title"`
-	Details      *string                `json:"details"`
-	Date         *string                `json:"date"`
-	Urls         []*URL                 `json:"urls"`
-	Studio       *Studio                `json:"studio"`
-	Tags         []*Tag                 `json:"tags"`
-	Images       []*Image               `json:"images"`
-	Performers   []*PerformerAppearance `json:"performers"`
-	Fingerprints []*Fingerprint         `json:"fingerprints"`
-	Duration     *int                   `json:"duration"`
-	Director     *string                `json:"director"`
+	Title        *string                `json:"title,omitempty"`
+	Details      *string                `json:"details,omitempty"`
+	Date         *string                `json:"date,omitempty"`
+	ReleaseDate  *string                `json:"release_date,omitempty"`
+	Urls         []*URL                 `json:"urls,omitempty"`
+	Studio       *Studio                `json:"studio,omitempty"`
+	Tags         []*Tag                 `json:"tags,omitempty"`
+	Images       []*Image               `json:"images,omitempty"`
+	Performers   []*PerformerAppearance `json:"performers,omitempty"`
+	Fingerprints []*Fingerprint         `json:"fingerprints,omitempty"`
+	Duration     *int                   `json:"duration,omitempty"`
+	Director     *string                `json:"director,omitempty"`
+	Code         *string                `json:"code,omitempty"`
 	Deleted      bool                   `json:"deleted"`
+	Edits        []*Edit                `json:"edits,omitempty"`
+	Created      time.Time              `json:"created"`
+	Updated      time.Time              `json:"updated"`
 }
 
 func (Scene) IsEditTarget() {}
 
 type SceneCreateInput struct {
-	Title        *string                     `json:"title"`
-	Details      *string                     `json:"details"`
-	Urls         []*URLInput                 `json:"urls"`
-	Date         *string                     `json:"date"`
-	StudioID     *string                     `json:"studio_id"`
-	Performers   []*PerformerAppearanceInput `json:"performers"`
-	TagIds       []string                    `json:"tag_ids"`
-	ImageIds     []string                    `json:"image_ids"`
-	Fingerprints []*FingerprintInput         `json:"fingerprints"`
-	Duration     *int                        `json:"duration"`
-	Director     *string                     `json:"director"`
+	Title        *string                     `json:"title,omitempty"`
+	Details      *string                     `json:"details,omitempty"`
+	Urls         []*URLInput                 `json:"urls,omitempty"`
+	Date         string                      `json:"date"`
+	StudioID     *string                     `json:"studio_id,omitempty"`
+	Performers   []*PerformerAppearanceInput `json:"performers,omitempty"`
+	TagIds       []string                    `json:"tag_ids,omitempty"`
+	ImageIds     []string                    `json:"image_ids,omitempty"`
+	Fingerprints []*FingerprintEditInput     `json:"fingerprints,omitempty"`
+	Duration     *int                        `json:"duration,omitempty"`
+	Director     *string                     `json:"director,omitempty"`
+	Code         *string                     `json:"code,omitempty"`
 }
 
 type SceneDestroyInput struct {
 	ID string `json:"id"`
 }
 
+type SceneDraft struct {
+	ID           *string               `json:"id,omitempty"`
+	Title        *string               `json:"title,omitempty"`
+	Details      *string               `json:"details,omitempty"`
+	URL          *URL                  `json:"url,omitempty"`
+	Date         *string               `json:"date,omitempty"`
+	Studio       SceneDraftStudio      `json:"studio,omitempty"`
+	Performers   []SceneDraftPerformer `json:"performers,omitempty"`
+	Tags         []SceneDraftTag       `json:"tags,omitempty"`
+	Image        *Image                `json:"image,omitempty"`
+	Fingerprints []*DraftFingerprint   `json:"fingerprints,omitempty"`
+}
+
+func (SceneDraft) IsDraftData() {}
+
 type SceneEdit struct {
-	Title       *string `json:"title"`
-	Details     *string `json:"details"`
-	AddedUrls   []*URL  `json:"added_urls"`
-	RemovedUrls []*URL  `json:"removed_urls"`
-	Date        *string `json:"date"`
-	StudioID    *string `json:"studio_id"`
+	Title       *string `json:"title,omitempty"`
+	Details     *string `json:"details,omitempty"`
+	AddedUrls   []*URL  `json:"added_urls,omitempty"`
+	RemovedUrls []*URL  `json:"removed_urls,omitempty"`
+	Date        *string `json:"date,omitempty"`
+	Studio      *Studio `json:"studio,omitempty"`
 	// Added or modified performer appearance entries
-	AddedPerformers     []*PerformerAppearance `json:"added_performers"`
-	RemovedPerformers   []*PerformerAppearance `json:"removed_performers"`
-	AddedTags           []*Tag                 `json:"added_tags"`
-	RemovedTags         []*Tag                 `json:"removed_tags"`
-	AddedImages         []*Image               `json:"added_images"`
-	RemovedImages       []*Image               `json:"removed_images"`
-	AddedFingerprints   []*Fingerprint         `json:"added_fingerprints"`
-	RemovedFingerprints []*Fingerprint         `json:"removed_fingerprints"`
-	Duration            *int                   `json:"duration"`
-	Director            *string                `json:"director"`
+	AddedPerformers     []*PerformerAppearance `json:"added_performers,omitempty"`
+	RemovedPerformers   []*PerformerAppearance `json:"removed_performers,omitempty"`
+	AddedTags           []*Tag                 `json:"added_tags,omitempty"`
+	RemovedTags         []*Tag                 `json:"removed_tags,omitempty"`
+	AddedImages         []*Image               `json:"added_images,omitempty"`
+	RemovedImages       []*Image               `json:"removed_images,omitempty"`
+	AddedFingerprints   []*Fingerprint         `json:"added_fingerprints,omitempty"`
+	RemovedFingerprints []*Fingerprint         `json:"removed_fingerprints,omitempty"`
+	Duration            *int                   `json:"duration,omitempty"`
+	Director            *string                `json:"director,omitempty"`
+	Code                *string                `json:"code,omitempty"`
+	DraftID             *string                `json:"draft_id,omitempty"`
+	Urls                []*URL                 `json:"urls,omitempty"`
+	Performers          []*PerformerAppearance `json:"performers,omitempty"`
+	Tags                []*Tag                 `json:"tags,omitempty"`
+	Images              []*Image               `json:"images,omitempty"`
+	Fingerprints        []*Fingerprint         `json:"fingerprints,omitempty"`
 }
 
 func (SceneEdit) IsEditDetails() {}
 
 type SceneEditDetailsInput struct {
-	Title        *string                     `json:"title"`
-	Details      *string                     `json:"details"`
-	Urls         []*URLInput                 `json:"urls"`
-	Date         *string                     `json:"date"`
-	StudioID     *string                     `json:"studio_id"`
-	Performers   []*PerformerAppearanceInput `json:"performers"`
-	TagIds       []string                    `json:"tag_ids"`
-	ImageIds     []string                    `json:"image_ids"`
-	Fingerprints []*FingerprintInput         `json:"fingerprints"`
-	Duration     *int                        `json:"duration"`
-	Director     *string                     `json:"director"`
+	Title        *string                     `json:"title,omitempty"`
+	Details      *string                     `json:"details,omitempty"`
+	Urls         []*URLInput                 `json:"urls,omitempty"`
+	Date         *string                     `json:"date,omitempty"`
+	StudioID     *string                     `json:"studio_id,omitempty"`
+	Performers   []*PerformerAppearanceInput `json:"performers,omitempty"`
+	TagIds       []string                    `json:"tag_ids,omitempty"`
+	ImageIds     []string                    `json:"image_ids,omitempty"`
+	Duration     *int                        `json:"duration,omitempty"`
+	Director     *string                     `json:"director,omitempty"`
+	Code         *string                     `json:"code,omitempty"`
+	Fingerprints []*FingerprintInput         `json:"fingerprints,omitempty"`
+	DraftID      *string                     `json:"draft_id,omitempty"`
 }
 
 type SceneEditInput struct {
-	Edit *EditInput `json:"edit"`
+	Edit *EditInput `json:"edit,omitempty"`
 	// Not required for destroy type
-	Details  *SceneEditDetailsInput `json:"details"`
-	Duration *int                   `json:"duration"`
+	Details  *SceneEditDetailsInput `json:"details,omitempty"`
+	Duration *int                   `json:"duration,omitempty"`
 }
 
-type SceneFilterType struct {
+type SceneQueryInput struct {
 	// Filter to search title and details - assumes like query unless quoted
-	Text *string `json:"text"`
+	Text *string `json:"text,omitempty"`
 	// Filter to search title - assumes like query unless quoted
-	Title *string `json:"title"`
+	Title *string `json:"title,omitempty"`
 	// Filter to search urls - assumes like query unless quoted
-	URL *string `json:"url"`
+	URL *string `json:"url,omitempty"`
 	// Filter by date
-	Date *DateCriterionInput `json:"date"`
+	Date *DateCriterionInput `json:"date,omitempty"`
 	// Filter to only include scenes with this studio
-	Studios *MultiIDCriterionInput `json:"studios"`
+	Studios *MultiIDCriterionInput `json:"studios,omitempty"`
 	// Filter to only include scenes with this studio as primary or parent
-	ParentStudio *string `json:"parentStudio"`
+	ParentStudio *string `json:"parentStudio,omitempty"`
 	// Filter to only include scenes with these tags
-	Tags *MultiIDCriterionInput `json:"tags"`
+	Tags *MultiIDCriterionInput `json:"tags,omitempty"`
 	// Filter to only include scenes with these performers
-	Performers *MultiIDCriterionInput `json:"performers"`
+	Performers *MultiIDCriterionInput `json:"performers,omitempty"`
 	// Filter to include scenes with performer appearing as alias
-	Alias *StringCriterionInput `json:"alias"`
+	Alias *StringCriterionInput `json:"alias,omitempty"`
+	// Filter to only include scenes with these fingerprints
+	Fingerprints *MultiStringCriterionInput `json:"fingerprints,omitempty"`
+	Page         int                        `json:"page"`
+	PerPage      int                        `json:"per_page"`
+	Direction    SortDirectionEnum          `json:"direction"`
+	Sort         SceneSortEnum              `json:"sort"`
 }
 
 type SceneUpdateInput struct {
 	ID           string                      `json:"id"`
-	Title        *string                     `json:"title"`
-	Details      *string                     `json:"details"`
-	Urls         []*URLInput                 `json:"urls"`
-	Date         *string                     `json:"date"`
-	StudioID     *string                     `json:"studio_id"`
-	Performers   []*PerformerAppearanceInput `json:"performers"`
-	TagIds       []string                    `json:"tag_ids"`
-	ImageIds     []string                    `json:"image_ids"`
-	Fingerprints []*FingerprintInput         `json:"fingerprints"`
-	Duration     *int                        `json:"duration"`
-	Director     *string                     `json:"director"`
+	Title        *string                     `json:"title,omitempty"`
+	Details      *string                     `json:"details,omitempty"`
+	Urls         []*URLInput                 `json:"urls,omitempty"`
+	Date         *string                     `json:"date,omitempty"`
+	StudioID     *string                     `json:"studio_id,omitempty"`
+	Performers   []*PerformerAppearanceInput `json:"performers,omitempty"`
+	TagIds       []string                    `json:"tag_ids,omitempty"`
+	ImageIds     []string                    `json:"image_ids,omitempty"`
+	Fingerprints []*FingerprintEditInput     `json:"fingerprints,omitempty"`
+	Duration     *int                        `json:"duration,omitempty"`
+	Director     *string                     `json:"director,omitempty"`
+	Code         *string                     `json:"code,omitempty"`
+}
+
+type Site struct {
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	Description *string             `json:"description,omitempty"`
+	URL         *string             `json:"url,omitempty"`
+	Regex       *string             `json:"regex,omitempty"`
+	ValidTypes  []ValidSiteTypeEnum `json:"valid_types,omitempty"`
+	Icon        string              `json:"icon"`
+	Created     time.Time           `json:"created"`
+	Updated     time.Time           `json:"updated"`
+}
+
+type SiteCreateInput struct {
+	Name        string              `json:"name"`
+	Description *string             `json:"description,omitempty"`
+	URL         *string             `json:"url,omitempty"`
+	Regex       *string             `json:"regex,omitempty"`
+	ValidTypes  []ValidSiteTypeEnum `json:"valid_types,omitempty"`
+}
+
+type SiteDestroyInput struct {
+	ID string `json:"id"`
+}
+
+type SiteUpdateInput struct {
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	Description *string             `json:"description,omitempty"`
+	URL         *string             `json:"url,omitempty"`
+	Regex       *string             `json:"regex,omitempty"`
+	ValidTypes  []ValidSiteTypeEnum `json:"valid_types,omitempty"`
+}
+
+type StashBoxConfig struct {
+	HostURL                    string `json:"host_url"`
+	RequireInvite              bool   `json:"require_invite"`
+	RequireActivation          bool   `json:"require_activation"`
+	VotePromotionThreshold     *int   `json:"vote_promotion_threshold,omitempty"`
+	VoteApplicationThreshold   int    `json:"vote_application_threshold"`
+	VotingPeriod               int    `json:"voting_period"`
+	MinDestructiveVotingPeriod int    `json:"min_destructive_voting_period"`
+	VoteCronInterval           string `json:"vote_cron_interval"`
 }
 
 type StringCriterionInput struct {
@@ -603,21 +836,24 @@ type StringCriterionInput struct {
 type Studio struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
-	Urls         []*URL    `json:"urls"`
-	Parent       *Studio   `json:"parent"`
-	ChildStudios []*Studio `json:"child_studios"`
-	Images       []*Image  `json:"images"`
+	Urls         []*URL    `json:"urls,omitempty"`
+	Parent       *Studio   `json:"parent,omitempty"`
+	ChildStudios []*Studio `json:"child_studios,omitempty"`
+	Images       []*Image  `json:"images,omitempty"`
 	Deleted      bool      `json:"deleted"`
+	IsFavorite   bool      `json:"is_favorite"`
+	Created      time.Time `json:"created"`
+	Updated      time.Time `json:"updated"`
 }
 
-func (Studio) IsEditTarget() {}
+func (Studio) IsEditTarget()       {}
+func (Studio) IsSceneDraftStudio() {}
 
 type StudioCreateInput struct {
-	Name           string      `json:"name"`
-	Urls           []*URLInput `json:"urls"`
-	ParentID       *string     `json:"parent_id"`
-	ChildStudioIds []string    `json:"child_studio_ids"`
-	ImageIds       []string    `json:"image_ids"`
+	Name     string      `json:"name"`
+	Urls     []*URLInput `json:"urls,omitempty"`
+	ParentID *string     `json:"parent_id,omitempty"`
+	ImageIds []string    `json:"image_ids,omitempty"`
 }
 
 type StudioDestroyInput struct {
@@ -625,76 +861,83 @@ type StudioDestroyInput struct {
 }
 
 type StudioEdit struct {
-	Name *string `json:"name"`
+	Name *string `json:"name,omitempty"`
 	// Added and modified URLs
-	AddedUrls           []*URL    `json:"added_urls"`
-	RemovedUrls         []*URL    `json:"removed_urls"`
-	Parent              *Studio   `json:"parent"`
-	AddedChildStudios   []*Studio `json:"added_child_studios"`
-	RemovedChildStudios []*Studio `json:"removed_child_studios"`
-	AddedImages         []*Image  `json:"added_images"`
-	RemovedImages       []*Image  `json:"removed_images"`
+	AddedUrls     []*URL   `json:"added_urls,omitempty"`
+	RemovedUrls   []*URL   `json:"removed_urls,omitempty"`
+	Parent        *Studio  `json:"parent,omitempty"`
+	AddedImages   []*Image `json:"added_images,omitempty"`
+	RemovedImages []*Image `json:"removed_images,omitempty"`
+	Images        []*Image `json:"images,omitempty"`
+	Urls          []*URL   `json:"urls,omitempty"`
 }
 
 func (StudioEdit) IsEditDetails() {}
 
 type StudioEditDetailsInput struct {
-	Name           *string     `json:"name"`
-	Urls           []*URLInput `json:"urls"`
-	ParentID       *string     `json:"parent_id"`
-	ChildStudioIds []string    `json:"child_studio_ids"`
-	ImageIds       []string    `json:"image_ids"`
+	Name     *string     `json:"name,omitempty"`
+	Urls     []*URLInput `json:"urls,omitempty"`
+	ParentID *string     `json:"parent_id,omitempty"`
+	ImageIds []string    `json:"image_ids,omitempty"`
 }
 
 type StudioEditInput struct {
-	Edit *EditInput `json:"edit"`
+	Edit *EditInput `json:"edit,omitempty"`
 	// Not required for destroy type
-	Details *StudioEditDetailsInput `json:"details"`
+	Details *StudioEditDetailsInput `json:"details,omitempty"`
 }
 
-type StudioFilterType struct {
+type StudioQueryInput struct {
 	// Filter to search name - assumes like query unless quoted
-	Name *string `json:"name"`
+	Name *string `json:"name,omitempty"`
 	// Filter to search studio and parent studio name - assumes like query unless quoted
-	Names *string `json:"names"`
+	Names *string `json:"names,omitempty"`
 	// Filter to search url - assumes like query unless quoted
-	URL       *string           `json:"url"`
-	Parent    *IDCriterionInput `json:"parent"`
-	HasParent *bool             `json:"has_parent"`
+	URL       *string           `json:"url,omitempty"`
+	Parent    *IDCriterionInput `json:"parent,omitempty"`
+	HasParent *bool             `json:"has_parent,omitempty"`
+	// Filter by studio favorite status for the current user
+	IsFavorite *bool             `json:"is_favorite,omitempty"`
+	Page       int               `json:"page"`
+	PerPage    int               `json:"per_page"`
+	Direction  SortDirectionEnum `json:"direction"`
+	Sort       StudioSortEnum    `json:"sort"`
 }
 
 type StudioUpdateInput struct {
-	ID             string      `json:"id"`
-	Name           *string     `json:"name"`
-	Urls           []*URLInput `json:"urls"`
-	ParentID       *string     `json:"parent_id"`
-	ChildStudioIds []string    `json:"child_studio_ids"`
-	ImageIds       []string    `json:"image_ids"`
+	ID       string      `json:"id"`
+	Name     *string     `json:"name,omitempty"`
+	Urls     []*URLInput `json:"urls,omitempty"`
+	ParentID *string     `json:"parent_id,omitempty"`
+	ImageIds []string    `json:"image_ids,omitempty"`
 }
 
 type Tag struct {
 	ID          string       `json:"id"`
 	Name        string       `json:"name"`
-	Description *string      `json:"description"`
-	Aliases     []string     `json:"aliases"`
+	Description *string      `json:"description,omitempty"`
+	Aliases     []string     `json:"aliases,omitempty"`
 	Deleted     bool         `json:"deleted"`
-	Edits       []*Edit      `json:"edits"`
-	Category    *TagCategory `json:"category"`
+	Edits       []*Edit      `json:"edits,omitempty"`
+	Category    *TagCategory `json:"category,omitempty"`
+	Created     time.Time    `json:"created"`
+	Updated     time.Time    `json:"updated"`
 }
 
-func (Tag) IsEditTarget() {}
+func (Tag) IsEditTarget()    {}
+func (Tag) IsSceneDraftTag() {}
 
 type TagCategory struct {
 	ID          string       `json:"id"`
 	Name        string       `json:"name"`
 	Group       TagGroupEnum `json:"group"`
-	Description *string      `json:"description"`
+	Description *string      `json:"description,omitempty"`
 }
 
 type TagCategoryCreateInput struct {
 	Name        string       `json:"name"`
 	Group       TagGroupEnum `json:"group"`
-	Description *string      `json:"description"`
+	Description *string      `json:"description,omitempty"`
 }
 
 type TagCategoryDestroyInput struct {
@@ -703,16 +946,16 @@ type TagCategoryDestroyInput struct {
 
 type TagCategoryUpdateInput struct {
 	ID          string        `json:"id"`
-	Name        *string       `json:"name"`
-	Group       *TagGroupEnum `json:"group"`
-	Description *string       `json:"description"`
+	Name        *string       `json:"name,omitempty"`
+	Group       *TagGroupEnum `json:"group,omitempty"`
+	Description *string       `json:"description,omitempty"`
 }
 
 type TagCreateInput struct {
 	Name        string   `json:"name"`
-	Description *string  `json:"description"`
-	Aliases     []string `json:"aliases"`
-	CategoryID  *string  `json:"category_id"`
+	Description *string  `json:"description,omitempty"`
+	Aliases     []string `json:"aliases,omitempty"`
+	CategoryID  *string  `json:"category_id,omitempty"`
 }
 
 type TagDestroyInput struct {
@@ -720,141 +963,160 @@ type TagDestroyInput struct {
 }
 
 type TagEdit struct {
-	Name           *string  `json:"name"`
-	Description    *string  `json:"description"`
-	AddedAliases   []string `json:"added_aliases"`
-	RemovedAliases []string `json:"removed_aliases"`
-	CategoryID     *string  `json:"category_id"`
+	Name           *string      `json:"name,omitempty"`
+	Description    *string      `json:"description,omitempty"`
+	AddedAliases   []string     `json:"added_aliases,omitempty"`
+	RemovedAliases []string     `json:"removed_aliases,omitempty"`
+	Category       *TagCategory `json:"category,omitempty"`
+	Aliases        []string     `json:"aliases,omitempty"`
 }
 
 func (TagEdit) IsEditDetails() {}
 
 type TagEditDetailsInput struct {
-	Name        *string  `json:"name"`
-	Description *string  `json:"description"`
-	Aliases     []string `json:"aliases"`
-	CategoryID  *string  `json:"category_id"`
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Aliases     []string `json:"aliases,omitempty"`
+	CategoryID  *string  `json:"category_id,omitempty"`
 }
 
 type TagEditInput struct {
-	Edit *EditInput `json:"edit"`
+	Edit *EditInput `json:"edit,omitempty"`
 	// Not required for destroy type
-	Details *TagEditDetailsInput `json:"details"`
+	Details *TagEditDetailsInput `json:"details,omitempty"`
 }
 
-type TagFilterType struct {
+type TagQueryInput struct {
 	// Filter to search name, aliases and description - assumes like query unless quoted
-	Text *string `json:"text"`
+	Text *string `json:"text,omitempty"`
 	// Searches name and aliases - assumes like query unless quoted
-	Names *string `json:"names"`
+	Names *string `json:"names,omitempty"`
 	// Filter to search name - assumes like query unless quoted
-	Name *string `json:"name"`
+	Name *string `json:"name,omitempty"`
 	// Filter to category ID
-	CategoryID *string `json:"category_id"`
+	CategoryID *string           `json:"category_id,omitempty"`
+	Page       int               `json:"page"`
+	PerPage    int               `json:"per_page"`
+	Direction  SortDirectionEnum `json:"direction"`
+	Sort       TagSortEnum       `json:"sort"`
 }
 
 type TagUpdateInput struct {
 	ID          string   `json:"id"`
-	Name        *string  `json:"name"`
-	Description *string  `json:"description"`
-	Aliases     []string `json:"aliases"`
-	CategoryID  *string  `json:"category_id"`
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	Aliases     []string `json:"aliases,omitempty"`
+	CategoryID  *string  `json:"category_id,omitempty"`
 }
 
 type URL struct {
 	URL  string `json:"url"`
 	Type string `json:"type"`
+	Site *Site  `json:"site,omitempty"`
 }
 
 type URLInput struct {
-	URL  string `json:"url"`
-	Type string `json:"type"`
+	URL    string `json:"url"`
+	SiteID string `json:"site_id"`
 }
 
 type User struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	// Should not be visible to other users
-	Roles []RoleEnum `json:"roles"`
+	Roles []RoleEnum `json:"roles,omitempty"`
 	// Should not be visible to other users
-	Email *string `json:"email"`
+	Email *string `json:"email,omitempty"`
 	// Should not be visible to other users
-	APIKey            *string `json:"api_key"`
-	SuccessfulEdits   int     `json:"successful_edits"`
-	UnsuccessfulEdits int     `json:"unsuccessful_edits"`
-	SuccessfulVotes   int     `json:"successful_votes"`
-	// Votes on unsuccessful edits
-	UnsuccessfulVotes int `json:"unsuccessful_votes"`
+	APIKey *string `json:"api_key,omitempty"`
+	//  Vote counts by type
+	VoteCount *UserVoteCount `json:"vote_count,omitempty"`
+	//  Edit counts by status
+	EditCount *UserEditCount `json:"edit_count,omitempty"`
 	// Calls to the API from this user over a configurable time period
 	APICalls          int      `json:"api_calls"`
-	InvitedBy         *User    `json:"invited_by"`
-	InviteTokens      *int     `json:"invite_tokens"`
-	ActiveInviteCodes []string `json:"active_invite_codes"`
+	InvitedBy         *User    `json:"invited_by,omitempty"`
+	InviteTokens      *int     `json:"invite_tokens,omitempty"`
+	ActiveInviteCodes []string `json:"active_invite_codes,omitempty"`
 }
 
 type UserChangePasswordInput struct {
 	// Password in plain text
-	ExistingPassword *string `json:"existing_password"`
+	ExistingPassword *string `json:"existing_password,omitempty"`
 	NewPassword      string  `json:"new_password"`
-	ResetKey         *string `json:"reset_key"`
+	ResetKey         *string `json:"reset_key,omitempty"`
 }
 
 type UserCreateInput struct {
 	Name string `json:"name"`
 	// Password in plain text
 	Password    string     `json:"password"`
-	Roles       []RoleEnum `json:"roles"`
+	Roles       []RoleEnum `json:"roles,omitempty"`
 	Email       string     `json:"email"`
-	InvitedByID *string    `json:"invited_by_id"`
+	InvitedByID *string    `json:"invited_by_id,omitempty"`
 }
 
 type UserDestroyInput struct {
 	ID string `json:"id"`
 }
 
-type UserFilterType struct {
+type UserEditCount struct {
+	Accepted          int `json:"accepted"`
+	Rejected          int `json:"rejected"`
+	Pending           int `json:"pending"`
+	ImmediateAccepted int `json:"immediate_accepted"`
+	ImmediateRejected int `json:"immediate_rejected"`
+	Failed            int `json:"failed"`
+	Canceled          int `json:"canceled"`
+}
+
+type UserQueryInput struct {
 	// Filter to search user name - assumes like query unless quoted
-	Name *string `json:"name"`
+	Name *string `json:"name,omitempty"`
 	// Filter to search email - assumes like query unless quoted
-	Email *string `json:"email"`
+	Email *string `json:"email,omitempty"`
 	// Filter by roles
-	Roles *RoleCriterionInput `json:"roles"`
+	Roles *RoleCriterionInput `json:"roles,omitempty"`
 	// Filter by api key
-	APIKey *string `json:"apiKey"`
+	APIKey *string `json:"apiKey,omitempty"`
 	// Filter by successful edits
-	SuccessfulEdits *IntCriterionInput `json:"successful_edits"`
+	SuccessfulEdits *IntCriterionInput `json:"successful_edits,omitempty"`
 	// Filter by unsuccessful edits
-	UnsuccessfulEdits *IntCriterionInput `json:"unsuccessful_edits"`
+	UnsuccessfulEdits *IntCriterionInput `json:"unsuccessful_edits,omitempty"`
 	// Filter by votes on successful edits
-	SuccessfulVotes *IntCriterionInput `json:"successful_votes"`
+	SuccessfulVotes *IntCriterionInput `json:"successful_votes,omitempty"`
 	// Filter by votes on unsuccessful edits
-	UnsuccessfulVotes *IntCriterionInput `json:"unsuccessful_votes"`
+	UnsuccessfulVotes *IntCriterionInput `json:"unsuccessful_votes,omitempty"`
 	// Filter by number of API calls
-	APICalls *IntCriterionInput `json:"api_calls"`
+	APICalls *IntCriterionInput `json:"api_calls,omitempty"`
 	// Filter by user that invited
-	InvitedBy *string `json:"invited_by"`
+	InvitedBy *string `json:"invited_by,omitempty"`
+	Page      int     `json:"page"`
+	PerPage   int     `json:"per_page"`
 }
 
 type UserUpdateInput struct {
 	ID   string  `json:"id"`
-	Name *string `json:"name"`
+	Name *string `json:"name,omitempty"`
 	// Password in plain text
-	Password *string    `json:"password"`
-	Roles    []RoleEnum `json:"roles"`
-	Email    *string    `json:"email"`
+	Password *string    `json:"password,omitempty"`
+	Roles    []RoleEnum `json:"roles,omitempty"`
+	Email    *string    `json:"email,omitempty"`
+}
+
+type UserVoteCount struct {
+	Abstain         int `json:"abstain"`
+	Accept          int `json:"accept"`
+	Reject          int `json:"reject"`
+	ImmediateAccept int `json:"immediate_accept"`
+	ImmediateReject int `json:"immediate_reject"`
 }
 
 type Version struct {
 	Hash      string `json:"hash"`
 	BuildTime string `json:"build_time"`
+	BuildType string `json:"build_type"`
 	Version   string `json:"version"`
-}
-
-type VoteComment struct {
-	User    *User         `json:"user"`
-	Date    *string       `json:"date"`
-	Comment *string       `json:"comment"`
-	Type    *VoteTypeEnum `json:"type"`
 }
 
 type BreastTypeEnum string
@@ -1002,6 +1264,49 @@ func (e *DateAccuracyEnum) UnmarshalGQL(v interface{}) error {
 }
 
 func (e DateAccuracyEnum) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+type EditSortEnum string
+
+const (
+	EditSortEnumCreatedAt EditSortEnum = "CREATED_AT"
+	EditSortEnumUpdatedAt EditSortEnum = "UPDATED_AT"
+	EditSortEnumClosedAt  EditSortEnum = "CLOSED_AT"
+)
+
+var AllEditSortEnum = []EditSortEnum{
+	EditSortEnumCreatedAt,
+	EditSortEnumUpdatedAt,
+	EditSortEnumClosedAt,
+}
+
+func (e EditSortEnum) IsValid() bool {
+	switch e {
+	case EditSortEnumCreatedAt, EditSortEnumUpdatedAt, EditSortEnumClosedAt:
+		return true
+	}
+	return false
+}
+
+func (e EditSortEnum) String() string {
+	return string(e)
+}
+
+func (e *EditSortEnum) UnmarshalGQL(v interface{}) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = EditSortEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid EditSortEnum", str)
+	}
+	return nil
+}
+
+func (e EditSortEnum) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
@@ -1401,6 +1706,57 @@ func (e OperationEnum) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
+type PerformerSortEnum string
+
+const (
+	PerformerSortEnumName            PerformerSortEnum = "NAME"
+	PerformerSortEnumBirthdate       PerformerSortEnum = "BIRTHDATE"
+	PerformerSortEnumSceneCount      PerformerSortEnum = "SCENE_COUNT"
+	PerformerSortEnumCareerStartYear PerformerSortEnum = "CAREER_START_YEAR"
+	PerformerSortEnumDebut           PerformerSortEnum = "DEBUT"
+	PerformerSortEnumCreatedAt       PerformerSortEnum = "CREATED_AT"
+	PerformerSortEnumUpdatedAt       PerformerSortEnum = "UPDATED_AT"
+)
+
+var AllPerformerSortEnum = []PerformerSortEnum{
+	PerformerSortEnumName,
+	PerformerSortEnumBirthdate,
+	PerformerSortEnumSceneCount,
+	PerformerSortEnumCareerStartYear,
+	PerformerSortEnumDebut,
+	PerformerSortEnumCreatedAt,
+	PerformerSortEnumUpdatedAt,
+}
+
+func (e PerformerSortEnum) IsValid() bool {
+	switch e {
+	case PerformerSortEnumName, PerformerSortEnumBirthdate, PerformerSortEnumSceneCount, PerformerSortEnumCareerStartYear, PerformerSortEnumDebut, PerformerSortEnumCreatedAt, PerformerSortEnumUpdatedAt:
+		return true
+	}
+	return false
+}
+
+func (e PerformerSortEnum) String() string {
+	return string(e)
+}
+
+func (e *PerformerSortEnum) UnmarshalGQL(v interface{}) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = PerformerSortEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid PerformerSortEnum", str)
+	}
+	return nil
+}
+
+func (e PerformerSortEnum) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
 type RoleEnum string
 
 const (
@@ -1413,6 +1769,7 @@ const (
 	RoleEnumInvite RoleEnum = "INVITE"
 	// May grant and rescind invite tokens and resind invite keys
 	RoleEnumManageInvites RoleEnum = "MANAGE_INVITES"
+	RoleEnumBot           RoleEnum = "BOT"
 )
 
 var AllRoleEnum = []RoleEnum{
@@ -1423,11 +1780,12 @@ var AllRoleEnum = []RoleEnum{
 	RoleEnumAdmin,
 	RoleEnumInvite,
 	RoleEnumManageInvites,
+	RoleEnumBot,
 }
 
 func (e RoleEnum) IsValid() bool {
 	switch e {
-	case RoleEnumRead, RoleEnumVote, RoleEnumEdit, RoleEnumModify, RoleEnumAdmin, RoleEnumInvite, RoleEnumManageInvites:
+	case RoleEnumRead, RoleEnumVote, RoleEnumEdit, RoleEnumModify, RoleEnumAdmin, RoleEnumInvite, RoleEnumManageInvites, RoleEnumBot:
 		return true
 	}
 	return false
@@ -1451,6 +1809,53 @@ func (e *RoleEnum) UnmarshalGQL(v interface{}) error {
 }
 
 func (e RoleEnum) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+type SceneSortEnum string
+
+const (
+	SceneSortEnumTitle     SceneSortEnum = "TITLE"
+	SceneSortEnumDate      SceneSortEnum = "DATE"
+	SceneSortEnumTrending  SceneSortEnum = "TRENDING"
+	SceneSortEnumCreatedAt SceneSortEnum = "CREATED_AT"
+	SceneSortEnumUpdatedAt SceneSortEnum = "UPDATED_AT"
+)
+
+var AllSceneSortEnum = []SceneSortEnum{
+	SceneSortEnumTitle,
+	SceneSortEnumDate,
+	SceneSortEnumTrending,
+	SceneSortEnumCreatedAt,
+	SceneSortEnumUpdatedAt,
+}
+
+func (e SceneSortEnum) IsValid() bool {
+	switch e {
+	case SceneSortEnumTitle, SceneSortEnumDate, SceneSortEnumTrending, SceneSortEnumCreatedAt, SceneSortEnumUpdatedAt:
+		return true
+	}
+	return false
+}
+
+func (e SceneSortEnum) String() string {
+	return string(e)
+}
+
+func (e *SceneSortEnum) UnmarshalGQL(v interface{}) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SceneSortEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SceneSortEnum", str)
+	}
+	return nil
+}
+
+func (e SceneSortEnum) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
@@ -1495,6 +1900,49 @@ func (e SortDirectionEnum) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
+type StudioSortEnum string
+
+const (
+	StudioSortEnumName      StudioSortEnum = "NAME"
+	StudioSortEnumCreatedAt StudioSortEnum = "CREATED_AT"
+	StudioSortEnumUpdatedAt StudioSortEnum = "UPDATED_AT"
+)
+
+var AllStudioSortEnum = []StudioSortEnum{
+	StudioSortEnumName,
+	StudioSortEnumCreatedAt,
+	StudioSortEnumUpdatedAt,
+}
+
+func (e StudioSortEnum) IsValid() bool {
+	switch e {
+	case StudioSortEnumName, StudioSortEnumCreatedAt, StudioSortEnumUpdatedAt:
+		return true
+	}
+	return false
+}
+
+func (e StudioSortEnum) String() string {
+	return string(e)
+}
+
+func (e *StudioSortEnum) UnmarshalGQL(v interface{}) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = StudioSortEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid StudioSortEnum", str)
+	}
+	return nil
+}
+
+func (e StudioSortEnum) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
 type TagGroupEnum string
 
 const (
@@ -1535,6 +1983,49 @@ func (e *TagGroupEnum) UnmarshalGQL(v interface{}) error {
 }
 
 func (e TagGroupEnum) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+type TagSortEnum string
+
+const (
+	TagSortEnumName      TagSortEnum = "NAME"
+	TagSortEnumCreatedAt TagSortEnum = "CREATED_AT"
+	TagSortEnumUpdatedAt TagSortEnum = "UPDATED_AT"
+)
+
+var AllTagSortEnum = []TagSortEnum{
+	TagSortEnumName,
+	TagSortEnumCreatedAt,
+	TagSortEnumUpdatedAt,
+}
+
+func (e TagSortEnum) IsValid() bool {
+	switch e {
+	case TagSortEnumName, TagSortEnumCreatedAt, TagSortEnumUpdatedAt:
+		return true
+	}
+	return false
+}
+
+func (e TagSortEnum) String() string {
+	return string(e)
+}
+
+func (e *TagSortEnum) UnmarshalGQL(v interface{}) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = TagSortEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid TagSortEnum", str)
+	}
+	return nil
+}
+
+func (e TagSortEnum) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
@@ -1583,6 +2074,49 @@ func (e TargetTypeEnum) MarshalGQL(w io.Writer) {
 	fmt.Fprint(w, strconv.Quote(e.String()))
 }
 
+type ValidSiteTypeEnum string
+
+const (
+	ValidSiteTypeEnumPerformer ValidSiteTypeEnum = "PERFORMER"
+	ValidSiteTypeEnumScene     ValidSiteTypeEnum = "SCENE"
+	ValidSiteTypeEnumStudio    ValidSiteTypeEnum = "STUDIO"
+)
+
+var AllValidSiteTypeEnum = []ValidSiteTypeEnum{
+	ValidSiteTypeEnumPerformer,
+	ValidSiteTypeEnumScene,
+	ValidSiteTypeEnumStudio,
+}
+
+func (e ValidSiteTypeEnum) IsValid() bool {
+	switch e {
+	case ValidSiteTypeEnumPerformer, ValidSiteTypeEnumScene, ValidSiteTypeEnumStudio:
+		return true
+	}
+	return false
+}
+
+func (e ValidSiteTypeEnum) String() string {
+	return string(e)
+}
+
+func (e *ValidSiteTypeEnum) UnmarshalGQL(v interface{}) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = ValidSiteTypeEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid ValidSiteTypeEnum", str)
+	}
+	return nil
+}
+
+func (e ValidSiteTypeEnum) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
 type VoteStatusEnum string
 
 const (
@@ -1591,6 +2125,8 @@ const (
 	VoteStatusEnumPending           VoteStatusEnum = "PENDING"
 	VoteStatusEnumImmediateAccepted VoteStatusEnum = "IMMEDIATE_ACCEPTED"
 	VoteStatusEnumImmediateRejected VoteStatusEnum = "IMMEDIATE_REJECTED"
+	VoteStatusEnumFailed            VoteStatusEnum = "FAILED"
+	VoteStatusEnumCanceled          VoteStatusEnum = "CANCELED"
 )
 
 var AllVoteStatusEnum = []VoteStatusEnum{
@@ -1599,11 +2135,13 @@ var AllVoteStatusEnum = []VoteStatusEnum{
 	VoteStatusEnumPending,
 	VoteStatusEnumImmediateAccepted,
 	VoteStatusEnumImmediateRejected,
+	VoteStatusEnumFailed,
+	VoteStatusEnumCanceled,
 }
 
 func (e VoteStatusEnum) IsValid() bool {
 	switch e {
-	case VoteStatusEnumAccepted, VoteStatusEnumRejected, VoteStatusEnumPending, VoteStatusEnumImmediateAccepted, VoteStatusEnumImmediateRejected:
+	case VoteStatusEnumAccepted, VoteStatusEnumRejected, VoteStatusEnumPending, VoteStatusEnumImmediateAccepted, VoteStatusEnumImmediateRejected, VoteStatusEnumFailed, VoteStatusEnumCanceled:
 		return true
 	}
 	return false
@@ -1633,7 +2171,7 @@ func (e VoteStatusEnum) MarshalGQL(w io.Writer) {
 type VoteTypeEnum string
 
 const (
-	VoteTypeEnumComment VoteTypeEnum = "COMMENT"
+	VoteTypeEnumAbstain VoteTypeEnum = "ABSTAIN"
 	VoteTypeEnumAccept  VoteTypeEnum = "ACCEPT"
 	VoteTypeEnumReject  VoteTypeEnum = "REJECT"
 	// Immediately accepts the edit - bypassing the vote
@@ -1643,7 +2181,7 @@ const (
 )
 
 var AllVoteTypeEnum = []VoteTypeEnum{
-	VoteTypeEnumComment,
+	VoteTypeEnumAbstain,
 	VoteTypeEnumAccept,
 	VoteTypeEnumReject,
 	VoteTypeEnumImmediateAccept,
@@ -1652,7 +2190,7 @@ var AllVoteTypeEnum = []VoteTypeEnum{
 
 func (e VoteTypeEnum) IsValid() bool {
 	switch e {
-	case VoteTypeEnumComment, VoteTypeEnumAccept, VoteTypeEnumReject, VoteTypeEnumImmediateAccept, VoteTypeEnumImmediateReject:
+	case VoteTypeEnumAbstain, VoteTypeEnumAccept, VoteTypeEnumReject, VoteTypeEnumImmediateAccept, VoteTypeEnumImmediateReject:
 		return true
 	}
 	return false

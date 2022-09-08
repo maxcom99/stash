@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import _ from "lodash";
+import { useIntl } from "react-intl";
+import cloneDeep from "lodash-es/cloneDeep";
 import { Table } from "react-bootstrap";
 import { Link, useHistory } from "react-router-dom";
 import Mousetrap from "mousetrap";
@@ -28,22 +29,23 @@ export const GalleryList: React.FC<IGalleryList> = ({
   filterHook,
   persistState,
 }) => {
+  const intl = useIntl();
   const history = useHistory();
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [isExportAll, setIsExportAll] = useState(false);
 
   const otherOperations = [
     {
-      text: "View Random",
+      text: intl.formatMessage({ id: "actions.view_random" }),
       onClick: viewRandom,
     },
     {
-      text: "Export...",
+      text: intl.formatMessage({ id: "actions.export" }),
       onClick: onExport,
       isDisplayed: showWhenSelected,
     },
     {
-      text: "Export all...",
+      text: intl.formatMessage({ id: "actions.export_all" }),
       onClick: onExportAll,
     },
   ];
@@ -82,17 +84,12 @@ export const GalleryList: React.FC<IGalleryList> = ({
       const { count } = result.data.findGalleries;
 
       const index = Math.floor(Math.random() * count);
-      const filterCopy = _.cloneDeep(filter);
+      const filterCopy = cloneDeep(filter);
       filterCopy.itemsPerPage = 1;
       filterCopy.currentPage = index + 1;
       const singleResult = await queryFindGalleries(filterCopy);
-      if (
-        singleResult &&
-        singleResult.data &&
-        singleResult.data.findGalleries &&
-        singleResult.data.findGalleries.galleries.length === 1
-      ) {
-        const { id } = singleResult!.data!.findGalleries!.galleries[0];
+      if (singleResult.data.findGalleries.galleries.length === 1) {
+        const { id } = singleResult.data.findGalleries.galleries[0];
         // navigate to the image player page
         history.push(`/galleries/${id}`);
       }
@@ -154,8 +151,7 @@ export const GalleryList: React.FC<IGalleryList> = ({
   function renderGalleries(
     result: FindGalleriesQueryResult,
     filter: ListFilterModel,
-    selectedIds: Set<string>,
-    zoomIndex: number
+    selectedIds: Set<string>
   ) {
     if (!result.data || !result.data.findGalleries) {
       return;
@@ -167,7 +163,7 @@ export const GalleryList: React.FC<IGalleryList> = ({
             <GalleryCard
               key={gallery.id}
               gallery={gallery}
-              zoomIndex={zoomIndex}
+              zoomIndex={filter.zoomIndex}
               selecting={selectedIds.size > 0}
               selected={selectedIds.has(gallery.id)}
               onSelectedChanged={(selected: boolean, shiftKey: boolean) =>
@@ -183,8 +179,10 @@ export const GalleryList: React.FC<IGalleryList> = ({
         <Table className="col col-sm-6 mx-auto">
           <thead>
             <tr>
-              <th>Preview</th>
-              <th className="d-none d-sm-none">Title</th>
+              <th>{intl.formatMessage({ id: "actions.preview" })}</th>
+              <th className="d-none d-sm-none">
+                {intl.formatMessage({ id: "title" })}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -231,13 +229,12 @@ export const GalleryList: React.FC<IGalleryList> = ({
   function renderContent(
     result: FindGalleriesQueryResult,
     filter: ListFilterModel,
-    selectedIds: Set<string>,
-    zoomIndex: number
+    selectedIds: Set<string>
   ) {
     return (
       <>
         {maybeRenderGalleryExportDialog(selectedIds)}
-        {renderGalleries(result, filter, selectedIds, zoomIndex)}
+        {renderGalleries(result, filter, selectedIds)}
       </>
     );
   }

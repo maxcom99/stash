@@ -28,10 +28,24 @@ enum ResolutionEnum {
   "8k", EIGHT_K
 }
 
+input ResolutionCriterionInput {
+  value: ResolutionEnum!
+  modifier: CriterionModifier!
+}
+
+input PHashDuplicationCriterionInput {
+  duplicated: Boolean
+  """Currently unimplemented"""
+  distance: Int
+}
+
 input PerformerFilterType {
   AND: PerformerFilterType
   OR: PerformerFilterType
   NOT: PerformerFilterType
+
+  name: StringCriterionInput
+  details: StringCriterionInput
 
   """Filter by favorite"""
   filter_favorites: Boolean
@@ -64,7 +78,7 @@ input PerformerFilterType {
   """Filter to only include performers missing this property"""
   is_missing: String
   """Filter to only include performers with these tags"""
-  tags: MultiCriterionInput
+  tags: HierarchicalMultiCriterionInput
   """Filter by tag count"""
   tag_count: IntCriterionInput
   """Filter by scene count"""
@@ -86,16 +100,18 @@ input PerformerFilterType {
   """Filter by death year"""
   death_year: IntCriterionInput
   """Filter by studios where performer appears in scene/image/gallery"""
-  studios: MultiCriterionInput
+  studios: HierarchicalMultiCriterionInput
+  """Filter by autotag ignore value"""
+  ignore_auto_tag: Boolean
 }
 
 input SceneMarkerFilterType {
   """Filter to only include scene markers with this tag"""
-  tag_id: ID
+  tag_id: ID @deprecated(reason: "use tags filter instead")
   """Filter to only include scene markers with these tags"""
-  tags: MultiCriterionInput
+  tags: HierarchicalMultiCriterionInput
   """Filter to only include scene markers attached to a scene with these tags"""
-  scene_tags: MultiCriterionInput
+  scene_tags: HierarchicalMultiCriterionInput
   """Filter to only include scene markers with these performers"""
   performers: MultiCriterionInput
 }
@@ -105,6 +121,15 @@ input SceneFilterType {
   OR: SceneFilterType
   NOT: SceneFilterType
 
+  title: StringCriterionInput
+  details: StringCriterionInput
+
+  """Filter by file oshash"""
+  oshash: StringCriterionInput
+  """Filter by file checksum"""
+  checksum: StringCriterionInput
+  """Filter by file phash"""
+  phash: StringCriterionInput
   """Filter by path"""
   path: StringCriterionInput
   """Filter by rating"""
@@ -113,8 +138,10 @@ input SceneFilterType {
   organized: Boolean
   """Filter by o-counter"""
   o_counter: IntCriterionInput
+  """Filter Scenes that have an exact phash match available"""
+  duplicated: PHashDuplicationCriterionInput
   """Filter by resolution"""
-  resolution: ResolutionEnum
+  resolution: ResolutionCriterionInput
   """Filter by duration (in seconds)"""
   duration: IntCriterionInput
   """Filter to only include scenes which have markers. `true` or `false`"""
@@ -126,11 +153,15 @@ input SceneFilterType {
   """Filter to only include scenes with this movie"""
   movies: MultiCriterionInput
   """Filter to only include scenes with these tags"""
-  tags: MultiCriterionInput
+  tags: HierarchicalMultiCriterionInput
   """Filter by tag count"""
   tag_count: IntCriterionInput
   """Filter to only include scenes with performers with these tags"""
-  performer_tags: MultiCriterionInput
+  performer_tags: HierarchicalMultiCriterionInput
+  """Filter scenes that have performers that have been favorited"""
+  performer_favorite: Boolean
+  """Filter scenes by performer age at time of scene"""
+  performer_age: IntCriterionInput
   """Filter to only include scenes with these performers"""
   performers: MultiCriterionInput
   """Filter by performer count"""
@@ -141,18 +172,39 @@ input SceneFilterType {
   url: StringCriterionInput
   """Filter by interactive"""
   interactive: Boolean
+  """Filter by InteractiveSpeed"""
+  interactive_speed: IntCriterionInput
+  """Filter by captions"""
+  captions: StringCriterionInput
 }
 
 input MovieFilterType {
+
+  name: StringCriterionInput
+  director: StringCriterionInput
+  synopsis: StringCriterionInput
+
+  """Filter by duration (in seconds)"""
+  duration: IntCriterionInput
+  """Filter by rating"""
+  rating: IntCriterionInput
   """Filter to only include movies with this studio"""
   studios: HierarchicalMultiCriterionInput
   """Filter to only include movies missing this property"""
   is_missing: String
   """Filter by url"""
   url: StringCriterionInput
+  """Filter to only include movies where performer appears in a scene"""
+  performers: MultiCriterionInput
 }
 
 input StudioFilterType {
+  AND: StudioFilterType
+  OR: StudioFilterType
+  NOT: StudioFilterType
+
+  name: StringCriterionInput
+  details: StringCriterionInput
   """Filter to only include studios with this parent studio"""
   parents: MultiCriterionInput
   """Filter by StashID"""
@@ -169,6 +221,10 @@ input StudioFilterType {
   gallery_count: IntCriterionInput
   """Filter by url"""
   url: StringCriterionInput
+  """Filter by studio aliases"""
+  aliases: StringCriterionInput
+  """Filter by autotag ignore value"""
+  ignore_auto_tag: Boolean
 }
 
 input GalleryFilterType {
@@ -176,6 +232,11 @@ input GalleryFilterType {
   OR: GalleryFilterType
   NOT: GalleryFilterType
 
+  title: StringCriterionInput
+  details: StringCriterionInput
+
+  """Filter by file checksum"""
+  checksum: StringCriterionInput
   """Filter by path"""
   path: StringCriterionInput
   """Filter to only include galleries missing this property"""
@@ -187,19 +248,23 @@ input GalleryFilterType {
   """Filter by organized"""
   organized: Boolean
   """Filter by average image resolution"""
-  average_resolution: ResolutionEnum
+  average_resolution: ResolutionCriterionInput
   """Filter to only include galleries with this studio"""
   studios: HierarchicalMultiCriterionInput
   """Filter to only include galleries with these tags"""
-  tags: MultiCriterionInput
+  tags: HierarchicalMultiCriterionInput
   """Filter by tag count"""
   tag_count: IntCriterionInput
   """Filter to only include galleries with performers with these tags"""
-  performer_tags: MultiCriterionInput
+  performer_tags: HierarchicalMultiCriterionInput
   """Filter to only include galleries with these performers"""
   performers: MultiCriterionInput
   """Filter by performer count"""
   performer_count: IntCriterionInput
+  """Filter galleries that have performers that have been favorited"""
+  performer_favorite: Boolean
+  """Filter galleries by performer age at time of gallery"""
+  performer_age: IntCriterionInput
   """Filter by number of images in this gallery"""
   image_count: IntCriterionInput
   """Filter by url"""
@@ -234,6 +299,21 @@ input TagFilterType {
 
   """Filter by number of markers with this tag"""
   marker_count: IntCriterionInput
+
+  """Filter by parent tags"""
+  parents: HierarchicalMultiCriterionInput
+
+  """Filter by child tags"""
+  children: HierarchicalMultiCriterionInput
+
+  """Filter by number of parent tags the tag has"""
+  parent_count: IntCriterionInput
+
+  """Filter by number f child tags the tag has"""
+  child_count: IntCriterionInput
+
+  """Filter by autotag ignore value"""
+  ignore_auto_tag: Boolean
 }
 
 input ImageFilterType {
@@ -241,6 +321,10 @@ input ImageFilterType {
   OR: ImageFilterType
   NOT: ImageFilterType
 
+  title: StringCriterionInput
+
+  """Filter by file checksum"""
+  checksum: StringCriterionInput
   """Filter by path"""
   path: StringCriterionInput
   """Filter by rating"""
@@ -250,21 +334,23 @@ input ImageFilterType {
   """Filter by o-counter"""
   o_counter: IntCriterionInput
   """Filter by resolution"""
-  resolution: ResolutionEnum
+  resolution: ResolutionCriterionInput
   """Filter to only include images missing this property"""
   is_missing: String
   """Filter to only include images with this studio"""
   studios: HierarchicalMultiCriterionInput
   """Filter to only include images with these tags"""
-  tags: MultiCriterionInput
+  tags: HierarchicalMultiCriterionInput
   """Filter by tag count"""
   tag_count: IntCriterionInput
   """Filter to only include images with performers with these tags"""
-  performer_tags: MultiCriterionInput
+  performer_tags: HierarchicalMultiCriterionInput
   """Filter to only include images with these performers"""
   performers: MultiCriterionInput
   """Filter by performer count"""
   performer_count: IntCriterionInput
+  """Filter images that have performers that have been favorited"""
+  performer_favorite: Boolean
   """Filter to only include images with these galleries"""
   galleries: MultiCriterionInput
 }
@@ -290,6 +376,10 @@ enum CriterionModifier {
   MATCHES_REGEX,
   """NOT MATCHES REGEX"""
   NOT_MATCHES_REGEX,
+  """>= AND <="""
+  BETWEEN,
+  """< OR >"""
+  NOT_BETWEEN,
 }
 
 input StringCriterionInput {
@@ -299,6 +389,7 @@ input StringCriterionInput {
 
 input IntCriterionInput {
   value: Int!
+  value2: Int
   modifier: CriterionModifier!
 }
 
@@ -315,5 +406,43 @@ input GenderCriterionInput {
 input HierarchicalMultiCriterionInput {
   value: [ID!]
   modifier: CriterionModifier!
-  depth: Int!
+  depth: Int
+}
+
+enum FilterMode {
+  SCENES,
+  PERFORMERS,
+  STUDIOS,
+  GALLERIES,
+  SCENE_MARKERS,
+  MOVIES,
+  TAGS,
+  IMAGES,
+}
+
+type SavedFilter {
+  id: ID!
+  mode: FilterMode!
+  name: String!
+  """JSON-encoded filter string"""
+  filter: String!
+}
+
+input SaveFilterInput {
+  """provide ID to overwrite existing filter"""
+  id: ID
+  mode: FilterMode!
+  name: String!
+  """JSON-encoded filter string"""
+  filter: String!
+}
+
+input DestroyFilterInput {
+  id: ID!
+}
+
+input SetDefaultFilterInput {
+  mode: FilterMode!
+  """JSON-encoded filter string - null to clear"""
+  filter: String
 }

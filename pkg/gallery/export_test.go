@@ -3,8 +3,9 @@ package gallery
 import (
 	"errors"
 
-	"github.com/stashapp/stash/pkg/manager/jsonschema"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/models/json"
+	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/models/mocks"
 	"github.com/stretchr/testify/assert"
 
@@ -19,13 +20,13 @@ const (
 	missingStudioID = 5
 	errStudioID     = 6
 
-	noTagsID  = 11
+	// noTagsID  = 11
 	errTagsID = 12
 )
 
 const (
 	path      = "path"
-	zip       = true
+	isZip     = true
 	url       = "url"
 	checksum  = "checksum"
 	title     = "title"
@@ -39,19 +40,16 @@ const (
 	studioName = "studioName"
 )
 
-var names = []string{
-	"name1",
-	"name2",
-}
-
-var createTime time.Time = time.Date(2001, 01, 01, 0, 0, 0, 0, time.UTC)
-var updateTime time.Time = time.Date(2002, 01, 01, 0, 0, 0, 0, time.UTC)
+var (
+	createTime = time.Date(2001, 01, 01, 0, 0, 0, 0, time.UTC)
+	updateTime = time.Date(2002, 01, 01, 0, 0, 0, 0, time.UTC)
+)
 
 func createFullGallery(id int) models.Gallery {
 	return models.Gallery{
 		ID:       id,
 		Path:     models.NullString(path),
-		Zip:      zip,
+		Zip:      isZip,
 		Title:    models.NullString(title),
 		Checksum: checksum,
 		Date: models.SQLiteDate{
@@ -71,44 +69,21 @@ func createFullGallery(id int) models.Gallery {
 	}
 }
 
-func createEmptyGallery(id int) models.Gallery {
-	return models.Gallery{
-		ID: id,
-		CreatedAt: models.SQLiteTimestamp{
-			Timestamp: createTime,
-		},
-		UpdatedAt: models.SQLiteTimestamp{
-			Timestamp: updateTime,
-		},
-	}
-}
-
 func createFullJSONGallery() *jsonschema.Gallery {
 	return &jsonschema.Gallery{
 		Title:     title,
 		Path:      path,
-		Zip:       zip,
+		Zip:       isZip,
 		Checksum:  checksum,
 		Date:      date,
 		Details:   details,
 		Rating:    rating,
 		Organized: organized,
 		URL:       url,
-		CreatedAt: models.JSONTime{
+		CreatedAt: json.JSONTime{
 			Time: createTime,
 		},
-		UpdatedAt: models.JSONTime{
-			Time: updateTime,
-		},
-	}
-}
-
-func createEmptyJSONGallery() *jsonschema.Gallery {
-	return &jsonschema.Gallery{
-		CreatedAt: models.JSONTime{
-			Time: createTime,
-		},
-		UpdatedAt: models.JSONTime{
+		UpdatedAt: json.JSONTime{
 			Time: updateTime,
 		},
 	}
@@ -133,11 +108,12 @@ func TestToJSON(t *testing.T) {
 		gallery := s.input
 		json, err := ToBasicJSON(&gallery)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}
@@ -188,11 +164,12 @@ func TestGetStudioName(t *testing.T) {
 		gallery := s.input
 		json, err := GetStudioName(mockStudioReader, &gallery)
 
-		if !s.err && err != nil {
+		switch {
+		case !s.err && err != nil:
 			t.Errorf("[%d] unexpected error: %s", i, err.Error())
-		} else if s.err && err == nil {
+		case s.err && err == nil:
 			t.Errorf("[%d] expected error not returned", i)
-		} else {
+		default:
 			assert.Equal(t, s.expected, json, "[%d]", i)
 		}
 	}

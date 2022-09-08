@@ -5,7 +5,7 @@ import { PerformerList } from "src/components/Performers/PerformerList";
 import { StudiosCriterion } from "src/models/list-filter/criteria/studios";
 
 interface IStudioPerformersPanel {
-  studio: Partial<GQL.StudioDataFragment>;
+  studio: GQL.StudioDataFragment;
 }
 
 export const StudioPerformersPanel: React.FC<IStudioPerformersPanel> = ({
@@ -21,6 +21,7 @@ export const StudioPerformersPanel: React.FC<IStudioPerformersPanel> = ({
     scenes: [studioCriterion],
     images: [studioCriterion],
     galleries: [studioCriterion],
+    movies: [studioCriterion],
   };
 
   return (

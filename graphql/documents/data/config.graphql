@@ -6,10 +6,13 @@ fragment ConfigGeneralData on ConfigGeneralResult {
   }
   databasePath
   generatedPath
+  metadataPath
+  scrapersPath
   cachePath
   calculateMD5
   videoFileNamingAlgorithm
   parallelTasks
+  previewAudio
   previewSegments
   previewSegmentDuration
   previewExcludeStart
@@ -17,6 +20,7 @@ fragment ConfigGeneralData on ConfigGeneralResult {
   previewPreset
   maxTranscodeSize
   maxStreamingTranscodeSize
+  writeImageThumbnails
   apiKey
   username
   password
@@ -31,6 +35,7 @@ fragment ConfigGeneralData on ConfigGeneralResult {
   galleryExtensions
   excludes
   imageExcludes
+  customPerformerImageLocation
   scraperUserAgent
   scraperCertCheck
   scraperCDPPath
@@ -39,6 +44,7 @@ fragment ConfigGeneralData on ConfigGeneralResult {
     endpoint
     api_key
   }
+  pythonPath
 }
 
 fragment ConfigInterfaceData on ConfigInterfaceResult {
@@ -46,14 +52,32 @@ fragment ConfigInterfaceData on ConfigInterfaceResult {
   soundOnPreview
   wallShowTitle
   wallPlayback
+  showScrubber
   maximumLoopDuration
+  noBrowser
+  notificationsEnabled
   autostartVideo
+  autostartVideoOnPlaySelected
+  continuePlaylistDefault
   showStudioAsText
   css
   cssEnabled
   language
-  slideshowDelay
+  imageLightbox {
+    slideshowDelay
+    displayMode
+    scaleUp
+    resetZoomOnNav
+    scrollMode
+    scrollAttemptsBeforeChange
+  }
+  disableDropdownCreate {
+    performer
+    tag
+    studio
+  }
   handyKey
+  funscriptOffset
 }
 
 fragment ConfigDLNAData on ConfigDLNAResult {
@@ -61,6 +85,88 @@ fragment ConfigDLNAData on ConfigDLNAResult {
   enabled
   whitelistedIPs
   interfaces
+}
+
+fragment ConfigScrapingData on ConfigScrapingResult {
+  scraperUserAgent
+  scraperCertCheck
+  scraperCDPPath
+  excludeTagPatterns
+}
+
+fragment IdentifyFieldOptionsData on IdentifyFieldOptions {
+  field
+  strategy
+  createMissing
+}
+
+fragment IdentifyMetadataOptionsData on IdentifyMetadataOptions {
+  fieldOptions {
+    ...IdentifyFieldOptionsData
+  }
+  setCoverImage
+  setOrganized
+  includeMalePerformers
+}
+
+fragment ScraperSourceData on ScraperSource {
+  stash_box_index
+  stash_box_endpoint
+  scraper_id
+}
+
+fragment ConfigDefaultSettingsData on ConfigDefaultSettingsResult {
+  scan {
+    useFileMetadata
+    stripFileExtension
+    scanGeneratePreviews
+    scanGenerateImagePreviews
+    scanGenerateSprites
+    scanGeneratePhashes
+    scanGenerateThumbnails
+  }
+  
+  identify {
+    sources {
+      source {
+        ...ScraperSourceData
+      }
+      options {
+        ...IdentifyMetadataOptionsData
+      }
+    }
+    options {
+      ...IdentifyMetadataOptionsData
+    }
+  }
+
+  autoTag {
+    performers
+    studios
+    tags
+  }
+
+  generate {
+    sprites
+    previews
+    imagePreviews
+    previewOptions {
+      previewSegments
+      previewSegmentDuration
+      previewExcludeStart
+      previewExcludeEnd
+      previewPreset
+    }
+    markers
+    markerImagePreviews
+    markerScreenshots
+    transcodes
+    phashes
+    interactiveHeatmapsSpeeds
+  }
+
+  deleteFile
+  deleteGenerated
 }
 
 fragment ConfigData on ConfigResult {
@@ -73,4 +179,11 @@ fragment ConfigData on ConfigResult {
   dlna {
     ...ConfigDLNAData
   }
+  scraping {
+    ...ConfigScrapingData
+  }
+  defaults {
+    ...ConfigDefaultSettingsData
+  }
+  ui
 }

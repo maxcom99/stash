@@ -8,7 +8,7 @@ import Select, {
   OptionsType,
 } from "react-select";
 import CreatableSelect from "react-select/creatable";
-import { debounce } from "lodash";
+import debounce from "lodash-es/debounce";
 
 import * as GQL from "src/core/generated-graphql";
 import {
@@ -24,6 +24,8 @@ import {
 import { useToast } from "src/hooks";
 import { TextUtils } from "src/utils";
 import { SelectComponents } from "react-select/src/components";
+import { ConfigurationContext } from "src/hooks/Config";
+import { useIntl } from "react-intl";
 
 export type ValidTypes =
   | GQL.SlimPerformerDataFragment
@@ -40,6 +42,8 @@ interface ITypeProps {
     | "tags"
     | "sceneTags"
     | "performerTags"
+    | "parentTags"
+    | "childTags"
     | "movies";
 }
 interface IFilterProps {
@@ -378,6 +382,16 @@ export const MarkerTitleSuggest: React.FC<IMarkerSuggestProps> = (props) => {
     value: item?.title ?? "",
   }));
   const initialIds = props.initialMarkerTitle ? [props.initialMarkerTitle] : [];
+
+  // add initial value to items if still loading, to ensure existing value
+  // is populated
+  if (loading && initialIds.length > 0) {
+    items.push({
+      label: initialIds[0],
+      value: initialIds[0],
+    });
+  }
+
   return (
     <SelectComponent
       isMulti={false}
@@ -398,6 +412,11 @@ export const PerformerSelect: React.FC<IFilterProps> = (props) => {
   const { data, loading } = useAllPerformersForFilter();
   const [createPerformer] = usePerformerCreate();
 
+  const { configuration } = React.useContext(ConfigurationContext);
+  const intl = useIntl();
+  const defaultCreatable =
+    !configuration?.interface.disableDropdownCreate.performer ?? true;
+
   const performers = data?.allPerformers ?? [];
 
   const onCreate = async (name: string) => {
@@ -414,12 +433,18 @@ export const PerformerSelect: React.FC<IFilterProps> = (props) => {
     <FilterSelectComponent
       {...props}
       isMulti={props.isMulti ?? false}
-      creatable={props.creatable ?? true}
+      creatable={props.creatable ?? defaultCreatable}
       onCreate={onCreate}
       type="performers"
       isLoading={loading}
       items={performers}
-      placeholder={props.noSelectionString ?? "Select performer..."}
+      placeholder={
+        props.noSelectionString ??
+        intl.formatMessage(
+          { id: "actions.select_entity" },
+          { entityType: intl.formatMessage({ id: "performer" }) }
+        )
+      }
     />
   );
 };
@@ -427,13 +452,79 @@ export const PerformerSelect: React.FC<IFilterProps> = (props) => {
 export const StudioSelect: React.FC<
   IFilterProps & { excludeIds?: string[] }
 > = (props) => {
-  const { data, loading } = useAllStudiosForFilter();
-  const [createStudio] = useStudioCreate({ name: "" });
-
-  const exclude = props.excludeIds ?? [];
-  const studios = (data?.allStudios ?? []).filter(
-    (studio) => !exclude.includes(studio.id)
+  const [studioAliases, setStudioAliases] = useState<Record<string, string[]>>(
+    {}
   );
+  const [allAliases, setAllAliases] = useState<string[]>([]);
+  const { data, loading } = useAllStudiosForFilter();
+  const [createStudio] = useStudioCreate();
+  const intl = useIntl();
+
+  const { configuration } = React.useContext(ConfigurationContext);
+  const defaultCreatable =
+    !configuration?.interface.disableDropdownCreate.studio ?? true;
+
+  const exclude = useMemo(() => props.excludeIds ?? [], [props.excludeIds]);
+  const studios = useMemo(
+    () =>
+      (data?.allStudios ?? []).filter((studio) => !exclude.includes(studio.id)),
+    [data?.allStudios, exclude]
+  );
+
+  useEffect(() => {
+    // build the studio aliases map
+    const newAliases: Record<string, string[]> = {};
+    const newAll: string[] = [];
+    studios.forEach((s) => {
+      newAliases[s.id] = s.aliases;
+      newAll.push(...s.aliases);
+    });
+    setStudioAliases(newAliases);
+    setAllAliases(newAll);
+  }, [studios]);
+
+  const StudioOption: React.FC<OptionProps<Option, boolean>> = (
+    optionProps
+  ) => {
+    const { inputValue } = optionProps.selectProps;
+
+    let thisOptionProps = optionProps;
+    if (
+      inputValue &&
+      !optionProps.label.toLowerCase().includes(inputValue.toLowerCase())
+    ) {
+      // must be alias
+      const newLabel = `${optionProps.data.label} (alias)`;
+      thisOptionProps = {
+        ...optionProps,
+        children: newLabel,
+      };
+    }
+
+    return <reactSelectComponents.Option {...thisOptionProps} />;
+  };
+
+  const filterOption = (option: Option, rawInput: string): boolean => {
+    if (!rawInput) {
+      return true;
+    }
+
+    const input = rawInput.toLowerCase();
+    const optionVal = option.label.toLowerCase();
+
+    if (optionVal.includes(input)) {
+      return true;
+    }
+
+    // search for studio aliases
+    const aliases = studioAliases[option.value];
+    // only match on alias if exact
+    if (aliases && aliases.some((a) => a.toLowerCase() === input)) {
+      return true;
+    }
+
+    return false;
+  };
 
   const onCreate = async (name: string) => {
     const result = await createStudio({
@@ -444,15 +535,48 @@ export const StudioSelect: React.FC<
     return { item: result.data!.studioCreate!, message: "Created studio" };
   };
 
+  const isValidNewOption = (
+    inputValue: string,
+    value: ValueType<Option, boolean>,
+    options: OptionsType<Option> | GroupedOptionsType<Option>
+  ) => {
+    if (!inputValue) {
+      return false;
+    }
+
+    if (
+      (options as OptionsType<Option>).some((o: Option) => {
+        return o.label.toLowerCase() === inputValue.toLowerCase();
+      })
+    ) {
+      return false;
+    }
+
+    if (allAliases.some((a) => a.toLowerCase() === inputValue.toLowerCase())) {
+      return false;
+    }
+
+    return true;
+  };
+
   return (
     <FilterSelectComponent
       {...props}
+      filterOption={filterOption}
+      isValidNewOption={isValidNewOption}
+      components={{ Option: StudioOption }}
       isMulti={props.isMulti ?? false}
       type="studios"
       isLoading={loading}
       items={studios}
-      placeholder={props.noSelectionString ?? "Select studio..."}
-      creatable={props.creatable ?? true}
+      placeholder={
+        props.noSelectionString ??
+        intl.formatMessage(
+          { id: "actions.select_entity" },
+          { entityType: intl.formatMessage({ id: "studio" }) }
+        )
+      }
+      creatable={props.creatable ?? defaultCreatable}
       onCreate={onCreate}
     />
   );
@@ -461,6 +585,7 @@ export const StudioSelect: React.FC<
 export const MovieSelect: React.FC<IFilterProps> = (props) => {
   const { data, loading } = useAllMoviesForFilter();
   const items = data?.allMovies ?? [];
+  const intl = useIntl();
 
   return (
     <FilterSelectComponent
@@ -469,19 +594,41 @@ export const MovieSelect: React.FC<IFilterProps> = (props) => {
       type="movies"
       isLoading={loading}
       items={items}
-      placeholder={props.noSelectionString ?? "Select movie..."}
+      placeholder={
+        props.noSelectionString ??
+        intl.formatMessage(
+          { id: "actions.select_entity" },
+          { entityType: intl.formatMessage({ id: "movie" }) }
+        )
+      }
     />
   );
 };
 
-export const TagSelect: React.FC<IFilterProps> = (props) => {
+export const TagSelect: React.FC<IFilterProps & { excludeIds?: string[] }> = (
+  props
+) => {
   const [tagAliases, setTagAliases] = useState<Record<string, string[]>>({});
   const [allAliases, setAllAliases] = useState<string[]>([]);
   const { data, loading } = useAllTagsForFilter();
   const [createTag] = useTagCreate();
-  const placeholder = props.noSelectionString ?? "Select tags...";
+  const intl = useIntl();
+  const placeholder =
+    props.noSelectionString ??
+    intl.formatMessage(
+      { id: "actions.select_entity" },
+      { entityType: intl.formatMessage({ id: "tags" }) }
+    );
 
-  const tags = useMemo(() => data?.allTags ?? [], [data?.allTags]);
+  const { configuration } = React.useContext(ConfigurationContext);
+  const defaultCreatable =
+    !configuration?.interface.disableDropdownCreate.tag ?? true;
+
+  const exclude = useMemo(() => props.excludeIds ?? [], [props.excludeIds]);
+  const tags = useMemo(
+    () => (data?.allTags ?? []).filter((tag) => !exclude.includes(tag.id)),
+    [data?.allTags, exclude]
+  );
 
   useEffect(() => {
     // build the tag aliases map
@@ -579,12 +726,12 @@ export const TagSelect: React.FC<IFilterProps> = (props) => {
       components={{ Option: TagOption }}
       isMulti={props.isMulti ?? false}
       items={tags}
-      creatable={props.creatable ?? true}
+      creatable={props.creatable ?? defaultCreatable}
       type="tags"
       placeholder={placeholder}
       isLoading={loading}
       onCreate={onCreate}
-      closeMenuOnSelect={false}
+      closeMenuOnSelect={!props.isMulti}
     />
   );
 };

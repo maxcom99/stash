@@ -1,14 +1,12 @@
 import React from "react";
-import { useIntl } from "react-intl";
+import { FormattedMessage, useIntl } from "react-intl";
 import { TagLink } from "src/components/Shared";
 import * as GQL from "src/core/generated-graphql";
-import { genderToString } from "src/core/StashService";
-import { TextUtils } from "src/utils";
+import { TextUtils, getStashboxBase } from "src/utils";
 import { TextField, URLField } from "src/utils/field";
-import { RatingStars } from "src/components/Scenes/SceneDetails/RatingStars";
 
 interface IPerformerDetails {
-  performer: Partial<GQL.PerformerDataFragment>;
+  performer: GQL.PerformerDataFragment;
 }
 
 export const PerformerDetailsPanel: React.FC<IPerformerDetails> = ({
@@ -18,51 +16,38 @@ export const PerformerDetailsPanel: React.FC<IPerformerDetails> = ({
   const intl = useIntl();
 
   function renderTagsField() {
-    if (!performer.tags?.length) {
+    if (!performer.tags.length) {
       return;
     }
 
     return (
-      <dl className="row">
-        <dt className="col-3 col-xl-2">Tags</dt>
-        <dd className="col-9 col-xl-10">
+      <>
+        <dt>
+          <FormattedMessage id="tags" />
+        </dt>
+        <dd>
           <ul className="pl-0">
             {(performer.tags ?? []).map((tag) => (
               <TagLink key={tag.id} tagType="performer" tag={tag} />
             ))}
           </ul>
         </dd>
-      </dl>
-    );
-  }
-
-  function renderRating() {
-    if (!performer.rating) {
-      return null;
-    }
-
-    return (
-      <dl className="row mb-0">
-        <dt className="col-3 col-xl-2">Rating:</dt>
-        <dd className="col-9 col-xl-10">
-          <RatingStars value={performer.rating} />
-        </dd>
-      </dl>
+      </>
     );
   }
 
   function renderStashIDs() {
-    if (!performer.stash_ids?.length) {
+    if (!performer.stash_ids.length) {
       return;
     }
 
     return (
-      <dl className="row">
-        <dt className="col-3 col-xl-2">StashIDs</dt>
-        <dd className="col-9 col-xl-10">
+      <>
+        <dt>StashIDs</dt>
+        <dd>
           <ul className="pl-0">
             {performer.stash_ids.map((stashID) => {
-              const base = stashID.endpoint.match(/https?:\/\/.*?\//)?.[0];
+              const base = getStashboxBase(stashID.endpoint);
               const link = base ? (
                 <a
                   href={`${base}performers/${stashID.stash_id}`}
@@ -82,7 +67,7 @@ export const PerformerDetailsPanel: React.FC<IPerformerDetails> = ({
             })}
           </ul>
         </dd>
-      </dl>
+      </>
     );
   }
 
@@ -109,38 +94,42 @@ export const PerformerDetailsPanel: React.FC<IPerformerDetails> = ({
   };
 
   return (
-    <>
+    <dl className="details-list">
       <TextField
-        name="Gender"
-        value={genderToString(performer.gender ?? undefined)}
+        id="gender"
+        value={
+          performer.gender
+            ? intl.formatMessage({ id: "gender_types." + performer.gender })
+            : undefined
+        }
       />
       <TextField
-        name="Birthdate"
+        id="birthdate"
         value={TextUtils.formatDate(intl, performer.birthdate ?? undefined)}
       />
       <TextField
-        name="Death Date"
+        id="death_date"
         value={TextUtils.formatDate(intl, performer.death_date ?? undefined)}
       />
-      <TextField name="Ethnicity" value={performer.ethnicity} />
-      <TextField name="Hair Color" value={performer.hair_color} />
-      <TextField name="Eye Color" value={performer.eye_color} />
-      <TextField name="Country" value={performer.country} />
-      <TextField name="Height" value={formatHeight(performer.height)} />
-      <TextField name="Weight" value={formatWeight(performer.weight)} />
-      <TextField name="Measurements" value={performer.measurements} />
-      <TextField name="Fake Tits" value={performer.fake_tits} />
-      <TextField name="Career Length" value={performer.career_length} />
-      <TextField name="Tattoos" value={performer.tattoos} />
-      <TextField name="Piercings" value={performer.piercings} />
-      <TextField name="Details" value={performer.details} />
+      <TextField id="ethnicity" value={performer.ethnicity} />
+      <TextField id="hair_color" value={performer.hair_color} />
+      <TextField id="eye_color" value={performer.eye_color} />
+      <TextField id="country" value={performer.country} />
+      <TextField id="height" value={formatHeight(performer.height)} />
+      <TextField id="weight" value={formatWeight(performer.weight)} />
+      <TextField id="measurements" value={performer.measurements} />
+      <TextField id="fake_tits" value={performer.fake_tits} />
+      <TextField id="career_length" value={performer.career_length} />
+      <TextField id="tattoos" value={performer.tattoos} />
+      <TextField id="piercings" value={performer.piercings} />
+      <TextField id="details" value={performer.details} />
       <URLField
-        name="URL"
+        id="url"
         value={performer.url}
         url={TextUtils.sanitiseURL(performer.url ?? "")}
       />
       <URLField
-        name="Twitter"
+        id="twitter"
         value={performer.twitter}
         url={TextUtils.sanitiseURL(
           performer.twitter ?? "",
@@ -148,16 +137,15 @@ export const PerformerDetailsPanel: React.FC<IPerformerDetails> = ({
         )}
       />
       <URLField
-        name="Instagram"
+        id="instagram"
         value={performer.instagram}
         url={TextUtils.sanitiseURL(
           performer.instagram ?? "",
           TextUtils.instagramURL
         )}
       />
-      {renderRating()}
       {renderTagsField()}
       {renderStashIDs()}
-    </>
+    </dl>
   );
 };

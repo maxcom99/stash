@@ -2,9 +2,11 @@ import React from "react";
 import { Link } from "react-router-dom";
 import * as GQL from "src/core/generated-graphql";
 import { NavUtils } from "src/utils";
-import { BasicCard, TruncatedText } from "src/components/Shared";
+import { GridCard } from "src/components/Shared";
 import { ButtonGroup } from "react-bootstrap";
+import { FormattedMessage } from "react-intl";
 import { PopoverCountButton } from "../Shared/PopoverCountButton";
+import { RatingBanner } from "../Shared/RatingBanner";
 
 interface IProps {
   studio: GQL.StudioDataFragment;
@@ -20,12 +22,17 @@ function maybeRenderParent(
 ) {
   if (!hideParent && studio.parent_studio) {
     return (
-      <div>
-        Part of&nbsp;
-        <Link to={`/studios/${studio.parent_studio.id}`}>
-          {studio.parent_studio.name}
-        </Link>
-        .
+      <div className="studio-parent-studios">
+        <FormattedMessage
+          id="part_of"
+          values={{
+            parent: (
+              <Link to={`/studios/${studio.parent_studio.id}`}>
+                {studio.parent_studio.name}
+              </Link>
+            ),
+          }}
+        />
       </div>
     );
   }
@@ -34,30 +41,20 @@ function maybeRenderParent(
 function maybeRenderChildren(studio: GQL.StudioDataFragment) {
   if (studio.child_studios.length > 0) {
     return (
-      <div>
-        Parent of&nbsp;
-        <Link to={NavUtils.makeChildStudiosUrl(studio)}>
-          {studio.child_studios.length} studios
-        </Link>
-        .
+      <div className="studio-child-studios">
+        <FormattedMessage
+          id="parent_of"
+          values={{
+            children: (
+              <Link to={NavUtils.makeChildStudiosUrl(studio)}>
+                {studio.child_studios.length} studios
+              </Link>
+            ),
+          }}
+        />
       </div>
     );
   }
-}
-
-function maybeRenderRatingBanner(studio: GQL.StudioDataFragment) {
-  if (!studio.rating) {
-    return;
-  }
-  return (
-    <div
-      className={`rating-banner ${
-        studio.rating ? `rating-${studio.rating}` : ""
-      }`}
-    >
-      RATING: {studio.rating}
-    </div>
-  );
 }
 
 export const StudioCard: React.FC<IProps> = ({
@@ -72,6 +69,7 @@ export const StudioCard: React.FC<IProps> = ({
 
     return (
       <PopoverCountButton
+        className="scene-count"
         type="scene"
         count={studio.scene_count}
         url={NavUtils.makeStudioScenesUrl(studio)}
@@ -84,6 +82,7 @@ export const StudioCard: React.FC<IProps> = ({
 
     return (
       <PopoverCountButton
+        className="image-count"
         type="image"
         count={studio.image_count}
         url={NavUtils.makeStudioImagesUrl(studio)}
@@ -96,6 +95,7 @@ export const StudioCard: React.FC<IProps> = ({
 
     return (
       <PopoverCountButton
+        className="gallery-count"
         type="gallery"
         count={studio.gallery_count}
         url={NavUtils.makeStudioGalleriesUrl(studio)}
@@ -103,13 +103,32 @@ export const StudioCard: React.FC<IProps> = ({
     );
   }
 
+  function maybeRenderMoviesPopoverButton() {
+    if (!studio.movie_count) return;
+
+    return (
+      <PopoverCountButton
+        className="movie-count"
+        type="movie"
+        count={studio.movie_count}
+        url={NavUtils.makeStudioMoviesUrl(studio)}
+      />
+    );
+  }
+
   function maybeRenderPopoverButtonGroup() {
-    if (studio.scene_count || studio.image_count || studio.gallery_count) {
+    if (
+      studio.scene_count ||
+      studio.image_count ||
+      studio.gallery_count ||
+      studio.movie_count
+    ) {
       return (
         <>
           <hr />
           <ButtonGroup className="card-popovers">
             {maybeRenderScenesPopoverButton()}
+            {maybeRenderMoviesPopoverButton()}
             {maybeRenderImagesPopoverButton()}
             {maybeRenderGalleriesPopoverButton()}
           </ButtonGroup>
@@ -119,9 +138,10 @@ export const StudioCard: React.FC<IProps> = ({
   }
 
   return (
-    <BasicCard
+    <GridCard
       className="studio-card"
       url={`/studios/${studio.id}`}
+      title={studio.name}
       linkClassName="studio-card-header"
       image={
         <img
@@ -131,15 +151,12 @@ export const StudioCard: React.FC<IProps> = ({
         />
       }
       details={
-        <>
-          <h5>
-            <TruncatedText text={studio.name} />
-          </h5>
+        <div className="studio-card__details">
           {maybeRenderParent(studio, hideParent)}
           {maybeRenderChildren(studio)}
-          {maybeRenderRatingBanner(studio)}
+          <RatingBanner rating={studio.rating} />
           {maybeRenderPopoverButtonGroup()}
-        </>
+        </div>
       }
       selected={selected}
       selecting={selecting}

@@ -21,6 +21,23 @@ func queryURLParametersFromScene(scene *models.Scene) queryURLParameters {
 	return ret
 }
 
+func queryURLParametersFromScrapedScene(scene models.ScrapedSceneInput) queryURLParameters {
+	ret := make(queryURLParameters)
+
+	setField := func(field string, value *string) {
+		if value != nil {
+			ret[field] = *value
+		}
+	}
+
+	setField("title", scene.Title)
+	setField("url", scene.URL)
+	setField("date", scene.Date)
+	setField("details", scene.Details)
+	setField("remote_site_id", scene.RemoteSiteID)
+	return ret
+}
+
 func queryURLParameterFromURL(url string) queryURLParameters {
 	ret := make(queryURLParameters)
 	ret["url"] = url
@@ -52,7 +69,7 @@ func (p queryURLParameters) applyReplacements(r queryURLReplacements) {
 func (p queryURLParameters) constructURL(url string) string {
 	ret := url
 	for k, v := range p {
-		ret = strings.Replace(ret, "{"+k+"}", v, -1)
+		ret = strings.ReplaceAll(ret, "{"+k+"}", v)
 	}
 
 	return ret

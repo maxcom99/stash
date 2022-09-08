@@ -2,14 +2,13 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/jmoiron/sqlx"
-	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
 )
 
@@ -20,9 +19,9 @@ func selectAll(tableName string) string {
 	return "SELECT " + idColumn + " FROM " + tableName + " "
 }
 
-func selectDistinctIDs(tableName string) string {
-	idColumn := getColumn(tableName, "id")
-	return "SELECT DISTINCT " + idColumn + " FROM " + tableName + " "
+func distinctIDs(qb *queryBuilder, tableName string) {
+	qb.addColumn("DISTINCT " + getColumn(tableName, "id"))
+	qb.from = tableName
 }
 
 func getColumn(tableName string, columnName string) string {
@@ -58,14 +57,19 @@ func getSort(sort string, direction string, tableName string) string {
 
 	const randomSeedPrefix = "random_"
 
-	if strings.HasSuffix(sort, "_count") {
+	switch {
+	case strings.HasSuffix(sort, "_count"):
 		var relationTableName = strings.TrimSuffix(sort, "_count") // TODO: pluralize?
 		colName := getColumn(relationTableName, "id")
 		return " ORDER BY COUNT(distinct " + colName + ") " + direction
-	} else if strings.Compare(sort, "filesize") == 0 {
+	case strings.Compare(sort, "filesize") == 0:
 		colName := getColumn(tableName, "size")
 		return " ORDER BY cast(" + colName + " as integer) " + direction
-	} else if strings.HasPrefix(sort, randomSeedPrefix) {
+	case strings.Compare(sort, "perceptual_similarity") == 0:
+		colName := getColumn(tableName, "phash")
+		secondaryColName := getColumn(tableName, "size")
+		return " ORDER BY " + colName + " " + direction + ", " + secondaryColName + " DESC"
+	case strings.HasPrefix(sort, randomSeedPrefix):
 		// seed as a parameter from the UI
 		// turn the provided seed into a float
 		seedStr := "0." + sort[len(randomSeedPrefix):]
@@ -75,9 +79,9 @@ func getSort(sort string, direction string, tableName string) string {
 			seed = randomSortFloat
 		}
 		return getRandomSort(tableName, direction, seed)
-	} else if strings.Compare(sort, "random") == 0 {
+	case strings.Compare(sort, "random") == 0:
 		return getRandomSort(tableName, direction, randomSortFloat)
-	} else {
+	default:
 		colName := getColumn(tableName, sort)
 		var additional string
 		if tableName == "scenes" {
@@ -148,76 +152,66 @@ func getInBinding(length int) string {
 	return "(" + bindings + ")"
 }
 
-func getCriterionModifierBinding(criterionModifier models.CriterionModifier, value interface{}) (string, int) {
-	var length int
-	switch x := value.(type) {
-	case []string:
-		length = len(x)
-	case []int:
-		length = len(x)
-	default:
-		length = 1
-	}
-	if modifier := criterionModifier.String(); criterionModifier.IsValid() {
-		switch modifier {
-		case "EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "IS_NULL", "NOT_NULL":
-			return getSimpleCriterionClause(criterionModifier, "?")
-		case "INCLUDES":
-			return "IN " + getInBinding(length), length // TODO?
-		case "EXCLUDES":
-			return "NOT IN " + getInBinding(length), length // TODO?
-		default:
-			logger.Errorf("todo")
-			return "= ?", 1 // TODO
-		}
-	}
-	return "= ?", 1 // TODO
+func getIntCriterionWhereClause(column string, input models.IntCriterionInput) (string, []interface{}) {
+	return getIntWhereClause(column, input.Modifier, input.Value, input.Value2)
 }
 
-func getSimpleCriterionClause(criterionModifier models.CriterionModifier, rhs string) (string, int) {
-	if modifier := criterionModifier.String(); criterionModifier.IsValid() {
-		switch modifier {
-		case "EQUALS":
-			return "= " + rhs, 1
-		case "NOT_EQUALS":
-			return "!= " + rhs, 1
-		case "GREATER_THAN":
-			return "> " + rhs, 1
-		case "LESS_THAN":
-			return "< " + rhs, 1
-		case "IS_NULL":
-			return "IS NULL", 0
-		case "NOT_NULL":
-			return "IS NOT NULL", 0
-		default:
-			logger.Errorf("todo")
-			return "= ?", 1 // TODO
-		}
+func getIntWhereClause(column string, modifier models.CriterionModifier, value int, upper *int) (string, []interface{}) {
+	if upper == nil {
+		u := 0
+		upper = &u
 	}
 
-	return "= ?", 1 // TODO
-}
+	args := []interface{}{value}
+	betweenArgs := []interface{}{value, *upper}
 
-func getIntCriterionWhereClause(column string, input models.IntCriterionInput) (string, int) {
-	binding, count := getCriterionModifierBinding(input.Modifier, input.Value)
-	return column + " " + binding, count
+	switch modifier {
+	case models.CriterionModifierIsNull:
+		return fmt.Sprintf("%s IS NULL", column), nil
+	case models.CriterionModifierNotNull:
+		return fmt.Sprintf("%s IS NOT NULL", column), nil
+	case models.CriterionModifierEquals:
+		return fmt.Sprintf("%s = ?", column), args
+	case models.CriterionModifierNotEquals:
+		return fmt.Sprintf("%s != ?", column), args
+	case models.CriterionModifierBetween:
+		return fmt.Sprintf("%s BETWEEN ? AND ?", column), betweenArgs
+	case models.CriterionModifierNotBetween:
+		return fmt.Sprintf("%s NOT BETWEEN ? AND ?", column), betweenArgs
+	case models.CriterionModifierLessThan:
+		return fmt.Sprintf("%s < ?", column), args
+	case models.CriterionModifierGreaterThan:
+		return fmt.Sprintf("%s > ?", column), args
+	}
+
+	panic("unsupported int modifier type")
 }
 
 // returns where clause and having clause
 func getMultiCriterionClause(primaryTable, foreignTable, joinTable, primaryFK, foreignFK string, criterion *models.MultiCriterionInput) (string, string) {
 	whereClause := ""
 	havingClause := ""
-	if criterion.Modifier == models.CriterionModifierIncludes {
+	switch criterion.Modifier {
+	case models.CriterionModifierIncludes:
 		// includes any of the provided ids
-		whereClause = foreignTable + ".id IN " + getInBinding(len(criterion.Value))
-	} else if criterion.Modifier == models.CriterionModifierIncludesAll {
+		if joinTable != "" {
+			whereClause = joinTable + "." + foreignFK + " IN " + getInBinding(len(criterion.Value))
+		} else {
+			whereClause = foreignTable + ".id IN " + getInBinding(len(criterion.Value))
+		}
+	case models.CriterionModifierIncludesAll:
 		// includes all of the provided ids
-		whereClause = foreignTable + ".id IN " + getInBinding(len(criterion.Value))
-		havingClause = "count(distinct " + foreignTable + ".id) IS " + strconv.Itoa(len(criterion.Value))
-	} else if criterion.Modifier == models.CriterionModifierExcludes {
+		if joinTable != "" {
+			whereClause = joinTable + "." + foreignFK + " IN " + getInBinding(len(criterion.Value))
+			havingClause = "count(distinct " + joinTable + "." + foreignFK + ") IS " + strconv.Itoa(len(criterion.Value))
+		} else {
+			whereClause = foreignTable + ".id IN " + getInBinding(len(criterion.Value))
+			havingClause = "count(distinct " + foreignTable + ".id) IS " + strconv.Itoa(len(criterion.Value))
+		}
+	case models.CriterionModifierExcludes:
 		// excludes all of the provided ids
 		if joinTable != "" {
-			whereClause = "not exists (select " + joinTable + "." + primaryFK + " from " + joinTable + " where " + joinTable + "." + primaryFK + " = " + primaryTable + ".id and " + joinTable + "." + foreignFK + " in " + getInBinding(len(criterion.Value)) + ")"
+			whereClause = primaryTable + ".id not in (select " + joinTable + "." + primaryFK + " from " + joinTable + " where " + joinTable + "." + foreignFK + " in " + getInBinding(len(criterion.Value)) + ")"
 		} else {
 			whereClause = "not exists (select s.id from " + primaryTable + " as s where s.id = " + primaryTable + ".id and s." + foreignFK + " in " + getInBinding(len(criterion.Value)) + ")"
 		}
@@ -226,21 +220,15 @@ func getMultiCriterionClause(primaryTable, foreignTable, joinTable, primaryFK, f
 	return whereClause, havingClause
 }
 
-func getCountCriterionClause(primaryTable, joinTable, primaryFK string, criterion models.IntCriterionInput) (string, int) {
+func getCountCriterionClause(primaryTable, joinTable, primaryFK string, criterion models.IntCriterionInput) (string, []interface{}) {
 	lhs := fmt.Sprintf("(SELECT COUNT(*) FROM %s s WHERE s.%s = %s.id)", joinTable, primaryFK, primaryTable)
 	return getIntCriterionWhereClause(lhs, criterion)
-}
-
-func ensureTx(tx *sqlx.Tx) {
-	if tx == nil {
-		panic("must use a transaction")
-	}
 }
 
 func getImage(tx dbi, query string, args ...interface{}) ([]byte, error) {
 	rows, err := tx.Queryx(query, args...)
 
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 	defer rows.Close()
@@ -257,4 +245,12 @@ func getImage(tx dbi, query string, args ...interface{}) ([]byte, error) {
 	}
 
 	return ret, nil
+}
+
+func coalesce(column string) string {
+	return fmt.Sprintf("COALESCE(%s, '')", column)
+}
+
+func like(v string) string {
+	return "%" + v + "%"
 }

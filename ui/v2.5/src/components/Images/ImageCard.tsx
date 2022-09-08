@@ -1,44 +1,31 @@
-import React from "react";
-import { Button, ButtonGroup, Card, Form } from "react-bootstrap";
-import { Link } from "react-router-dom";
+import React, { MouseEvent } from "react";
+import { Button, ButtonGroup } from "react-bootstrap";
 import cx from "classnames";
 import * as GQL from "src/core/generated-graphql";
-import {
-  Icon,
-  TagLink,
-  HoverPopover,
-  SweatDrops,
-  TruncatedText,
-} from "src/components/Shared";
+import { Icon, TagLink, HoverPopover, SweatDrops } from "src/components/Shared";
 import { TextUtils } from "src/utils";
 import { PerformerPopoverButton } from "../Shared/PerformerPopoverButton";
+import { GridCard } from "../Shared/GridCard";
+import { RatingBanner } from "../Shared/RatingBanner";
+import {
+  faBox,
+  faImages,
+  faSearch,
+  faTag,
+} from "@fortawesome/free-solid-svg-icons";
 
 interface IImageCardProps {
   image: GQL.SlimImageDataFragment;
   selecting?: boolean;
-  selected: boolean | undefined;
+  selected?: boolean | undefined;
   zoomIndex: number;
-  onSelectedChanged: (selected: boolean, shiftKey: boolean) => void;
+  onSelectedChanged?: (selected: boolean, shiftKey: boolean) => void;
+  onPreview?: (ev: MouseEvent) => void;
 }
 
 export const ImageCard: React.FC<IImageCardProps> = (
   props: IImageCardProps
 ) => {
-  function maybeRenderRatingBanner() {
-    if (!props.image.rating) {
-      return;
-    }
-    return (
-      <div
-        className={`rating-banner ${
-          props.image.rating ? `rating-${props.image.rating}` : ""
-        }`}
-      >
-        RATING: {props.image.rating}
-      </div>
-    );
-  }
-
   function maybeRenderTagPopoverButton() {
     if (props.image.tags.length <= 0) return;
 
@@ -47,9 +34,13 @@ export const ImageCard: React.FC<IImageCardProps> = (
     ));
 
     return (
-      <HoverPopover placement="bottom" content={popoverContent}>
+      <HoverPopover
+        className="tag-count"
+        placement="bottom"
+        content={popoverContent}
+      >
         <Button className="minimal">
-          <Icon icon="tag" />
+          <Icon icon={faTag} />
           <span>{props.image.tags.length}</span>
         </Button>
       </HoverPopover>
@@ -65,7 +56,7 @@ export const ImageCard: React.FC<IImageCardProps> = (
   function maybeRenderOCounter() {
     if (props.image.o_counter) {
       return (
-        <div>
+        <div className="o-count">
           <Button className="minimal">
             <span className="fa-icon">
               <SweatDrops />
@@ -77,12 +68,33 @@ export const ImageCard: React.FC<IImageCardProps> = (
     }
   }
 
+  function maybeRenderGallery() {
+    if (props.image.galleries.length <= 0) return;
+
+    const popoverContent = props.image.galleries.map((gallery) => (
+      <TagLink key={gallery.id} gallery={gallery} />
+    ));
+
+    return (
+      <HoverPopover
+        className="gallery-count"
+        placement="bottom"
+        content={popoverContent}
+      >
+        <Button className="minimal">
+          <Icon icon={faImages} />
+          <span>{props.image.galleries.length}</span>
+        </Button>
+      </HoverPopover>
+    );
+  }
+
   function maybeRenderOrganized() {
     if (props.image.organized) {
       return (
-        <div>
+        <div className="organized">
           <Button className="minimal">
-            <Icon icon="box" />
+            <Icon icon={faBox} />
           </Button>
         </div>
       );
@@ -94,6 +106,7 @@ export const ImageCard: React.FC<IImageCardProps> = (
       props.image.tags.length > 0 ||
       props.image.performers.length > 0 ||
       props.image.o_counter ||
+      props.image.galleries.length > 0 ||
       props.image.organized
     ) {
       return (
@@ -103,41 +116,12 @@ export const ImageCard: React.FC<IImageCardProps> = (
             {maybeRenderTagPopoverButton()}
             {maybeRenderPerformerPopoverButton()}
             {maybeRenderOCounter()}
+            {maybeRenderGallery()}
             {maybeRenderOrganized()}
           </ButtonGroup>
         </>
       );
     }
-  }
-
-  function handleImageClick(
-    event: React.MouseEvent<HTMLAnchorElement, MouseEvent>
-  ) {
-    const { shiftKey } = event;
-
-    if (props.selecting) {
-      props.onSelectedChanged(!props.selected, shiftKey);
-      event.preventDefault();
-    }
-  }
-
-  function handleDrag(event: React.DragEvent<HTMLAnchorElement>) {
-    if (props.selecting) {
-      event.dataTransfer.setData("text/plain", "");
-      event.dataTransfer.setDragImage(new Image(), 0, 0);
-    }
-  }
-
-  function handleDragOver(event: React.DragEvent<HTMLAnchorElement>) {
-    const ev = event;
-    const shiftKey = false;
-
-    if (props.selecting && !props.selected) {
-      props.onSelectedChanged(true, shiftKey);
-    }
-
-    ev.dataTransfer.dropEffect = "move";
-    ev.preventDefault();
   }
 
   function isPortrait() {
@@ -147,55 +131,39 @@ export const ImageCard: React.FC<IImageCardProps> = (
     return height > width;
   }
 
-  let shiftKey = false;
-
   return (
-    <Card className={`image-card zoom-${props.zoomIndex}`}>
-      <Form.Control
-        type="checkbox"
-        className="image-card-check"
-        checked={props.selected}
-        onChange={() => props.onSelectedChanged(!props.selected, shiftKey)}
-        onClick={(event: React.MouseEvent<HTMLInputElement, MouseEvent>) => {
-          // eslint-disable-next-line prefer-destructuring
-          shiftKey = event.shiftKey;
-          event.stopPropagation();
-        }}
-      />
-
-      <div className="image-section">
-        <Link
-          to={`/images/${props.image.id}`}
-          className="image-card-link"
-          onClick={handleImageClick}
-          onDragStart={handleDrag}
-          onDragOver={handleDragOver}
-          draggable={props.selecting}
-        >
+    <GridCard
+      className={`image-card zoom-${props.zoomIndex}`}
+      url={`/images/${props.image.id}`}
+      title={
+        props.image.title
+          ? props.image.title
+          : TextUtils.fileNameFromPath(props.image.path)
+      }
+      linkClassName="image-card-link"
+      image={
+        <>
           <div className={cx("image-card-preview", { portrait: isPortrait() })}>
             <img
               className="image-card-preview-image"
               alt={props.image.title ?? ""}
               src={props.image.paths.thumbnail ?? ""}
             />
+            {props.onPreview ? (
+              <div className="preview-button">
+                <Button onClick={props.onPreview}>
+                  <Icon icon={faSearch} />
+                </Button>
+              </div>
+            ) : undefined}
           </div>
-          {maybeRenderRatingBanner()}
-        </Link>
-      </div>
-      <div className="card-section">
-        <h5 className="card-section-title">
-          <TruncatedText
-            text={
-              props.image.title
-                ? props.image.title
-                : TextUtils.fileNameFromPath(props.image.path)
-            }
-            lineCount={2}
-          />
-        </h5>
-      </div>
-
-      {maybeRenderPopoverButtonGroup()}
-    </Card>
+          <RatingBanner rating={props.image.rating} />
+        </>
+      }
+      popovers={maybeRenderPopoverButtonGroup()}
+      selected={props.selected}
+      selecting={props.selecting}
+      onSelectedChanged={props.onSelectedChanged}
+    />
   );
 };

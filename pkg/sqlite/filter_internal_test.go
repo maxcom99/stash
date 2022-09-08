@@ -9,6 +9,31 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestJoinsAddJoin(t *testing.T) {
+	var joins joins
+
+	// add a single join
+	joins.add(join{table: "test"})
+
+	assert := assert.New(t)
+
+	// ensure join was added
+	assert.Len(joins, 1)
+
+	// add the same join and another
+	joins.add([]join{
+		{
+			table: "test",
+		},
+		{
+			table: "foo",
+		},
+	}...)
+
+	// should have added a single join
+	assert.Len(joins, 2)
+}
+
 func TestFilterBuilderAnd(t *testing.T) {
 	assert := assert.New(t)
 
@@ -127,36 +152,36 @@ func TestAddJoin(t *testing.T) {
 		onClause = "onClause1"
 	)
 
-	f.addJoin(table1Name, as1Name, onClause)
+	f.addLeftJoin(table1Name, as1Name, onClause)
 
 	// ensure join is added
 	assert.Len(f.joins, 1)
 	assert.Equal(fmt.Sprintf("LEFT JOIN %s AS %s ON %s", table1Name, as1Name, onClause), f.joins[0].toSQL())
 
 	// ensure join with same as is not added
-	f.addJoin(table2Name, as1Name, onClause)
+	f.addLeftJoin(table2Name, as1Name, onClause)
 	assert.Len(f.joins, 1)
 
 	// ensure same table with different alias can be added
-	f.addJoin(table1Name, as2Name, onClause)
+	f.addLeftJoin(table1Name, as2Name, onClause)
 	assert.Len(f.joins, 2)
 	assert.Equal(fmt.Sprintf("LEFT JOIN %s AS %s ON %s", table1Name, as2Name, onClause), f.joins[1].toSQL())
 
 	// ensure table without alias can be added if tableName != existing alias/tableName
-	f.addJoin(table1Name, "", onClause)
+	f.addLeftJoin(table1Name, "", onClause)
 	assert.Len(f.joins, 3)
 	assert.Equal(fmt.Sprintf("LEFT JOIN %s ON %s", table1Name, onClause), f.joins[2].toSQL())
 
 	// ensure table with alias == table name of a join without alias is not added
-	f.addJoin(table2Name, table1Name, onClause)
+	f.addLeftJoin(table2Name, table1Name, onClause)
 	assert.Len(f.joins, 3)
 
 	// ensure table without alias cannot be added if tableName == existing alias
-	f.addJoin(as2Name, "", onClause)
+	f.addLeftJoin(as2Name, "", onClause)
 	assert.Len(f.joins, 3)
 
 	// ensure AS is not used if same as table name
-	f.addJoin(table2Name, table2Name, onClause)
+	f.addLeftJoin(table2Name, table2Name, onClause)
 	assert.Len(f.joins, 4)
 	assert.Equal(fmt.Sprintf("LEFT JOIN %s ON %s", table2Name, onClause), f.joins[3].toSQL())
 }
@@ -227,14 +252,14 @@ func TestGenerateWhereClauses(t *testing.T) {
 	// ensure single where clause is generated correctly
 	f.addWhere(clause1)
 	r, rArgs := f.generateWhereClauses()
-	assert.Equal(clause1, r)
+	assert.Equal(fmt.Sprintf("(%s)", clause1), r)
 	assert.Len(rArgs, 0)
 
 	// ensure multiple where clauses are surrounded with parenthesis and
 	// ANDed together
 	f.addWhere(clause2, arg1, arg2)
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("(%s AND %s)", clause1, clause2), r)
+	assert.Equal(fmt.Sprintf("((%s) AND (%s))", clause1, clause2), r)
 	assert.Len(rArgs, 2)
 
 	// ensure empty subfilter is not added to generated where clause
@@ -242,13 +267,13 @@ func TestGenerateWhereClauses(t *testing.T) {
 	f.and(sf)
 
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("(%s AND %s)", clause1, clause2), r)
+	assert.Equal(fmt.Sprintf("((%s) AND (%s))", clause1, clause2), r)
 	assert.Len(rArgs, 2)
 
 	// ensure sub-filter is generated correctly
 	sf.addWhere(clause3, arg3)
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("(%s AND %s) AND (%s)", clause1, clause2, clause3), r)
+	assert.Equal(fmt.Sprintf("((%s) AND (%s)) AND ((%s))", clause1, clause2, clause3), r)
 	assert.Len(rArgs, 3)
 
 	// ensure OR sub-filter is generated correctly
@@ -258,7 +283,7 @@ func TestGenerateWhereClauses(t *testing.T) {
 	f.or(sf)
 
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("(%s AND %s) OR (%s)", clause1, clause2, clause3), r)
+	assert.Equal(fmt.Sprintf("((%s) AND (%s)) OR ((%s))", clause1, clause2, clause3), r)
 	assert.Len(rArgs, 3)
 
 	// ensure NOT sub-filter is generated correctly
@@ -268,7 +293,7 @@ func TestGenerateWhereClauses(t *testing.T) {
 	f.not(sf)
 
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("(%s AND %s) AND NOT (%s)", clause1, clause2, clause3), r)
+	assert.Equal(fmt.Sprintf("((%s) AND (%s)) AND NOT ((%s))", clause1, clause2, clause3), r)
 	assert.Len(rArgs, 3)
 
 	// ensure empty filter with ANDed sub-filter does not include AND
@@ -276,7 +301,7 @@ func TestGenerateWhereClauses(t *testing.T) {
 	f.and(sf)
 
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("(%s)", clause3), r)
+	assert.Equal(fmt.Sprintf("((%s))", clause3), r)
 	assert.Len(rArgs, 1)
 
 	// ensure empty filter with ORed sub-filter does not include OR
@@ -284,7 +309,7 @@ func TestGenerateWhereClauses(t *testing.T) {
 	f.or(sf)
 
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("(%s)", clause3), r)
+	assert.Equal(fmt.Sprintf("((%s))", clause3), r)
 	assert.Len(rArgs, 1)
 
 	// ensure empty filter with NOTed sub-filter does not include AND
@@ -292,7 +317,7 @@ func TestGenerateWhereClauses(t *testing.T) {
 	f.not(sf)
 
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("NOT (%s)", clause3), r)
+	assert.Equal(fmt.Sprintf("NOT ((%s))", clause3), r)
 	assert.Len(rArgs, 1)
 
 	// (clause1) AND ((clause2) OR (clause3))
@@ -303,7 +328,7 @@ func TestGenerateWhereClauses(t *testing.T) {
 	f.and(sf2)
 	sf2.or(sf)
 	r, rArgs = f.generateWhereClauses()
-	assert.Equal(fmt.Sprintf("%s AND (%s OR (%s))", clause1, clause2, clause3), r)
+	assert.Equal(fmt.Sprintf("(%s) AND ((%s) OR ((%s)))", clause1, clause2, clause3), r)
 	assert.Len(rArgs, 3)
 }
 
@@ -323,14 +348,14 @@ func TestGenerateHavingClauses(t *testing.T) {
 	// ensure single Having clause is generated correctly
 	f.addHaving(clause1)
 	r, rArgs := f.generateHavingClauses()
-	assert.Equal(clause1, r)
+	assert.Equal(fmt.Sprintf("(%s)", clause1), r)
 	assert.Len(rArgs, 0)
 
 	// ensure multiple Having clauses are surrounded with parenthesis and
 	// ANDed together
 	f.addHaving(clause2, arg1, arg2)
 	r, rArgs = f.generateHavingClauses()
-	assert.Equal("("+clause1+" AND "+clause2+")", r)
+	assert.Equal("(("+clause1+") AND ("+clause2+"))", r)
 	assert.Len(rArgs, 2)
 
 	// ensure empty subfilter is not added to generated Having clause
@@ -338,13 +363,13 @@ func TestGenerateHavingClauses(t *testing.T) {
 	f.and(sf)
 
 	r, rArgs = f.generateHavingClauses()
-	assert.Equal("("+clause1+" AND "+clause2+")", r)
+	assert.Equal("(("+clause1+") AND ("+clause2+"))", r)
 	assert.Len(rArgs, 2)
 
 	// ensure sub-filter is generated correctly
 	sf.addHaving(clause3, arg3)
 	r, rArgs = f.generateHavingClauses()
-	assert.Equal("("+clause1+" AND "+clause2+") AND ("+clause3+")", r)
+	assert.Equal("(("+clause1+") AND ("+clause2+")) AND (("+clause3+"))", r)
 	assert.Len(rArgs, 3)
 
 	// ensure OR sub-filter is generated correctly
@@ -354,7 +379,7 @@ func TestGenerateHavingClauses(t *testing.T) {
 	f.or(sf)
 
 	r, rArgs = f.generateHavingClauses()
-	assert.Equal("("+clause1+" AND "+clause2+") OR ("+clause3+")", r)
+	assert.Equal("(("+clause1+") AND ("+clause2+")) OR (("+clause3+"))", r)
 	assert.Len(rArgs, 3)
 
 	// ensure NOT sub-filter is generated correctly
@@ -364,7 +389,7 @@ func TestGenerateHavingClauses(t *testing.T) {
 	f.not(sf)
 
 	r, rArgs = f.generateHavingClauses()
-	assert.Equal("("+clause1+" AND "+clause2+") AND NOT ("+clause3+")", r)
+	assert.Equal("(("+clause1+") AND ("+clause2+")) AND NOT (("+clause3+"))", r)
 	assert.Len(rArgs, 3)
 }
 
@@ -382,7 +407,7 @@ func TestGetAllJoins(t *testing.T) {
 		onClause = "onClause1"
 	)
 
-	f.addJoin(table1Name, as1Name, onClause)
+	f.addLeftJoin(table1Name, as1Name, onClause)
 
 	// ensure join is returned
 	joins := f.getAllJoins()
@@ -392,14 +417,14 @@ func TestGetAllJoins(t *testing.T) {
 	// ensure joins in sub-filter are returned
 	subFilter := &filterBuilder{}
 	f.and(subFilter)
-	subFilter.addJoin(table2Name, as2Name, onClause)
+	subFilter.addLeftJoin(table2Name, as2Name, onClause)
 
 	joins = f.getAllJoins()
 	assert.Len(joins, 2)
 	assert.Equal(fmt.Sprintf("LEFT JOIN %s AS %s ON %s", table2Name, as2Name, onClause), joins[1].toSQL())
 
 	// ensure redundant joins are not returned
-	subFilter.addJoin(as1Name, "", onClause)
+	subFilter.addLeftJoin(as1Name, "", onClause)
 	joins = f.getAllJoins()
 	assert.Len(joins, 2)
 }
@@ -437,7 +462,7 @@ func TestStringCriterionHandlerIncludes(t *testing.T) {
 	const quotedValue = `"two words"`
 
 	f := &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierIncludes,
 		Value:    value1,
 	}, column))
@@ -449,7 +474,7 @@ func TestStringCriterionHandlerIncludes(t *testing.T) {
 	assert.Equal("%words%", f.whereClauses[0].args[1])
 
 	f = &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierIncludes,
 		Value:    quotedValue,
 	}, column))
@@ -468,7 +493,7 @@ func TestStringCriterionHandlerExcludes(t *testing.T) {
 	const quotedValue = `"two words"`
 
 	f := &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierExcludes,
 		Value:    value1,
 	}, column))
@@ -480,7 +505,7 @@ func TestStringCriterionHandlerExcludes(t *testing.T) {
 	assert.Equal("%words%", f.whereClauses[0].args[1])
 
 	f = &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierExcludes,
 		Value:    quotedValue,
 	}, column))
@@ -498,7 +523,7 @@ func TestStringCriterionHandlerEquals(t *testing.T) {
 	const value1 = "two words"
 
 	f := &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierEquals,
 		Value:    value1,
 	}, column))
@@ -516,7 +541,7 @@ func TestStringCriterionHandlerNotEquals(t *testing.T) {
 	const value1 = "two words"
 
 	f := &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierNotEquals,
 		Value:    value1,
 	}, column))
@@ -535,7 +560,7 @@ func TestStringCriterionHandlerMatchesRegex(t *testing.T) {
 	const invalidValue = "*two words"
 
 	f := &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierMatchesRegex,
 		Value:    validValue,
 	}, column))
@@ -547,7 +572,7 @@ func TestStringCriterionHandlerMatchesRegex(t *testing.T) {
 
 	// ensure invalid regex sets error state
 	f = &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierMatchesRegex,
 		Value:    invalidValue,
 	}, column))
@@ -563,7 +588,7 @@ func TestStringCriterionHandlerNotMatchesRegex(t *testing.T) {
 	const invalidValue = "*two words"
 
 	f := &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierNotMatchesRegex,
 		Value:    validValue,
 	}, column))
@@ -575,7 +600,7 @@ func TestStringCriterionHandlerNotMatchesRegex(t *testing.T) {
 
 	// ensure invalid regex sets error state
 	f = &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierNotMatchesRegex,
 		Value:    invalidValue,
 	}, column))
@@ -589,7 +614,7 @@ func TestStringCriterionHandlerIsNull(t *testing.T) {
 	const column = "column"
 
 	f := &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierIsNull,
 	}, column))
 
@@ -604,7 +629,7 @@ func TestStringCriterionHandlerNotNull(t *testing.T) {
 	const column = "column"
 
 	f := &filterBuilder{}
-	f.handleCriterionFunc(stringCriterionHandler(&models.StringCriterionInput{
+	f.handleCriterion(stringCriterionHandler(&models.StringCriterionInput{
 		Modifier: models.CriterionModifierNotNull,
 	}, column))
 
