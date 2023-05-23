@@ -1,7 +1,8 @@
 import React from "react";
 import { Form } from "react-bootstrap";
-import { FilterSelect, DurationInput } from "src/components/Shared";
-import { DurationUtils } from ".";
+import { DurationInput } from "src/components/Shared/DurationInput";
+import { FilterSelect } from "src/components/Shared/Select";
+import DurationUtils from "./duration";
 
 const renderTextArea = (options: {
   value: string | undefined;
@@ -201,4 +202,5 @@ const EditableTextUtils = {
   renderFilterSelect,
   renderMultiSelect,
 };
+
 export default EditableTextUtils;

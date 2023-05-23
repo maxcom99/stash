@@ -394,6 +394,19 @@ func (p *postProcessParseDate) Apply(ctx context.Context, value string, q mapped
 		return value
 	}
 
+	if parseDate == "unix" {
+		// try to parse the date using unix timestamp format
+		// if it fails, then just fall back to the original value
+		timeAsInt, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			logger.Warnf("Error parsing date string '%s' using unix timestamp format : %s", value, err.Error())
+			return value
+		}
+		parsedValue := time.Unix(timeAsInt, 0)
+
+		return parsedValue.Format(internalDateFormat)
+	}
+
 	// try to parse the date using the pattern
 	// if it fails, then just fall back to the original value
 	parsedValue, err := time.Parse(parseDate, value)
@@ -809,8 +822,8 @@ func (s mappedScraper) scrapePerformers(ctx context.Context, q mappedQuery) ([]*
 	return ret, nil
 }
 
-func (s mappedScraper) processScene(ctx context.Context, q mappedQuery, r mappedResult) *models.ScrapedScene {
-	var ret models.ScrapedScene
+func (s mappedScraper) processScene(ctx context.Context, q mappedQuery, r mappedResult, resultIndex int) *ScrapedScene {
+	var ret ScrapedScene
 
 	sceneScraperConfig := s.Scene
 
@@ -863,9 +876,10 @@ func (s mappedScraper) processScene(ctx context.Context, q mappedQuery, r mapped
 		logger.Debug(`Processing scene studio:`)
 		studioResults := sceneStudioMap.process(ctx, q, s.Common)
 
-		if len(studioResults) > 0 {
+		if len(studioResults) > 0 && resultIndex < len(studioResults) {
 			studio := &models.ScrapedStudio{}
-			studioResults[0].apply(studio)
+			// when doing a `search` scrape get the related studio
+			studioResults[resultIndex].apply(studio)
 			ret.Studio = studio
 		}
 	}
@@ -884,8 +898,8 @@ func (s mappedScraper) processScene(ctx context.Context, q mappedQuery, r mapped
 	return &ret
 }
 
-func (s mappedScraper) scrapeScenes(ctx context.Context, q mappedQuery) ([]*models.ScrapedScene, error) {
-	var ret []*models.ScrapedScene
+func (s mappedScraper) scrapeScenes(ctx context.Context, q mappedQuery) ([]*ScrapedScene, error) {
+	var ret []*ScrapedScene
 
 	sceneScraperConfig := s.Scene
 	sceneMap := sceneScraperConfig.mappedConfig
@@ -895,16 +909,16 @@ func (s mappedScraper) scrapeScenes(ctx context.Context, q mappedQuery) ([]*mode
 
 	logger.Debug(`Processing scenes:`)
 	results := sceneMap.process(ctx, q, s.Common)
-	for _, r := range results {
+	for i, r := range results {
 		logger.Debug(`Processing scene:`)
-		ret = append(ret, s.processScene(ctx, q, r))
+		ret = append(ret, s.processScene(ctx, q, r, i))
 	}
 
 	return ret, nil
 }
 
-func (s mappedScraper) scrapeScene(ctx context.Context, q mappedQuery) (*models.ScrapedScene, error) {
-	var ret *models.ScrapedScene
+func (s mappedScraper) scrapeScene(ctx context.Context, q mappedQuery) (*ScrapedScene, error) {
+	var ret *ScrapedScene
 
 	sceneScraperConfig := s.Scene
 	sceneMap := sceneScraperConfig.mappedConfig
@@ -915,14 +929,14 @@ func (s mappedScraper) scrapeScene(ctx context.Context, q mappedQuery) (*models.
 	logger.Debug(`Processing scene:`)
 	results := sceneMap.process(ctx, q, s.Common)
 	if len(results) > 0 {
-		ret = s.processScene(ctx, q, results[0])
+		ret = s.processScene(ctx, q, results[0], 0)
 	}
 
 	return ret, nil
 }
 
-func (s mappedScraper) scrapeGallery(ctx context.Context, q mappedQuery) (*models.ScrapedGallery, error) {
-	var ret *models.ScrapedGallery
+func (s mappedScraper) scrapeGallery(ctx context.Context, q mappedQuery) (*ScrapedGallery, error) {
+	var ret *ScrapedGallery
 
 	galleryScraperConfig := s.Gallery
 	galleryMap := galleryScraperConfig.mappedConfig
@@ -937,7 +951,7 @@ func (s mappedScraper) scrapeGallery(ctx context.Context, q mappedQuery) (*model
 	logger.Debug(`Processing gallery:`)
 	results := galleryMap.process(ctx, q, s.Common)
 	if len(results) > 0 {
-		ret = &models.ScrapedGallery{}
+		ret = &ScrapedGallery{}
 
 		results[0].apply(ret)
 

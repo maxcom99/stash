@@ -1,16 +1,25 @@
 package studio
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
 	"github.com/stashapp/stash/pkg/models/json"
 	"github.com/stashapp/stash/pkg/models/jsonschema"
 	"github.com/stashapp/stash/pkg/utils"
 )
 
+type FinderImageStashIDGetter interface {
+	Finder
+	GetAliases(ctx context.Context, studioID int) ([]string, error)
+	GetImage(ctx context.Context, studioID int) ([]byte, error)
+	models.StashIDLoader
+}
+
 // ToJSON converts a Studio object into its JSON equivalent.
-func ToJSON(reader models.StudioReader, studio *models.Studio) (*jsonschema.Studio, error) {
+func ToJSON(ctx context.Context, reader FinderImageStashIDGetter, studio *models.Studio) (*jsonschema.Studio, error) {
 	newStudioJSON := jsonschema.Studio{
 		IgnoreAutoTag: studio.IgnoreAutoTag,
 		CreatedAt:     json.JSONTime{Time: studio.CreatedAt.Timestamp},
@@ -30,7 +39,7 @@ func ToJSON(reader models.StudioReader, studio *models.Studio) (*jsonschema.Stud
 	}
 
 	if studio.ParentID.Valid {
-		parent, err := reader.Find(int(studio.ParentID.Int64))
+		parent, err := reader.Find(ctx, int(studio.ParentID.Int64))
 		if err != nil {
 			return nil, fmt.Errorf("error getting parent studio: %v", err)
 		}
@@ -44,23 +53,23 @@ func ToJSON(reader models.StudioReader, studio *models.Studio) (*jsonschema.Stud
 		newStudioJSON.Rating = int(studio.Rating.Int64)
 	}
 
-	aliases, err := reader.GetAliases(studio.ID)
+	aliases, err := reader.GetAliases(ctx, studio.ID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting studio aliases: %v", err)
 	}
 
 	newStudioJSON.Aliases = aliases
 
-	image, err := reader.GetImage(studio.ID)
+	image, err := reader.GetImage(ctx, studio.ID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting studio image: %v", err)
+		logger.Errorf("Error getting studio image: %v", err)
 	}
 
 	if len(image) > 0 {
 		newStudioJSON.Image = utils.GetBase64StringFromData(image)
 	}
 
-	stashIDs, _ := reader.GetStashIDs(studio.ID)
+	stashIDs, _ := reader.GetStashIDs(ctx, studio.ID)
 	var ret []models.StashID
 	for _, stashID := range stashIDs {
 		newJoin := models.StashID{

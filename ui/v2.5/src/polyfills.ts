@@ -3,7 +3,7 @@ import { shouldPolyfill as shouldPolyfillCanonicalLocales } from "@formatjs/intl
 import { shouldPolyfill as shouldPolyfillLocale } from "@formatjs/intl-locale/should-polyfill";
 import { shouldPolyfill as shouldPolyfillNumberformat } from "@formatjs/intl-numberformat/should-polyfill";
 import { shouldPolyfill as shouldPolyfillPluralRules } from "@formatjs/intl-pluralrules/should-polyfill";
-import "intersection-observer/intersection-observer";
+import "intersection-observer";
 
 // Required for browsers older than August 2020ish. Can be removed at some point.
 replaceAll.shim();
@@ -23,6 +23,11 @@ async function checkPolyfills() {
   if (shouldPolyfillPluralRules()) {
     await import("@formatjs/intl-pluralrules/polyfill");
     await import("@formatjs/intl-pluralrules/locale-data/en");
+  }
+
+  if (!("ResizeObserver" in window)) {
+    const ResizeObserver = await import("resize-observer-polyfill");
+    window.ResizeObserver = ResizeObserver.default;
   }
 }
 

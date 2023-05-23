@@ -1,17 +1,8 @@
-import queryString from "query-string";
-import { RouteComponentProps } from "react-router-dom";
-import { FilterMode } from "src/core/generated-graphql";
+import { FilterMode, Scene } from "src/core/generated-graphql";
 import { ListFilterModel } from "./list-filter/filter";
 import { SceneListFilterOptions } from "./list-filter/scenes";
 
-interface IQueryParameters {
-  qsort?: string;
-  qsortd?: string;
-  qfq?: string;
-  qfp?: string;
-  qfc?: string[];
-  qs?: string[];
-}
+export type QueuedScene = Pick<Scene, "id" | "title" | "paths">;
 
 export interface IPlaySceneOptions {
   sceneIndex?: number;
@@ -46,18 +37,27 @@ export class SceneQueue {
   }
 
   private makeQueryParameters(sceneIndex?: number, page?: number) {
-    if (this.query) {
-      const queryParams = this.query.getQueryParameters();
-      const translatedParams = {
-        qfp: queryParams.p ?? 1,
-        qfc: queryParams.c,
-        qfq: queryParams.q,
-        qsort: queryParams.sortby,
-        qsortd: queryParams.sortdir,
-      };
+    const ret: string[] = [];
 
+    if (this.query) {
+      const queryParams = this.query.getEncodedParams();
+
+      if (queryParams.sortby) {
+        ret.push(`qsort=${queryParams.sortby}`);
+      }
+      if (queryParams.sortdir) {
+        ret.push(`qsortd=${queryParams.sortdir}`);
+      }
+      if (queryParams.q) {
+        ret.push(`qfq=${queryParams.q}`);
+      }
+      for (const c of queryParams.c ?? []) {
+        ret.push(`qfc=${c}`);
+      }
+
+      let qfp = queryParams.p ?? "1";
       if (page !== undefined) {
-        translatedParams.qfp = page;
+        qfp = String(page);
       } else if (
         sceneIndex !== undefined &&
         this.originalQueryPage !== undefined &&
@@ -68,64 +68,55 @@ export class SceneQueue {
           sceneIndex +
           (this.originalQueryPage - 1) * this.originalQueryPageSize;
         const newPage = Math.floor(filterIndex / this.query.itemsPerPage) + 1;
-        translatedParams.qfp = newPage;
+        qfp = String(newPage);
       }
-
-      return queryString.stringify(translatedParams, { encode: false });
+      ret.push(`qfp=${qfp}`);
+    } else if (this.sceneIDs && this.sceneIDs.length > 0) {
+      for (const id of this.sceneIDs) {
+        ret.push(`qs=${id}`);
+      }
     }
 
-    if (this.sceneIDs && this.sceneIDs.length > 0) {
-      const params = {
-        qs: this.sceneIDs,
-      };
-      return queryString.stringify(params, { encode: false });
-    }
-
-    return "";
+    return ret.join("&");
   }
 
-  public static fromQueryParameters(params: string) {
+  public static fromQueryParameters(params: URLSearchParams) {
     const ret = new SceneQueue();
-    const parsed = queryString.parse(params) as IQueryParameters;
-    const translated = {
-      sortby: parsed.qsort,
-      sortdir: parsed.qsortd,
-      q: parsed.qfq,
-      p: parsed.qfp,
-      c: parsed.qfc,
-    };
 
-    if (parsed.qfp) {
+    if (params.has("qfp")) {
+      const translated = {
+        sortby: params.get("qsort"),
+        sortdir: params.get("qsortd"),
+        q: params.get("qfq"),
+        p: params.get("qfp"),
+        c: params.getAll("qfc"),
+      };
+      const decoded = ListFilterModel.decodeParams(translated);
       const query = new ListFilterModel(
         FilterMode.Scenes,
-        translated as queryString.ParsedQuery,
+        undefined,
         SceneListFilterOptions.defaultSortBy
       );
+      query.configureFromDecodedParams(decoded);
       ret.query = query;
-    } else if (parsed.qs) {
+    } else if (params.has("qs")) {
       // must be scene list
-      ret.sceneIDs = Array.isArray(parsed.qs)
-        ? parsed.qs.map((v) => Number(v))
-        : [Number(parsed.qs)];
+      ret.sceneIDs = params.getAll("qs").map((v) => Number(v));
     }
 
     return ret;
   }
 
-  public playScene(
-    history: RouteComponentProps["history"],
-    sceneID: string,
-    options?: IPlaySceneOptions
-  ) {
-    history.replace(this.makeLink(sceneID, options));
-  }
-
-  public makeLink(sceneID: string, options?: IPlaySceneOptions) {
-    const params = [
-      this.makeQueryParameters(options?.sceneIndex, options?.newPage),
-      options?.autoPlay ? "autoplay=true" : "",
-      options?.continue ? "continue=true" : "",
-    ].filter((param) => !!param);
+  public makeLink(sceneID: string, options: IPlaySceneOptions) {
+    let params = [
+      this.makeQueryParameters(options.sceneIndex, options.newPage),
+    ];
+    if (options.autoPlay !== undefined) {
+      params.push("autoplay=" + options.autoPlay);
+    }
+    if (options.continue !== undefined) {
+      params.push("continue=" + options.continue);
+    }
     return `/scenes/${sceneID}${params.length ? "?" + params.join("&") : ""}`;
   }
 }

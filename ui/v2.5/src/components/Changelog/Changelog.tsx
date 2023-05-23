@@ -1,30 +1,32 @@
 import React from "react";
-import { useChangelogStorage } from "src/hooks";
+import { useChangelogStorage } from "src/hooks/LocalForage";
 import Version from "./Version";
-import V010 from "./versions/v010.md";
-import V011 from "./versions/v011.md";
-import V020 from "./versions/v020.md";
-import V021 from "./versions/v021.md";
-import V030 from "./versions/v030.md";
-import V040 from "./versions/v040.md";
-import V050 from "./versions/v050.md";
-import V060 from "./versions/v060.md";
-import V070 from "./versions/v070.md";
-import V080 from "./versions/v080.md";
-import V090 from "./versions/v090.md";
-import V0100 from "./versions/v0100.md";
-import V0110 from "./versions/v0110.md";
-import V0120 from "./versions/v0120.md";
-import V0130 from "./versions/v0130.md";
-import V0131 from "./versions/v0131.md";
-import V0140 from "./versions/v0140.md";
-import V0150 from "./versions/v0150.md";
-import V0160 from "./versions/v0160.md";
-import V0161 from "./versions/v0161.md";
+import V010 from "src/docs/en/Changelog/v010.md";
+import V011 from "src/docs/en/Changelog/v011.md";
+import V020 from "src/docs/en/Changelog/v020.md";
+import V021 from "src/docs/en/Changelog/v021.md";
+import V030 from "src/docs/en/Changelog/v030.md";
+import V040 from "src/docs/en/Changelog/v040.md";
+import V050 from "src/docs/en/Changelog/v050.md";
+import V060 from "src/docs/en/Changelog/v060.md";
+import V070 from "src/docs/en/Changelog/v070.md";
+import V080 from "src/docs/en/Changelog/v080.md";
+import V090 from "src/docs/en/Changelog/v090.md";
+import V0100 from "src/docs/en/Changelog/v0100.md";
+import V0110 from "src/docs/en/Changelog/v0110.md";
+import V0120 from "src/docs/en/Changelog/v0120.md";
+import V0130 from "src/docs/en/Changelog/v0130.md";
+import V0131 from "src/docs/en/Changelog/v0131.md";
+import V0140 from "src/docs/en/Changelog/v0140.md";
+import V0150 from "src/docs/en/Changelog/v0150.md";
+import V0160 from "src/docs/en/Changelog/v0160.md";
+import V0161 from "src/docs/en/Changelog/v0161.md";
+import V0170 from "src/docs/en/Changelog/v0170.md";
+import V0180 from "src/docs/en/Changelog/v0180.md";
+import V0190 from "src/docs/en/Changelog/v0190.md";
+import V0200 from "src/docs/en/Changelog/v0200.md";
+import V0210 from "src/docs/en/Changelog/v0210.md";
 import { MarkdownPage } from "../Shared/MarkdownPage";
-
-// to avoid use of explicit any
-type Module = typeof V010;
 
 const Changelog: React.FC = () => {
   const [{ data, loading }, setOpenState] = useChangelogStorage();
@@ -52,16 +54,16 @@ const Changelog: React.FC = () => {
   interface IStashRelease {
     version: string;
     date?: string;
-    page: Module;
+    page: string;
     defaultOpen?: boolean;
   }
 
   // after new release:
   // add entry to releases, using the current* fields
   // then update the current fields.
-  const currentVersion = stashVersion || "v0.16.1";
+  const currentVersion = stashVersion || "v0.21.0";
   const currentDate = buildDate;
-  const currentPage = V0161;
+  const currentPage = V0210;
 
   const releases: IStashRelease[] = [
     {
@@ -69,6 +71,31 @@ const Changelog: React.FC = () => {
       date: currentDate,
       page: currentPage,
       defaultOpen: true,
+    },
+    {
+      version: "v0.20.2",
+      date: "2023-04-08",
+      page: V0200,
+    },
+    {
+      version: "v0.19.1",
+      date: "2023-02-21",
+      page: V0190,
+    },
+    {
+      version: "v0.18.0",
+      date: "2022-11-30",
+      page: V0180,
+    },
+    {
+      version: "v0.17.2",
+      date: "2022-10-25",
+      page: V0170,
+    },
+    {
+      version: "v0.16.1",
+      date: "2022-07-26",
+      page: V0161,
     },
     {
       version: "v0.16.0",
@@ -168,7 +195,7 @@ const Changelog: React.FC = () => {
   ];
 
   return (
-    <>
+    <div className="changelog">
       <h1 className="mb-4">Changelog:</h1>
       {releases.map((r) => (
         <Version
@@ -182,7 +209,7 @@ const Changelog: React.FC = () => {
           <MarkdownPage page={r.page} />
         </Version>
       ))}
-    </>
+    </div>
   );
 };
 

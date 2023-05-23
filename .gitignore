@@ -16,12 +16,17 @@
 *.out
 
 # GraphQL generated output
-pkg/models/generated_*.go
-ui/v2.5/src/core/generated-*.tsx
+internal/api/generated_*.go
 
 ####
 # Jetbrains
 ####
+
+
+####
+# Visual Studio
+####
+/.vs
 
 # User-specific stuff
 .idea/**/workspace.xml
@@ -58,3 +63,4 @@ node_modules
 /stash
 dist
 .DS_Store
+/.local

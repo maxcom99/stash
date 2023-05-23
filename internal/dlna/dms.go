@@ -48,7 +48,30 @@ import (
 
 	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/scene"
+	"github.com/stashapp/stash/pkg/txn"
 )
+
+type SceneFinder interface {
+	scene.Queryer
+	scene.IDFinder
+}
+
+type StudioFinder interface {
+	All(ctx context.Context) ([]*models.Studio, error)
+}
+
+type TagFinder interface {
+	All(ctx context.Context) ([]*models.Tag, error)
+}
+
+type PerformerFinder interface {
+	All(ctx context.Context) ([]*models.Performer, error)
+}
+
+type MovieFinder interface {
+	All(ctx context.Context) ([]*models.Movie, error)
+}
 
 const (
 	serverField                 = "Linux/3.4 DLNADOC/1.50 UPnP/1.0 DMS/1.0"
@@ -249,9 +272,11 @@ type Server struct {
 	// Time interval between SSPD announces
 	NotifyInterval time.Duration
 
-	txnManager         models.TransactionManager
+	txnManager         txn.Manager
+	repository         Repository
 	sceneServer        sceneServer
 	ipWhitelistManager *ipWhitelistManager
+	VideoSortOrder     string
 }
 
 // UPnP SOAP service.
@@ -415,12 +440,12 @@ func (me *Server) serveIcon(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var scene *models.Scene
-	err := me.txnManager.WithReadTxn(r.Context(), func(r models.ReaderRepository) error {
+	err := txn.WithReadTxn(r.Context(), me.txnManager, func(ctx context.Context) error {
 		idInt, err := strconv.Atoi(sceneId)
 		if err != nil {
 			return nil
 		}
-		scene, _ = r.Scene().Find(idInt)
+		scene, _ = me.repository.SceneFinder.Find(ctx, idInt)
 		return nil
 	})
 	if err != nil {
@@ -555,12 +580,12 @@ func (me *Server) initMux(mux *http.ServeMux) {
 	mux.HandleFunc(resPath, func(w http.ResponseWriter, r *http.Request) {
 		sceneId := r.URL.Query().Get("scene")
 		var scene *models.Scene
-		err := me.txnManager.WithReadTxn(r.Context(), func(r models.ReaderRepository) error {
+		err := txn.WithReadTxn(r.Context(), me.txnManager, func(ctx context.Context) error {
 			sceneIdInt, err := strconv.Atoi(sceneId)
 			if err != nil {
 				return nil
 			}
-			scene, _ = r.Scene().Find(sceneIdInt)
+			scene, _ = me.repository.SceneFinder.Find(ctx, sceneIdInt)
 			return nil
 		})
 		if err != nil {
@@ -595,8 +620,7 @@ func (me *Server) initMux(mux *http.ServeMux) {
 func (me *Server) initServices() {
 	me.services = map[string]UPnPService{
 		"ContentDirectory": &contentDirectoryService{
-			Server:     me,
-			txnManager: me.txnManager,
+			Server: me,
 		},
 		"ConnectionManager": &connectionManagerService{
 			Server: me,

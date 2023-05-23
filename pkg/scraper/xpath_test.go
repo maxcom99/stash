@@ -834,6 +834,10 @@ func (mockGlobalConfig) GetPythonPath() string {
 	return ""
 }
 
+func (mockGlobalConfig) GetProxy() string {
+	return ""
+}
+
 func TestSubScrape(t *testing.T) {
 	retHTML := `
 	<div>
@@ -885,12 +889,12 @@ xPathScrapers:
 
 	client := &http.Client{}
 	ctx := context.Background()
-	s := newGroupScraper(*c, nil, globalConfig)
+	s := newGroupScraper(*c, globalConfig)
 	us, ok := s.(urlScraper)
 	if !ok {
 		t.Error("couldn't convert scraper into url scraper")
 	}
-	content, err := us.viaURL(ctx, client, ts.URL, models.ScrapeContentTypePerformer)
+	content, err := us.viaURL(ctx, client, ts.URL, ScrapeContentTypePerformer)
 
 	if err != nil {
 		t.Errorf("Error scraping performer: %s", err.Error())

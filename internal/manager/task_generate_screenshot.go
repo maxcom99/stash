@@ -3,102 +3,111 @@ package manager
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
-	"time"
 
 	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
-	"github.com/stashapp/stash/pkg/scene"
 	"github.com/stashapp/stash/pkg/scene/generate"
 )
 
-type GenerateScreenshotTask struct {
-	Scene               models.Scene
-	ScreenshotAt        *float64
-	fileNamingAlgorithm models.HashAlgorithm
-	txnManager          models.TransactionManager
+type GenerateCoverTask struct {
+	Scene        models.Scene
+	ScreenshotAt *float64
+	txnManager   Repository
+	Overwrite    bool
 }
 
-func (t *GenerateScreenshotTask) Start(ctx context.Context) {
-	scenePath := t.Scene.Path
-	ffprobe := instance.FFProbe
-	probeResult, err := ffprobe.NewVideoFile(scenePath)
+func (t *GenerateCoverTask) GetDescription() string {
+	return fmt.Sprintf("Generating cover for %s", t.Scene.GetTitle())
+}
 
-	if err != nil {
-		logger.Error(err.Error())
+func (t *GenerateCoverTask) Start(ctx context.Context) {
+	scenePath := t.Scene.Path
+
+	var required bool
+	if err := t.txnManager.WithReadTxn(ctx, func(ctx context.Context) error {
+		required = t.required(ctx)
+
+		return t.Scene.LoadPrimaryFile(ctx, t.txnManager.File)
+	}); err != nil {
+		logger.Error(err)
+	}
+
+	if !required {
+		return
+	}
+
+	videoFile := t.Scene.Files.Primary()
+	if videoFile == nil {
 		return
 	}
 
 	var at float64
 	if t.ScreenshotAt == nil {
-		at = float64(probeResult.Duration) * 0.2
+		at = float64(videoFile.Duration) * 0.2
 	} else {
 		at = *t.ScreenshotAt
 	}
 
-	checksum := t.Scene.GetHash(t.fileNamingAlgorithm)
-	normalPath := instance.Paths.Scene.GetScreenshotPath(checksum)
-
 	// we'll generate the screenshot, grab the generated data and set it
-	// in the database. We'll use SetSceneScreenshot to set the data
-	// which also generates the thumbnail
+	// in the database.
 
 	logger.Debugf("Creating screenshot for %s", scenePath)
 
 	g := generate.Generator{
-		Encoder:     instance.FFMPEG,
-		LockManager: instance.ReadLockManager,
-		ScenePaths:  instance.Paths.Scene,
-		Overwrite:   true,
+		Encoder:      instance.FFMPEG,
+		FFMpegConfig: instance.Config,
+		LockManager:  instance.ReadLockManager,
+		ScenePaths:   instance.Paths.Scene,
+		Overwrite:    true,
 	}
 
-	if err := g.Screenshot(context.TODO(), probeResult.Path, checksum, probeResult.Width, probeResult.Duration, generate.ScreenshotOptions{
+	coverImageData, err := g.Screenshot(context.TODO(), videoFile.Path, videoFile.Width, videoFile.Duration, generate.ScreenshotOptions{
 		At: &at,
-	}); err != nil {
+	})
+	if err != nil {
 		logger.Errorf("Error generating screenshot: %v", err)
 		logErrorOutput(err)
 		return
 	}
 
-	f, err := os.Open(normalPath)
-	if err != nil {
-		logger.Errorf("Error reading screenshot: %s", err.Error())
-		return
-	}
-	defer f.Close()
-
-	coverImageData, err := io.ReadAll(f)
-	if err != nil {
-		logger.Errorf("Error reading screenshot: %s", err.Error())
-		return
-	}
-
-	if err := t.txnManager.WithTxn(ctx, func(r models.Repository) error {
-		qb := r.Scene()
-		updatedTime := time.Now()
-		updatedScene := models.ScenePartial{
-			ID:        t.Scene.ID,
-			UpdatedAt: &models.SQLiteTimestamp{Timestamp: updatedTime},
-		}
-
-		if err := scene.SetScreenshot(instance.Paths, checksum, coverImageData); err != nil {
-			return fmt.Errorf("error writing screenshot: %v", err)
-		}
+	if err := t.txnManager.WithTxn(ctx, func(ctx context.Context) error {
+		qb := t.txnManager.Scene
+		updatedScene := models.NewScenePartial()
 
 		// update the scene cover table
-		if err := qb.UpdateCover(t.Scene.ID, coverImageData); err != nil {
+		if err := qb.UpdateCover(ctx, t.Scene.ID, coverImageData); err != nil {
 			return fmt.Errorf("error setting screenshot: %v", err)
 		}
 
 		// update the scene with the update date
-		_, err = qb.Update(updatedScene)
+		_, err = qb.UpdatePartial(ctx, t.Scene.ID, updatedScene)
 		if err != nil {
 			return fmt.Errorf("error updating scene: %v", err)
 		}
 
 		return nil
-	}); err != nil {
+	}); err != nil && ctx.Err() == nil {
 		logger.Error(err.Error())
 	}
+}
+
+// required returns true if the sprite needs to be generated
+// assumes in a transaction
+func (t *GenerateCoverTask) required(ctx context.Context) bool {
+	if t.Scene.Path == "" {
+		return false
+	}
+
+	if t.Overwrite {
+		return true
+	}
+
+	// if the scene has a cover, then we don't need to generate it
+	hasCover, err := t.txnManager.Scene.HasCover(ctx, t.Scene.ID)
+	if err != nil {
+		logger.Errorf("Error getting cover: %v", err)
+		return false
+	}
+
+	return !hasCover
 }

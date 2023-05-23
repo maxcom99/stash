@@ -4,12 +4,10 @@ import { FormattedMessage, useIntl } from "react-intl";
 import cx from "classnames";
 import { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 
-import {
-  LoadingIndicator,
-  Icon,
-  Modal,
-  TruncatedText,
-} from "src/components/Shared";
+import { LoadingIndicator } from "../Shared/LoadingIndicator";
+import { Icon } from "../Shared/Icon";
+import { ModalComponent } from "../Shared/Modal";
+import { TruncatedText } from "../Shared/TruncatedText";
 import * as GQL from "src/core/generated-graphql";
 import { stringToGender } from "src/utils/gender";
 import { getCountryByISO } from "src/utils/country";
@@ -106,7 +104,9 @@ const PerformerModal: React.FC<IPerformerModalProps> = ({
           </strong>
         </div>
         {truncate ? (
-          <TruncatedText className="col-7" text={text} />
+          <div className="col-7">
+            <TruncatedText text={text} />
+          </div>
         ) : (
           <span className="col-7">{text}</span>
         )}
@@ -127,13 +127,15 @@ const PerformerModal: React.FC<IPerformerModalProps> = ({
       [index: string]: unknown;
     } = {
       name: performer.name ?? "",
-      aliases: performer.aliases,
+      disambiguation: performer.disambiguation ?? "",
+      alias_list:
+        performer.aliases?.split(",").map((a) => a.trim()) ?? undefined,
       gender: stringToGender(performer.gender ?? undefined, true),
       birthdate: performer.birthdate,
       ethnicity: performer.ethnicity,
       eye_color: performer.eye_color,
-      country: getCountryByISO(performer.country),
-      height: performer.height,
+      country: performer.country,
+      height_cm: Number.parseFloat(performer.height ?? "") ?? undefined,
       measurements: performer.measurements,
       fake_tits: performer.fake_tits,
       career_length: performer.career_length,
@@ -151,6 +153,10 @@ const PerformerModal: React.FC<IPerformerModalProps> = ({
 
     if (Number.isNaN(performerData.weight ?? 0)) {
       performerData.weight = undefined;
+    }
+
+    if (Number.isNaN(performerData.height ?? 0)) {
+      performerData.height = undefined;
     }
 
     if (performer.tags) {
@@ -181,7 +187,7 @@ const PerformerModal: React.FC<IPerformerModalProps> = ({
   }
 
   return (
-    <Modal
+    <ModalComponent
       show={modalVisible}
       accept={{
         text: intl.formatMessage({ id: "actions.save" }),
@@ -196,6 +202,7 @@ const PerformerModal: React.FC<IPerformerModalProps> = ({
       <div className="row">
         <div className="col-7">
           {renderField("name", performer.name)}
+          {renderField("disambiguation", performer.disambiguation)}
           {renderField("aliases", performer.aliases)}
           {renderField(
             "gender",
@@ -278,7 +285,7 @@ const PerformerModal: React.FC<IPerformerModalProps> = ({
           </div>
         )}
       </div>
-    </Modal>
+    </ModalComponent>
   );
 };
 

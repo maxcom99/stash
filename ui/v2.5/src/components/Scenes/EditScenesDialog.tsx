@@ -4,11 +4,12 @@ import { FormattedMessage, useIntl } from "react-intl";
 import isEqual from "lodash-es/isEqual";
 import { useBulkSceneUpdate } from "src/core/StashService";
 import * as GQL from "src/core/generated-graphql";
-import { StudioSelect, Modal } from "src/components/Shared";
-import { useToast } from "src/hooks";
-import { FormUtils } from "src/utils";
-import MultiSet from "../Shared/MultiSet";
-import { RatingStars } from "./SceneDetails/RatingStars";
+import { StudioSelect } from "../Shared/Select";
+import { ModalComponent } from "../Shared/Modal";
+import { MultiSet } from "../Shared/MultiSet";
+import { useToast } from "src/hooks/Toast";
+import FormUtils from "src/utils/form";
+import { RatingSystem } from "../Shared/Rating/RatingSystem";
 import {
   getAggregateInputIDs,
   getAggregateInputValue,
@@ -30,12 +31,10 @@ export const EditScenesDialog: React.FC<IListOperationProps> = (
 ) => {
   const intl = useIntl();
   const Toast = useToast();
-  const [rating, setRating] = useState<number>();
+  const [rating100, setRating] = useState<number>();
   const [studioId, setStudioId] = useState<string>();
-  const [
-    performerMode,
-    setPerformerMode,
-  ] = React.useState<GQL.BulkUpdateIdMode>(GQL.BulkUpdateIdMode.Add);
+  const [performerMode, setPerformerMode] =
+    React.useState<GQL.BulkUpdateIdMode>(GQL.BulkUpdateIdMode.Add);
   const [performerIds, setPerformerIds] = useState<string[]>();
   const [existingPerformerIds, setExistingPerformerIds] = useState<string[]>();
   const [tagMode, setTagMode] = React.useState<GQL.BulkUpdateIdMode>(
@@ -71,7 +70,7 @@ export const EditScenesDialog: React.FC<IListOperationProps> = (
       }),
     };
 
-    sceneInput.rating = getAggregateInputValue(rating, aggregateRating);
+    sceneInput.rating100 = getAggregateInputValue(rating100, aggregateRating);
     sceneInput.studio_id = getAggregateInputValue(studioId, aggregateStudioId);
 
     sceneInput.performer_ids = getAggregateInputIDs(
@@ -121,7 +120,7 @@ export const EditScenesDialog: React.FC<IListOperationProps> = (
     let first = true;
 
     state.forEach((scene: GQL.SlimSceneDataFragment) => {
-      const sceneRating = scene.rating;
+      const sceneRating = scene.rating100;
       const sceneStudioID = scene?.studio?.id;
       const scenePerformerIDs = (scene.performers ?? [])
         .map((p) => p.id)
@@ -243,7 +242,7 @@ export const EditScenesDialog: React.FC<IListOperationProps> = (
 
   function render() {
     return (
-      <Modal
+      <ModalComponent
         show
         icon={faPencilAlt}
         header={intl.formatMessage(
@@ -271,14 +270,13 @@ export const EditScenesDialog: React.FC<IListOperationProps> = (
               title: intl.formatMessage({ id: "rating" }),
             })}
             <Col xs={9}>
-              <RatingStars
-                value={rating}
+              <RatingSystem
+                value={rating100}
                 onSetRating={(value) => setRating(value)}
                 disabled={isUpdating}
               />
             </Col>
           </Form.Group>
-
           <Form.Group controlId="studio" as={Row}>
             {FormUtils.renderLabel({
               title: intl.formatMessage({ id: "studio" }),
@@ -325,7 +323,7 @@ export const EditScenesDialog: React.FC<IListOperationProps> = (
             />
           </Form.Group>
         </Form>
-      </Modal>
+      </ModalComponent>
     );
   }
 

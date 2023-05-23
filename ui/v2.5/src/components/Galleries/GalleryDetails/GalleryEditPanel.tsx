@@ -25,52 +25,51 @@ import {
   TagSelect,
   SceneSelect,
   StudioSelect,
-  Icon,
-  LoadingIndicator,
-  URLField,
-} from "src/components/Shared";
-import { useToast } from "src/hooks";
+} from "src/components/Shared/Select";
+import { Icon } from "src/components/Shared/Icon";
+import { LoadingIndicator } from "src/components/Shared/LoadingIndicator";
+import { URLField } from "src/components/Shared/URLField";
+import { useToast } from "src/hooks/Toast";
 import { useFormik } from "formik";
-import { FormUtils, TextUtils } from "src/utils";
-import { RatingStars } from "src/components/Scenes/SceneDetails/RatingStars";
+import FormUtils from "src/utils/form";
+import { RatingSystem } from "src/components/Shared/Rating/RatingSystem";
 import { GalleryScrapeDialog } from "./GalleryScrapeDialog";
 import { faSyncAlt } from "@fortawesome/free-solid-svg-icons";
+import { galleryTitle } from "src/core/galleries";
+import { useRatingKeybinds } from "src/hooks/keybinds";
+import { ConfigurationContext } from "src/hooks/Config";
+import isEqual from "lodash-es/isEqual";
+import { DateInput } from "src/components/Shared/DateInput";
 
 interface IProps {
+  gallery: Partial<GQL.GalleryDataFragment>;
   isVisible: boolean;
   onDelete: () => void;
 }
 
-interface INewProps {
-  isNew: true;
-  gallery: undefined;
-}
-
-interface IExistingProps {
-  isNew: false;
-  gallery: GQL.GalleryDataFragment;
-}
-
-export const GalleryEditPanel: React.FC<
-  IProps & (INewProps | IExistingProps)
-> = ({ gallery, isNew, isVisible, onDelete }) => {
+export const GalleryEditPanel: React.FC<IProps> = ({
+  gallery,
+  isVisible,
+  onDelete,
+}) => {
   const intl = useIntl();
   const Toast = useToast();
   const history = useHistory();
   const [scenes, setScenes] = useState<{ id: string; title: string }[]>(
     (gallery?.scenes ?? []).map((s) => ({
       id: s.id,
-      title: s.title ?? TextUtils.fileNameFromPath(s.path ?? ""),
+      title: galleryTitle(s),
     }))
   );
+
+  const isNew = gallery.id === undefined;
+  const { configuration: stashConfig } = React.useContext(ConfigurationContext);
 
   const Scrapers = useListGalleryScrapers();
   const [queryableScrapers, setQueryableScrapers] = useState<GQL.Scraper[]>([]);
 
-  const [
-    scrapedGallery,
-    setScrapedGallery,
-  ] = useState<GQL.ScrapedGallery | null>();
+  const [scrapedGallery, setScrapedGallery] =
+    useState<GQL.ScrapedGallery | null>();
 
   // Network state
   const [isLoading, setIsLoading] = useState(false);
@@ -78,40 +77,56 @@ export const GalleryEditPanel: React.FC<
   const [createGallery] = useGalleryCreate();
   const [updateGallery] = useGalleryUpdate();
 
+  const titleRequired =
+    isNew || (gallery?.files?.length === 0 && !gallery?.folder);
+
   const schema = yup.object({
-    title: yup.string().required(),
-    details: yup.string().optional().nullable(),
-    url: yup.string().optional().nullable(),
-    date: yup.string().optional().nullable(),
-    rating: yup.number().optional().nullable(),
-    studio_id: yup.string().optional().nullable(),
-    performer_ids: yup.array(yup.string().required()).optional().nullable(),
-    tag_ids: yup.array(yup.string().required()).optional().nullable(),
-    scene_ids: yup.array(yup.string().required()).optional().nullable(),
+    title: titleRequired ? yup.string().required() : yup.string().ensure(),
+    url: yup.string().ensure(),
+    date: yup
+      .string()
+      .ensure()
+      .test({
+        name: "date",
+        test: (value) => {
+          if (!value) return true;
+          if (!value.match(/^\d{4}-\d{2}-\d{2}$/)) return false;
+          if (Number.isNaN(Date.parse(value))) return false;
+          return true;
+        },
+        message: intl.formatMessage({ id: "validation.date_invalid_form" }),
+      }),
+    rating100: yup.number().nullable().defined(),
+    studio_id: yup.string().required().nullable(),
+    performer_ids: yup.array(yup.string().required()).defined(),
+    tag_ids: yup.array(yup.string().required()).defined(),
+    scene_ids: yup.array(yup.string().required()).defined(),
+    details: yup.string().ensure(),
   });
 
   const initialValues = {
     title: gallery?.title ?? "",
-    details: gallery?.details ?? "",
     url: gallery?.url ?? "",
     date: gallery?.date ?? "",
-    rating: gallery?.rating ?? null,
-    studio_id: gallery?.studio?.id,
+    rating100: gallery?.rating100 ?? null,
+    studio_id: gallery?.studio?.id ?? null,
     performer_ids: (gallery?.performers ?? []).map((p) => p.id),
     tag_ids: (gallery?.tags ?? []).map((t) => t.id),
     scene_ids: (gallery?.scenes ?? []).map((s) => s.id),
+    details: gallery?.details ?? "",
   };
 
-  type InputValues = typeof initialValues;
+  type InputValues = yup.InferType<typeof schema>;
 
-  const formik = useFormik({
+  const formik = useFormik<InputValues>({
     initialValues,
+    enableReinitialize: true,
     validationSchema: schema,
-    onSubmit: (values) => onSave(getGalleryInput(values)),
+    onSubmit: (values) => onSave(values),
   });
 
   function setRating(v: number) {
-    formik.setFieldValue("rating", v);
+    formik.setFieldValue("rating100", v);
   }
 
   interface ISceneSelectValue {
@@ -127,6 +142,12 @@ export const GalleryEditPanel: React.FC<
     );
   }
 
+  useRatingKeybinds(
+    isVisible,
+    stashConfig?.ui?.ratingSystemOptions?.type,
+    setRating
+  );
+
   useEffect(() => {
     if (isVisible) {
       Mousetrap.bind("s s", () => {
@@ -136,35 +157,9 @@ export const GalleryEditPanel: React.FC<
         onDelete();
       });
 
-      // numeric keypresses get caught by jwplayer, so blur the element
-      // if the rating sequence is started
-      Mousetrap.bind("r", () => {
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
-
-        Mousetrap.bind("0", () => setRating(NaN));
-        Mousetrap.bind("1", () => setRating(1));
-        Mousetrap.bind("2", () => setRating(2));
-        Mousetrap.bind("3", () => setRating(3));
-        Mousetrap.bind("4", () => setRating(4));
-        Mousetrap.bind("5", () => setRating(5));
-
-        setTimeout(() => {
-          Mousetrap.unbind("0");
-          Mousetrap.unbind("1");
-          Mousetrap.unbind("2");
-          Mousetrap.unbind("3");
-          Mousetrap.unbind("4");
-          Mousetrap.unbind("5");
-        }, 1000);
-      });
-
       return () => {
         Mousetrap.unbind("s s");
         Mousetrap.unbind("d d");
-
-        Mousetrap.unbind("r");
       };
     }
   });
@@ -179,24 +174,13 @@ export const GalleryEditPanel: React.FC<
     setQueryableScrapers(newQueryableScrapers);
   }, [Scrapers]);
 
-  function getGalleryInput(
-    input: InputValues
-  ): GQL.GalleryCreateInput | GQL.GalleryUpdateInput {
-    return {
-      id: isNew ? undefined : gallery?.id ?? "",
-      ...input,
-    };
-  }
-
-  async function onSave(
-    input: GQL.GalleryCreateInput | GQL.GalleryUpdateInput
-  ) {
+  async function onSave(input: GQL.GalleryCreateInput) {
     setIsLoading(true);
     try {
       if (isNew) {
         const result = await createGallery({
           variables: {
-            input: input as GQL.GalleryCreateInput,
+            input,
           },
         });
         if (result.data?.galleryCreate) {
@@ -215,7 +199,10 @@ export const GalleryEditPanel: React.FC<
       } else {
         const result = await updateGallery({
           variables: {
-            input: input as GQL.GalleryUpdateInput,
+            input: {
+              id: gallery.id!,
+              ...input,
+            },
           },
         });
         if (result.data?.galleryUpdate) {
@@ -229,7 +216,7 @@ export const GalleryEditPanel: React.FC<
               }
             ),
           });
-          formik.resetForm({ values: formik.values });
+          formik.resetForm();
         }
       }
     } catch (e) {
@@ -239,7 +226,7 @@ export const GalleryEditPanel: React.FC<
   }
 
   async function onScrapeClicked(scraper: GQL.Scraper) {
-    if (!gallery) return;
+    if (!gallery || !gallery.id) return;
 
     setIsLoading(true);
     try {
@@ -284,7 +271,10 @@ export const GalleryEditPanel: React.FC<
       return;
     }
 
-    const currentGallery = getGalleryInput(formik.values);
+    const currentGallery = {
+      id: gallery.id!,
+      ...formik.values,
+    };
 
     return (
       <GalleryScrapeDialog
@@ -397,7 +387,7 @@ export const GalleryEditPanel: React.FC<
 
   function renderTextField(field: string, title: string, placeholder?: string) {
     return (
-      <Form.Group controlId={title} as={Row}>
+      <Form.Group controlId={field} as={Row}>
         {FormUtils.renderLabel({
           title,
         })}
@@ -432,7 +422,9 @@ export const GalleryEditPanel: React.FC<
             <Button
               className="edit-button"
               variant="primary"
-              disabled={!formik.dirty}
+              disabled={
+                (!isNew && !formik.dirty) || !isEqual(formik.errors, {})
+              }
               onClick={() => formik.submitForm()}
             >
               <FormattedMessage id="actions.save" />
@@ -467,25 +459,31 @@ export const GalleryEditPanel: React.FC<
                 />
               </Col>
             </Form.Group>
-            {renderTextField(
-              "date",
-              intl.formatMessage({ id: "date" }),
-              "YYYY-MM-DD"
-            )}
+            <Form.Group controlId="date" as={Row}>
+              {FormUtils.renderLabel({
+                title: intl.formatMessage({ id: "date" }),
+              })}
+              <Col xs={9}>
+                <DateInput
+                  value={formik.values.date}
+                  onValueChange={(value) => formik.setFieldValue("date", value)}
+                  error={formik.errors.date}
+                />
+              </Col>
+            </Form.Group>
             <Form.Group controlId="rating" as={Row}>
               {FormUtils.renderLabel({
                 title: intl.formatMessage({ id: "rating" }),
               })}
               <Col xs={9}>
-                <RatingStars
-                  value={formik.values.rating ?? undefined}
+                <RatingSystem
+                  value={formik.values.rating100 ?? undefined}
                   onSetRating={(value) =>
-                    formik.setFieldValue("rating", value ?? null)
+                    formik.setFieldValue("rating100", value ?? null)
                   }
                 />
               </Col>
             </Form.Group>
-
             <Form.Group controlId="studio" as={Row}>
               {FormUtils.renderLabel({
                 title: intl.formatMessage({ id: "studio" }),
@@ -560,8 +558,9 @@ export const GalleryEditPanel: React.FC<
               })}
               <Col sm={9} xl={12}>
                 <SceneSelect
-                  scenes={scenes}
+                  selected={scenes}
                   onSelect={(items) => onSetScenes(items)}
+                  isMulti
                 />
               </Col>
             </Form.Group>
@@ -574,8 +573,8 @@ export const GalleryEditPanel: React.FC<
               <Form.Control
                 as="textarea"
                 className="gallery-description text-input"
-                onChange={(newValue: React.ChangeEvent<HTMLTextAreaElement>) =>
-                  formik.setFieldValue("details", newValue.currentTarget.value)
+                onChange={(e) =>
+                  formik.setFieldValue("details", e.currentTarget.value)
                 }
                 value={formik.values.details}
               />

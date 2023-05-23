@@ -38,21 +38,24 @@ type ScenePaths interface {
 	GetVideoPreviewPath(checksum string) string
 	GetWebpPreviewPath(checksum string) string
 
-	GetScreenshotPath(checksum string) string
-	GetThumbnailScreenshotPath(checksum string) string
-
 	GetSpriteImageFilePath(checksum string) string
 	GetSpriteVttFilePath(checksum string) string
 
 	GetTranscodePath(checksum string) string
 }
 
+type FFMpegConfig interface {
+	GetTranscodeInputArgs() []string
+	GetTranscodeOutputArgs() []string
+}
+
 type Generator struct {
-	Encoder     ffmpeg.FFMpeg
-	LockManager *fsutil.ReadLockManager
-	MarkerPaths MarkerPaths
-	ScenePaths  ScenePaths
-	Overwrite   bool
+	Encoder      *ffmpeg.FFMpeg
+	FFMpegConfig FFMpegConfig
+	LockManager  *fsutil.ReadLockManager
+	MarkerPaths  MarkerPaths
+	ScenePaths   ScenePaths
+	Overwrite    bool
 }
 
 type generateFn func(lockCtx *fsutil.LockContext, tmpFn string) error
@@ -83,11 +86,41 @@ func (g Generator) generateFile(lockCtx *fsutil.LockContext, p Paths, pattern st
 		return err
 	}
 
+	// check if generated empty file
+	stat, err := os.Stat(tmpFn)
+	if err != nil {
+		return fmt.Errorf("error getting file stat: %w", err)
+	}
+
+	if stat.Size() == 0 {
+		return fmt.Errorf("ffmpeg command produced no output")
+	}
+
 	if err := fsutil.SafeMove(tmpFn, output); err != nil {
 		return fmt.Errorf("moving %s to %s", tmpFn, output)
 	}
 
 	return nil
+}
+
+// generateBytes performs a generate operation by generating a temporary file using p and pattern, returns the contents, then deletes it.
+func (g Generator) generateBytes(lockCtx *fsutil.LockContext, p Paths, pattern string, generateFn generateFn) ([]byte, error) {
+	tmpFile, err := g.tempFile(p, pattern) // tmp output in case the process ends abruptly
+	if err != nil {
+		return nil, err
+	}
+
+	tmpFn := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpFn)
+	}()
+
+	if err := generateFn(lockCtx, tmpFn); err != nil {
+		return nil, err
+	}
+
+	defer os.Remove(tmpFn)
+	return os.ReadFile(tmpFn)
 }
 
 // generate runs ffmpeg with the given args and waits for it to finish.
@@ -140,6 +173,10 @@ func (g Generator) generateOutput(lockCtx *fsutil.LockContext, args []string) ([
 			err = exitErr
 		}
 		return nil, fmt.Errorf("error running ffmpeg command <%s>: %w", strings.Join(args, " "), err)
+	}
+
+	if stdout.Len() == 0 {
+		return nil, fmt.Errorf("ffmpeg command produced no output: <%s>", strings.Join(args, " "))
 	}
 
 	return stdout.Bytes(), nil

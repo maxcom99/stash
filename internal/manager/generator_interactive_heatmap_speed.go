@@ -11,16 +11,17 @@ import (
 	"sort"
 
 	"github.com/lucasb-eyer/go-colorful"
+	"github.com/stashapp/stash/pkg/logger"
 )
 
 type InteractiveHeatmapSpeedGenerator struct {
-	InteractiveSpeed int64
+	InteractiveSpeed int
 	Funscript        Script
-	FunscriptPath    string
-	HeatmapPath      string
 	Width            int
 	Height           int
 	NumSegments      int
+
+	DrawRange bool
 }
 
 type Script struct {
@@ -31,8 +32,7 @@ type Script struct {
 	// Range is the percentage of a full stroke to use.
 	Range int `json:"range,omitempty"`
 	// Actions are the timed moves.
-	Actions      []Action `json:"actions"`
-	AvarageSpeed int64
+	Actions []Action `json:"actions"`
 }
 
 // Action is a move at a specific time.
@@ -48,31 +48,35 @@ type Action struct {
 }
 
 type GradientTable []struct {
-	Col colorful.Color
-	Pos float64
+	Col    colorful.Color
+	Pos    float64
+	YRange [2]float64
 }
 
-func NewInteractiveHeatmapSpeedGenerator(funscriptPath string, heatmapPath string) *InteractiveHeatmapSpeedGenerator {
+func NewInteractiveHeatmapSpeedGenerator(drawRange bool) *InteractiveHeatmapSpeedGenerator {
 	return &InteractiveHeatmapSpeedGenerator{
-		FunscriptPath: funscriptPath,
-		HeatmapPath:   heatmapPath,
-		Width:         320,
-		Height:        15,
-		NumSegments:   150,
+		Width:       1280,
+		Height:      60,
+		NumSegments: 600,
+		DrawRange:   drawRange,
 	}
 }
 
-func (g *InteractiveHeatmapSpeedGenerator) Generate() error {
-	funscript, err := g.LoadFunscriptData(g.FunscriptPath)
+func (g *InteractiveHeatmapSpeedGenerator) Generate(funscriptPath string, heatmapPath string, sceneDuration float64) error {
+	funscript, err := g.LoadFunscriptData(funscriptPath, sceneDuration)
 
 	if err != nil {
 		return err
 	}
 
+	if len(funscript.Actions) == 0 {
+		return fmt.Errorf("no valid actions in funscript")
+	}
+
 	g.Funscript = funscript
 	g.Funscript.UpdateIntensityAndSpeed()
 
-	err = g.RenderHeatmap()
+	err = g.RenderHeatmap(heatmapPath)
 
 	if err != nil {
 		return err
@@ -83,7 +87,7 @@ func (g *InteractiveHeatmapSpeedGenerator) Generate() error {
 	return nil
 }
 
-func (g *InteractiveHeatmapSpeedGenerator) LoadFunscriptData(path string) (Script, error) {
+func (g *InteractiveHeatmapSpeedGenerator) LoadFunscriptData(path string, sceneDuration float64) (Script, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Script{}, err
@@ -102,14 +106,21 @@ func (g *InteractiveHeatmapSpeedGenerator) LoadFunscriptData(path string) (Scrip
 	sort.SliceStable(funscript.Actions, func(i, j int) bool { return funscript.Actions[i].At < funscript.Actions[j].At })
 
 	// trim actions with negative timestamps to avoid index range errors when generating heatmap
-
-	isValid := func(x int64) bool { return x >= 0 }
+	// #3181 - also trim actions that occur after the scene duration
+	loggedBadTimestamp := false
+	sceneDurationMilli := int64(sceneDuration * 1000)
+	isValid := func(x int64) bool {
+		return x >= 0 && x < sceneDurationMilli
+	}
 
 	i := 0
 	for _, x := range funscript.Actions {
 		if isValid(x.At) {
 			funscript.Actions[i] = x
 			i++
+		} else if !loggedBadTimestamp {
+			loggedBadTimestamp = true
+			logger.Warnf("Invalid timestamp %d in %s: subsequent invalid timestamps will not be logged", x.At, path)
 		}
 	}
 
@@ -144,14 +155,27 @@ func (funscript *Script) UpdateIntensityAndSpeed() {
 }
 
 // funscript needs to have intensity updated first
-func (g *InteractiveHeatmapSpeedGenerator) RenderHeatmap() error {
-
+func (g *InteractiveHeatmapSpeedGenerator) RenderHeatmap(heatmapPath string) error {
 	gradient := g.Funscript.getGradientTable(g.NumSegments)
 
 	img := image.NewRGBA(image.Rect(0, 0, g.Width, g.Height))
 	for x := 0; x < g.Width; x++ {
-		c := gradient.GetInterpolatedColorFor(float64(x) / float64(g.Width))
-		draw.Draw(img, image.Rect(x, 0, x+1, g.Height), &image.Uniform{c}, image.Point{}, draw.Src)
+		xPos := float64(x) / float64(g.Width)
+		c := gradient.GetInterpolatedColorFor(xPos)
+
+		y0 := 0
+		y1 := g.Height
+
+		if g.DrawRange {
+			yRange := gradient.GetYRange(xPos)
+			top := int(yRange[0] / 100.0 * float64(g.Height))
+			bottom := int(yRange[1] / 100.0 * float64(g.Height))
+
+			y0 = g.Height - top
+			y1 = g.Height - bottom
+		}
+
+		draw.Draw(img, image.Rect(x, y0, x+1, y1), &image.Uniform{c}, image.Point{}, draw.Src)
 	}
 
 	// add 10 minute marks
@@ -165,7 +189,7 @@ func (g *InteractiveHeatmapSpeedGenerator) RenderHeatmap() error {
 		ts += tick
 	}
 
-	outpng, err := os.Create(g.HeatmapPath)
+	outpng, err := os.Create(heatmapPath)
 	if err != nil {
 		return err
 	}
@@ -175,7 +199,7 @@ func (g *InteractiveHeatmapSpeedGenerator) RenderHeatmap() error {
 	return err
 }
 
-func (funscript *Script) CalculateMedian() int64 {
+func (funscript *Script) CalculateMedian() int {
 	sort.Slice(funscript.Actions, func(i, j int) bool {
 		return funscript.Actions[i].Speed < funscript.Actions[j].Speed
 	})
@@ -183,10 +207,10 @@ func (funscript *Script) CalculateMedian() int64 {
 	mNumber := len(funscript.Actions) / 2
 
 	if len(funscript.Actions)%2 != 0 {
-		return int64(funscript.Actions[mNumber].Speed)
+		return int(funscript.Actions[mNumber].Speed)
 	}
 
-	return int64((funscript.Actions[mNumber-1].Speed + funscript.Actions[mNumber].Speed) / 2)
+	return int((funscript.Actions[mNumber-1].Speed + funscript.Actions[mNumber].Speed) / 2)
 }
 
 func (gt GradientTable) GetInterpolatedColorFor(t float64) colorful.Color {
@@ -204,23 +228,96 @@ func (gt GradientTable) GetInterpolatedColorFor(t float64) colorful.Color {
 	return gt[len(gt)-1].Col
 }
 
+func (gt GradientTable) GetYRange(t float64) [2]float64 {
+	for i := 0; i < len(gt)-1; i++ {
+		c1 := gt[i]
+		c2 := gt[i+1]
+		if c1.Pos <= t && t <= c2.Pos {
+			// TODO: We are in between c1 and c2. Go blend them!
+			return c1.YRange
+		}
+	}
+
+	// Nothing found? Means we're at (or past) the last gradient keypoint.
+	return gt[len(gt)-1].YRange
+}
+
 func (funscript Script) getGradientTable(numSegments int) GradientTable {
+	const windowSize = 15
+	const backfillThreshold = 500
+
 	segments := make([]struct {
 		count     int
 		intensity int
+		yRange    [2]float64
+		at        int64
 	}, numSegments)
 	gradient := make(GradientTable, numSegments)
+	posList := []int{}
 
 	maxts := funscript.Actions[len(funscript.Actions)-1].At
 
 	for _, a := range funscript.Actions {
+		posList = append(posList, a.Pos)
+
+		if len(posList) > windowSize {
+			posList = posList[1:]
+		}
+
+		sortedPos := make([]int, len(posList))
+		copy(sortedPos, posList)
+		sort.Ints(sortedPos)
+
+		topHalf := sortedPos[len(sortedPos)/2:]
+		bottomHalf := sortedPos[0 : len(sortedPos)/2]
+
+		var totalBottom int
+		var totalTop int
+
+		for _, value := range bottomHalf {
+			totalBottom += value
+		}
+		for _, value := range topHalf {
+			totalTop += value
+		}
+
+		averageBottom := float64(totalBottom) / float64(len(bottomHalf))
+		averageTop := float64(totalTop) / float64(len(topHalf))
+
 		segment := int(float64(a.At) / float64(maxts+1) * float64(numSegments))
+		// #3181 - sanity check. Clamp segment to numSegments-1
+		if segment >= numSegments {
+			segment = numSegments - 1
+		}
+		segments[segment].at = a.At
 		segments[segment].count++
 		segments[segment].intensity += int(a.Intensity)
+		segments[segment].yRange[0] = averageTop
+		segments[segment].yRange[1] = averageBottom
+	}
+
+	lastSegment := segments[0]
+
+	// Fill in gaps in segments
+	for i := 0; i < numSegments; i++ {
+		segmentTS := int64(float64(i) / float64(numSegments))
+
+		// Empty segment - fill it with the previous up to backfillThreshold ms
+		if segments[i].count == 0 {
+			if segmentTS-lastSegment.at < backfillThreshold {
+				segments[i].count = lastSegment.count
+				segments[i].intensity = lastSegment.intensity
+				segments[i].yRange[0] = lastSegment.yRange[0]
+				segments[i].yRange[1] = lastSegment.yRange[1]
+			}
+		} else {
+			lastSegment = segments[i]
+		}
 	}
 
 	for i := 0; i < numSegments; i++ {
 		gradient[i].Pos = float64(i) / float64(numSegments-1)
+		gradient[i].YRange = segments[i].yRange
 		if segments[i].count > 0 {
 			gradient[i].Col = getSegmentColor(float64(segments[i].intensity) / float64(segments[i].count))
 		} else {

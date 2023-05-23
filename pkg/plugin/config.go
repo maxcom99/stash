@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/stashapp/stash/pkg/models"
 	"gopkg.in/yaml.v2"
 )
 
@@ -57,13 +56,42 @@ type Config struct {
 
 	// The hooks configurations for hooks registered by this plugin.
 	Hooks []*HookConfig `yaml:"hooks"`
+
+	// Javascript files that will be injected into the stash UI.
+	UI UIConfig `yaml:"ui"`
 }
 
-func (c Config) getPluginTasks(includePlugin bool) []*models.PluginTask {
-	var ret []*models.PluginTask
+type UIConfig struct {
+	// Javascript files that will be injected into the stash UI.
+	Javascript []string `yaml:"javascript"`
+
+	// CSS files that will be injected into the stash UI.
+	CSS []string `yaml:"css"`
+}
+
+func (c UIConfig) getCSSFiles(parent Config) []string {
+	ret := make([]string, len(c.CSS))
+	for i, v := range c.CSS {
+		ret[i] = filepath.Join(parent.getConfigPath(), v)
+	}
+
+	return ret
+}
+
+func (c UIConfig) getJavascriptFiles(parent Config) []string {
+	ret := make([]string, len(c.Javascript))
+	for i, v := range c.Javascript {
+		ret[i] = filepath.Join(parent.getConfigPath(), v)
+	}
+
+	return ret
+}
+
+func (c Config) getPluginTasks(includePlugin bool) []*PluginTask {
+	var ret []*PluginTask
 
 	for _, o := range c.Tasks {
-		task := &models.PluginTask{
+		task := &PluginTask{
 			Name:        o.Name,
 			Description: &o.Description,
 		}
@@ -77,11 +105,11 @@ func (c Config) getPluginTasks(includePlugin bool) []*models.PluginTask {
 	return ret
 }
 
-func (c Config) getPluginHooks(includePlugin bool) []*models.PluginHook {
-	var ret []*models.PluginHook
+func (c Config) getPluginHooks(includePlugin bool) []*PluginHook {
+	var ret []*PluginHook
 
 	for _, o := range c.Hooks {
-		hook := &models.PluginHook{
+		hook := &PluginHook{
 			Name:        o.Name,
 			Description: &o.Description,
 			Hooks:       convertHooks(o.TriggeredBy),
@@ -113,8 +141,8 @@ func (c Config) getName() string {
 	return c.id
 }
 
-func (c Config) toPlugin() *models.Plugin {
-	return &models.Plugin{
+func (c Config) toPlugin() *Plugin {
+	return &Plugin{
 		ID:          c.id,
 		Name:        c.getName(),
 		Description: c.Description,
@@ -122,6 +150,10 @@ func (c Config) toPlugin() *models.Plugin {
 		Version:     c.Version,
 		Tasks:       c.getPluginTasks(false),
 		Hooks:       c.getPluginHooks(false),
+		UI: PluginUI{
+			Javascript: c.UI.getJavascriptFiles(c),
+			CSS:        c.UI.getCSSFiles(c),
+		},
 	}
 }
 

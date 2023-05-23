@@ -1,40 +1,86 @@
-import React from "react";
-import { useFindGallery } from "src/core/StashService";
-import { useLightbox } from "src/hooks";
-import { LoadingIndicator } from "src/components/Shared";
+import React, { useCallback, useMemo } from "react";
+import { useLightbox } from "src/hooks/Lightbox/hooks";
+import { LoadingIndicator } from "src/components/Shared/LoadingIndicator";
+import Gallery from "react-photo-gallery";
 import "flexbin/flexbin.css";
+import {
+  CriterionModifier,
+  useFindImagesQuery,
+} from "src/core/generated-graphql";
 
 interface IProps {
   galleryId: string;
 }
 
 export const GalleryViewer: React.FC<IProps> = ({ galleryId }) => {
-  const { data, loading } = useFindGallery(galleryId);
-  const images = data?.findGallery?.images ?? [];
-  const showLightbox = useLightbox({ images, showNavigation: false });
+  // TODO - add paging - don't load all images at once
+  const pageSize = -1;
+
+  const currentFilter = useMemo(() => {
+    return {
+      per_page: pageSize,
+      sort: "path",
+    };
+  }, [pageSize]);
+
+  const { data, loading } = useFindImagesQuery({
+    variables: {
+      filter: currentFilter,
+      image_filter: {
+        galleries: {
+          modifier: CriterionModifier.Includes,
+          value: [galleryId],
+        },
+      },
+    },
+  });
+
+  const images = useMemo(() => data?.findImages?.images ?? [], [data]);
+
+  const lightboxState = useMemo(() => {
+    return {
+      images,
+      showNavigation: false,
+    };
+  }, [images]);
+
+  const showLightbox = useLightbox(lightboxState);
+  const showLightboxOnClick = useCallback(
+    (event, { index }) => {
+      showLightbox(index);
+    },
+    [showLightbox]
+  );
 
   if (loading) return <LoadingIndicator />;
 
-  const thumbs = images.map((file, index) => (
-    <div
-      role="link"
-      tabIndex={index}
-      key={file.checksum ?? index}
-      onClick={() => showLightbox(index)}
-      onKeyPress={() => showLightbox(index)}
-    >
-      <img
-        src={file.paths.thumbnail ?? ""}
-        loading="lazy"
-        className="gallery-image"
-        alt={file.title ?? index.toString()}
-      />
-    </div>
-  ));
+  let photos: {
+    src: string;
+    srcSet?: string | string[] | undefined;
+    sizes?: string | string[] | undefined;
+    width: number;
+    height: number;
+    alt?: string | undefined;
+    key?: string | undefined;
+  }[] = [];
+
+  images.forEach((image, index) => {
+    let imageData = {
+      src: image.paths.thumbnail!,
+      width: image.visual_files[0].width,
+      height: image.visual_files[0].height,
+      tabIndex: index,
+      key: image.id ?? index,
+      loading: "lazy",
+      className: "gallery-image",
+      alt: image.title ?? index.toString(),
+    };
+    photos.push(imageData);
+  });
 
   return (
     <div className="gallery">
-      <div className="flexbin">{thumbs}</div>
+      <Gallery photos={photos} onClick={showLightboxOnClick} margin={2.5} />
     </div>
   );
 };

@@ -12,13 +12,13 @@ export const ScanOptions: React.FC<IScanOptions> = ({
   setOptions: setOptionsState,
 }) => {
   const {
-    useFileMetadata,
-    stripFileExtension,
+    scanGenerateCovers,
     scanGeneratePreviews,
     scanGenerateImagePreviews,
     scanGenerateSprites,
     scanGeneratePhashes,
     scanGenerateThumbnails,
+    scanGenerateClipPreviews,
   } = options;
 
   function setOptions(input: Partial<GQL.ScanMetadataInput>) {
@@ -27,6 +27,12 @@ export const ScanOptions: React.FC<IScanOptions> = ({
 
   return (
     <>
+      <BooleanSetting
+        id="scan-generate-covers"
+        headingID="config.tasks.generate_video_covers_during_scan"
+        checked={scanGenerateCovers ?? true}
+        onChange={(v) => setOptions({ scanGenerateCovers: v })}
+      />
       <BooleanSetting
         id="scan-generate-previews"
         headingID="config.tasks.generate_video_previews_during_scan"
@@ -64,16 +70,10 @@ export const ScanOptions: React.FC<IScanOptions> = ({
         onChange={(v) => setOptions({ scanGenerateThumbnails: v })}
       />
       <BooleanSetting
-        id="strip-file-extension"
-        checked={stripFileExtension ?? false}
-        headingID="config.tasks.dont_include_file_extension_as_part_of_the_title"
-        onChange={(v) => setOptions({ stripFileExtension: v })}
-      />
-      <BooleanSetting
-        id="use-file-metadata"
-        checked={useFileMetadata ?? false}
-        headingID="config.tasks.set_name_date_details_from_metadata_if_present"
-        onChange={(v) => setOptions({ useFileMetadata: v })}
+        id="scan-generate-clip-previews"
+        checked={scanGenerateClipPreviews ?? false}
+        headingID="config.tasks.generate_clip_previews_during_scan"
+        onChange={(v) => setOptions({ scanGenerateClipPreviews: v })}
       />
     </>
   );

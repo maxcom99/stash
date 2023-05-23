@@ -1,14 +1,17 @@
 import React from "react";
 import * as GQL from "src/core/generated-graphql";
 import { GalleryList } from "src/components/Galleries/GalleryList";
-import { performerFilterHook } from "src/core/performers";
+import { usePerformerFilterHook } from "src/core/performers";
 
 interface IPerformerDetailsProps {
+  active: boolean;
   performer: GQL.PerformerDataFragment;
 }
 
 export const PerformerGalleriesPanel: React.FC<IPerformerDetailsProps> = ({
+  active,
   performer,
 }) => {
-  return <GalleryList filterHook={performerFilterHook(performer)} />;
+  const filterHook = usePerformerFilterHook(performer);
+  return <GalleryList filterHook={filterHook} alterQuery={active} />;
 };

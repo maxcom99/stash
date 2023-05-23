@@ -1,12 +1,13 @@
-// @ts-nocheck
-/* eslint-disable jsx-a11y/control-has-associated-label */
 import React from "react";
-import { Table, Button, Form } from "react-bootstrap";
+import { Table, Form } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import * as GQL from "src/core/generated-graphql";
-import { NavUtils, TextUtils } from "src/utils";
-import { Icon } from "src/components/Shared";
+import NavUtils from "src/utils/navigation";
+import TextUtils from "src/utils/text";
 import { FormattedMessage } from "react-intl";
+import { objectTitle } from "src/core/files";
+import { galleryTitle } from "src/core/galleries";
+import SceneQueue from "src/models/sceneQueue";
 
 interface ISceneListTableProps {
   scenes: GQL.SlimSceneDataFragment[];
@@ -18,14 +19,14 @@ interface ISceneListTableProps {
 export const SceneListTable: React.FC<ISceneListTableProps> = (
   props: ISceneListTableProps
 ) => {
-  const renderTags = (tags: GQL.SlimTagDataFragment[]) =>
+  const renderTags = (tags: Partial<GQL.TagDataFragment>[]) =>
     tags.map((tag) => (
       <Link key={tag.id} to={NavUtils.makeTagScenesUrl(tag)}>
         <h6>{tag.name}</h6>
       </Link>
     ));
 
-  const renderPerformers = (performers: Partial<GQL.Performer>[]) =>
+  const renderPerformers = (performers: Partial<GQL.PerformerDataFragment>[]) =>
     performers.map((performer) => (
       <Link key={performer.id} to={NavUtils.makePerformerScenesUrl(performer)}>
         <h6>{performer.name}</h6>
@@ -33,13 +34,21 @@ export const SceneListTable: React.FC<ISceneListTableProps> = (
     ));
 
   const renderMovies = (scene: GQL.SlimSceneDataFragment) =>
-    scene.movies.map((sceneMovie) =>
-      !sceneMovie.movie ? undefined : (
-        <Link to={NavUtils.makeMovieScenesUrl(sceneMovie.movie)}>
-          <h6>{sceneMovie.movie.name}</h6>
-        </Link>
-      )
-    );
+    scene.movies.map((sceneMovie) => (
+      <Link
+        key={sceneMovie.movie.id}
+        to={NavUtils.makeMovieScenesUrl(sceneMovie.movie)}
+      >
+        <h6>{sceneMovie.movie.name}</h6>
+      </Link>
+    ));
+
+  const renderGalleries = (scene: GQL.SlimSceneDataFragment) =>
+    scene.galleries.map((gallery) => (
+      <Link key={gallery.id} to={`/galleries/${gallery.id}`}>
+        <h6>{galleryTitle(gallery)}</h6>
+      </Link>
+    ));
 
   const renderSceneRow = (scene: GQL.SlimSceneDataFragment, index: number) => {
     const sceneLink = props.queue
@@ -47,47 +56,50 @@ export const SceneListTable: React.FC<ISceneListTableProps> = (
       : `/scenes/${scene.id}`;
 
     let shiftKey = false;
+
+    const file = scene.files.length > 0 ? scene.files[0] : undefined;
+
+    const title = objectTitle(scene);
     return (
       <tr key={scene.id}>
         <td>
-          <Form.Control
-            type="checkbox"
-            checked={props.selectedIds.has(scene.id)}
-            onChange={() =>
-              props.onSelectChange!(
-                scene.id,
-                !props.selectedIds.has(scene.id),
-                shiftKey
-              )
-            }
-            onClick={(
-              event: React.MouseEvent<HTMLInputElement, MouseEvent>
-            ) => {
-              // eslint-disable-next-line prefer-destructuring
-              shiftKey = event.shiftKey;
-              event.stopPropagation();
-            }}
-          />
+          <label>
+            <Form.Control
+              type="checkbox"
+              checked={props.selectedIds.has(scene.id)}
+              onChange={() =>
+                props.onSelectChange(
+                  scene.id,
+                  !props.selectedIds.has(scene.id),
+                  shiftKey
+                )
+              }
+              onClick={(
+                event: React.MouseEvent<HTMLInputElement, MouseEvent>
+              ) => {
+                // eslint-disable-next-line prefer-destructuring
+                shiftKey = event.shiftKey;
+                event.stopPropagation();
+              }}
+            />
+          </label>
         </td>
         <td>
           <Link to={sceneLink}>
             <img
               className="image-thumbnail"
-              alt={scene.title ?? ""}
+              alt={title}
               src={scene.paths.screenshot ?? ""}
             />
           </Link>
         </td>
         <td className="text-left">
           <Link to={sceneLink}>
-            <h5>{scene.title ?? TextUtils.fileNameFromPath(scene.path)}</h5>
+            <h5>{title}</h5>
           </Link>
         </td>
-        <td>{scene.rating ? scene.rating : ""}</td>
-        <td>
-          {scene.file.duration &&
-            TextUtils.secondsToTimestamp(scene.file.duration)}
-        </td>
+        <td>{scene.rating100 ? scene.rating100 : ""}</td>
+        <td>{file?.duration && TextUtils.secondsToTimestamp(file.duration)}</td>
         <td>{renderTags(scene.tags)}</td>
         <td>{renderPerformers(scene.performers)}</td>
         <td>
@@ -98,21 +110,13 @@ export const SceneListTable: React.FC<ISceneListTableProps> = (
           )}
         </td>
         <td>{renderMovies(scene)}</td>
-        <td>
-          {scene.gallery && (
-            <Button className="minimal">
-              <Link to={`/galleries/${scene.gallery.id}`}>
-                <Icon icon={faImage} />
-              </Link>
-            </Button>
-          )}
-        </td>
+        <td>{renderGalleries(scene)}</td>
       </tr>
     );
   };
 
   return (
-    <div className="row table-list justify-content-center">
+    <div className="row scene-table table-list justify-content-center">
       <Table striped bordered>
         <thead>
           <tr>
@@ -140,7 +144,7 @@ export const SceneListTable: React.FC<ISceneListTableProps> = (
               <FormattedMessage id="movies" />
             </th>
             <th>
-              <FormattedMessage id="gallery" />
+              <FormattedMessage id="galleries" />
             </th>
           </tr>
         </thead>

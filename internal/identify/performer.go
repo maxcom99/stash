@@ -1,16 +1,20 @@
 package identify
 
 import (
-	"database/sql"
+	"context"
 	"fmt"
 	"strconv"
 	"time"
 
-	"github.com/stashapp/stash/pkg/hash/md5"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/sliceutil/stringslice"
 )
 
-func getPerformerID(endpoint string, r models.Repository, p *models.ScrapedPerformer, createMissing bool) (*int, error) {
+type PerformerCreator interface {
+	Create(ctx context.Context, newPerformer *models.Performer) error
+}
+
+func getPerformerID(ctx context.Context, endpoint string, w PerformerCreator, p *models.ScrapedPerformer, createMissing bool) (*int, error) {
 	if p.StoredID != nil {
 		// existing performer, just add it
 		performerID, err := strconv.Atoi(*p.StoredID)
@@ -20,88 +24,96 @@ func getPerformerID(endpoint string, r models.Repository, p *models.ScrapedPerfo
 
 		return &performerID, nil
 	} else if createMissing && p.Name != nil { // name is mandatory
-		return createMissingPerformer(endpoint, r, p)
+		return createMissingPerformer(ctx, endpoint, w, p)
 	}
 
 	return nil, nil
 }
 
-func createMissingPerformer(endpoint string, r models.Repository, p *models.ScrapedPerformer) (*int, error) {
-	created, err := r.Performer().Create(scrapedToPerformerInput(p))
-	if err != nil {
-		return nil, fmt.Errorf("error creating performer: %w", err)
-	}
-
+func createMissingPerformer(ctx context.Context, endpoint string, w PerformerCreator, p *models.ScrapedPerformer) (*int, error) {
+	performerInput := scrapedToPerformerInput(p)
 	if endpoint != "" && p.RemoteSiteID != nil {
-		if err := r.Performer().UpdateStashIDs(created.ID, []models.StashID{
+		performerInput.StashIDs = models.NewRelatedStashIDs([]models.StashID{
 			{
 				Endpoint: endpoint,
 				StashID:  *p.RemoteSiteID,
 			},
-		}); err != nil {
-			return nil, fmt.Errorf("error setting performer stash id: %w", err)
-		}
+		})
 	}
 
-	return &created.ID, nil
+	err := w.Create(ctx, &performerInput)
+	if err != nil {
+		return nil, fmt.Errorf("error creating performer: %w", err)
+	}
+
+	return &performerInput.ID, nil
 }
 
 func scrapedToPerformerInput(performer *models.ScrapedPerformer) models.Performer {
 	currentTime := time.Now()
 	ret := models.Performer{
-		Name:      sql.NullString{String: *performer.Name, Valid: true},
-		Checksum:  md5.FromString(*performer.Name),
-		CreatedAt: models.SQLiteTimestamp{Timestamp: currentTime},
-		UpdatedAt: models.SQLiteTimestamp{Timestamp: currentTime},
-		Favorite:  sql.NullBool{Bool: false, Valid: true},
+		Name:      *performer.Name,
+		CreatedAt: currentTime,
+		UpdatedAt: currentTime,
 	}
 	if performer.Birthdate != nil {
-		ret.Birthdate = models.SQLiteDate{String: *performer.Birthdate, Valid: true}
+		d := models.NewDate(*performer.Birthdate)
+		ret.Birthdate = &d
 	}
 	if performer.DeathDate != nil {
-		ret.DeathDate = models.SQLiteDate{String: *performer.DeathDate, Valid: true}
+		d := models.NewDate(*performer.DeathDate)
+		ret.DeathDate = &d
 	}
 	if performer.Gender != nil {
-		ret.Gender = sql.NullString{String: *performer.Gender, Valid: true}
+		ret.Gender = models.GenderEnum(*performer.Gender)
 	}
 	if performer.Ethnicity != nil {
-		ret.Ethnicity = sql.NullString{String: *performer.Ethnicity, Valid: true}
+		ret.Ethnicity = *performer.Ethnicity
 	}
 	if performer.Country != nil {
-		ret.Country = sql.NullString{String: *performer.Country, Valid: true}
+		ret.Country = *performer.Country
 	}
 	if performer.EyeColor != nil {
-		ret.EyeColor = sql.NullString{String: *performer.EyeColor, Valid: true}
+		ret.EyeColor = *performer.EyeColor
 	}
 	if performer.HairColor != nil {
-		ret.HairColor = sql.NullString{String: *performer.HairColor, Valid: true}
+		ret.HairColor = *performer.HairColor
 	}
 	if performer.Height != nil {
-		ret.Height = sql.NullString{String: *performer.Height, Valid: true}
+		h, err := strconv.Atoi(*performer.Height) // height is stored as an int
+		if err == nil {
+			ret.Height = &h
+		}
+	}
+	if performer.Weight != nil {
+		h, err := strconv.Atoi(*performer.Weight)
+		if err == nil {
+			ret.Weight = &h
+		}
 	}
 	if performer.Measurements != nil {
-		ret.Measurements = sql.NullString{String: *performer.Measurements, Valid: true}
+		ret.Measurements = *performer.Measurements
 	}
 	if performer.FakeTits != nil {
-		ret.FakeTits = sql.NullString{String: *performer.FakeTits, Valid: true}
+		ret.FakeTits = *performer.FakeTits
 	}
 	if performer.CareerLength != nil {
-		ret.CareerLength = sql.NullString{String: *performer.CareerLength, Valid: true}
+		ret.CareerLength = *performer.CareerLength
 	}
 	if performer.Tattoos != nil {
-		ret.Tattoos = sql.NullString{String: *performer.Tattoos, Valid: true}
+		ret.Tattoos = *performer.Tattoos
 	}
 	if performer.Piercings != nil {
-		ret.Piercings = sql.NullString{String: *performer.Piercings, Valid: true}
+		ret.Piercings = *performer.Piercings
 	}
 	if performer.Aliases != nil {
-		ret.Aliases = sql.NullString{String: *performer.Aliases, Valid: true}
+		ret.Aliases = models.NewRelatedStrings(stringslice.FromString(*performer.Aliases, ","))
 	}
 	if performer.Twitter != nil {
-		ret.Twitter = sql.NullString{String: *performer.Twitter, Valid: true}
+		ret.Twitter = *performer.Twitter
 	}
 	if performer.Instagram != nil {
-		ret.Instagram = sql.NullString{String: *performer.Instagram, Valid: true}
+		ret.Instagram = *performer.Instagram
 	}
 
 	return ret

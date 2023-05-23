@@ -1,8 +1,9 @@
 package urlbuilders
 
 import (
-	"github.com/stashapp/stash/pkg/models"
 	"strconv"
+
+	"github.com/stashapp/stash/pkg/models"
 )
 
 type PerformerURLBuilder struct {
@@ -15,10 +16,14 @@ func NewPerformerURLBuilder(baseURL string, performer *models.Performer) Perform
 	return PerformerURLBuilder{
 		BaseURL:     baseURL,
 		PerformerID: strconv.Itoa(performer.ID),
-		UpdatedAt:   strconv.FormatInt(performer.UpdatedAt.Timestamp.Unix(), 10),
+		UpdatedAt:   strconv.FormatInt(performer.UpdatedAt.Unix(), 10),
 	}
 }
 
-func (b PerformerURLBuilder) GetPerformerImageURL() string {
-	return b.BaseURL + "/performer/" + b.PerformerID + "/image?" + b.UpdatedAt
+func (b PerformerURLBuilder) GetPerformerImageURL(hasImage bool) string {
+	url := b.BaseURL + "/performer/" + b.PerformerID + "/image?t=" + b.UpdatedAt
+	if !hasImage {
+		url += "&default=true"
+	}
+	return url
 }

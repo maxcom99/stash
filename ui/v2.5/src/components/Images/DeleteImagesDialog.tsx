@@ -2,8 +2,8 @@ import React, { useState } from "react";
 import { Form } from "react-bootstrap";
 import { useImagesDestroy } from "src/core/StashService";
 import * as GQL from "src/core/generated-graphql";
-import { Modal } from "src/components/Shared";
-import { useToast } from "src/hooks";
+import { ModalComponent } from "src/components/Shared/Modal";
+import { useToast } from "src/hooks/Toast";
 import { ConfigurationContext } from "src/hooks/Config";
 import { FormattedMessage, useIntl } from "react-intl";
 import { faTrashAlt } from "@fortawesome/free-solid-svg-icons";
@@ -73,12 +73,19 @@ export const DeleteImagesDialog: React.FC<IDeleteImageDialogProps> = (
       return;
     }
 
+    const deletedFiles: string[] = [];
+
+    props.selected.forEach((s) => {
+      const paths = s.files.map((f) => f.path);
+      deletedFiles.push(...paths);
+    });
+
     return (
       <div className="delete-dialog alert alert-danger text-break">
         <p className="font-weight-bold">
           <FormattedMessage
             values={{
-              count: props.selected.length,
+              count: deletedFiles.length,
               singularEntity: intl.formatMessage({ id: "file" }),
               pluralEntity: intl.formatMessage({ id: "files" }),
             }}
@@ -86,13 +93,13 @@ export const DeleteImagesDialog: React.FC<IDeleteImageDialogProps> = (
           />
         </p>
         <ul>
-          {props.selected.slice(0, 5).map((s) => (
-            <li key={s.path}>{s.path}</li>
+          {deletedFiles.slice(0, 5).map((s) => (
+            <li key={s}>{s}</li>
           ))}
-          {props.selected.length > 5 && (
+          {deletedFiles.length > 5 && (
             <FormattedMessage
               values={{
-                count: props.selected.length - 5,
+                count: deletedFiles.length - 5,
                 singularEntity: intl.formatMessage({ id: "file" }),
                 pluralEntity: intl.formatMessage({ id: "files" }),
               }}
@@ -105,7 +112,7 @@ export const DeleteImagesDialog: React.FC<IDeleteImageDialogProps> = (
   }
 
   return (
-    <Modal
+    <ModalComponent
       show
       icon={faTrashAlt}
       header={header}
@@ -139,6 +146,6 @@ export const DeleteImagesDialog: React.FC<IDeleteImageDialogProps> = (
           onChange={() => setDeleteGenerated(!deleteGenerated)}
         />
       </Form>
-    </Modal>
+    </ModalComponent>
   );
 };

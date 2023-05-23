@@ -13,9 +13,9 @@ func (r *sceneMarkerResolver) Scene(ctx context.Context, obj *models.SceneMarker
 		panic("Invalid scene id")
 	}
 
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
 		sceneID := int(obj.SceneID.Int64)
-		ret, err = repo.Scene().Find(sceneID)
+		ret, err = r.repository.Scene.Find(ctx, sceneID)
 		return err
 	}); err != nil {
 		return nil, err
@@ -25,8 +25,8 @@ func (r *sceneMarkerResolver) Scene(ctx context.Context, obj *models.SceneMarker
 }
 
 func (r *sceneMarkerResolver) PrimaryTag(ctx context.Context, obj *models.SceneMarker) (ret *models.Tag, err error) {
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		ret, err = repo.Tag().Find(obj.PrimaryTagID)
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		ret, err = r.repository.Tag.Find(ctx, obj.PrimaryTagID)
 		return err
 	}); err != nil {
 		return nil, err
@@ -36,8 +36,8 @@ func (r *sceneMarkerResolver) PrimaryTag(ctx context.Context, obj *models.SceneM
 }
 
 func (r *sceneMarkerResolver) Tags(ctx context.Context, obj *models.SceneMarker) (ret []*models.Tag, err error) {
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		ret, err = repo.Tag().FindBySceneMarkerID(obj.ID)
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		ret, err = r.repository.Tag.FindBySceneMarkerID(ctx, obj.ID)
 		return err
 	}); err != nil {
 		return nil, err
@@ -48,20 +48,17 @@ func (r *sceneMarkerResolver) Tags(ctx context.Context, obj *models.SceneMarker)
 
 func (r *sceneMarkerResolver) Stream(ctx context.Context, obj *models.SceneMarker) (string, error) {
 	baseURL, _ := ctx.Value(BaseURLCtxKey).(string)
-	sceneID := int(obj.SceneID.Int64)
-	return urlbuilders.NewSceneURLBuilder(baseURL, sceneID).GetSceneMarkerStreamURL(obj.ID), nil
+	return urlbuilders.NewSceneMarkerURLBuilder(baseURL, obj).GetStreamURL(), nil
 }
 
 func (r *sceneMarkerResolver) Preview(ctx context.Context, obj *models.SceneMarker) (string, error) {
 	baseURL, _ := ctx.Value(BaseURLCtxKey).(string)
-	sceneID := int(obj.SceneID.Int64)
-	return urlbuilders.NewSceneURLBuilder(baseURL, sceneID).GetSceneMarkerStreamPreviewURL(obj.ID), nil
+	return urlbuilders.NewSceneMarkerURLBuilder(baseURL, obj).GetPreviewURL(), nil
 }
 
 func (r *sceneMarkerResolver) Screenshot(ctx context.Context, obj *models.SceneMarker) (string, error) {
 	baseURL, _ := ctx.Value(BaseURLCtxKey).(string)
-	sceneID := int(obj.SceneID.Int64)
-	return urlbuilders.NewSceneURLBuilder(baseURL, sceneID).GetSceneMarkerStreamScreenshotURL(obj.ID), nil
+	return urlbuilders.NewSceneMarkerURLBuilder(baseURL, obj).GetScreenshotURL(), nil
 }
 
 func (r *sceneMarkerResolver) CreatedAt(ctx context.Context, obj *models.SceneMarker) (*time.Time, error) {

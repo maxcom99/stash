@@ -1,10 +1,10 @@
 package sqlite
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
-	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
 )
 
@@ -22,8 +22,6 @@ type queryBuilder struct {
 	recursiveWith bool
 
 	sortAndPagination string
-
-	err error
 }
 
 func (qb queryBuilder) body() string {
@@ -54,28 +52,18 @@ func (qb queryBuilder) toSQL(includeSortPagination bool) string {
 	return body
 }
 
-func (qb queryBuilder) findIDs() ([]int, error) {
+func (qb queryBuilder) findIDs(ctx context.Context) ([]int, error) {
 	const includeSortPagination = true
 	sql := qb.toSQL(includeSortPagination)
-	logger.Tracef("SQL: %s, args: %v", sql, qb.args)
-	return qb.repository.runIdsQuery(sql, qb.args)
+	return qb.repository.runIdsQuery(ctx, sql, qb.args)
 }
 
-func (qb queryBuilder) executeFind() ([]int, int, error) {
-	if qb.err != nil {
-		return nil, 0, qb.err
-	}
-
+func (qb queryBuilder) executeFind(ctx context.Context) ([]int, int, error) {
 	body := qb.body()
-
-	return qb.repository.executeFindQuery(body, qb.args, qb.sortAndPagination, qb.whereClauses, qb.havingClauses, qb.withClauses, qb.recursiveWith)
+	return qb.repository.executeFindQuery(ctx, body, qb.args, qb.sortAndPagination, qb.whereClauses, qb.havingClauses, qb.withClauses, qb.recursiveWith)
 }
 
-func (qb queryBuilder) executeCount() (int, error) {
-	if qb.err != nil {
-		return 0, qb.err
-	}
-
+func (qb queryBuilder) executeCount(ctx context.Context) (int, error) {
 	body := qb.body()
 
 	withClause := ""
@@ -89,7 +77,7 @@ func (qb queryBuilder) executeCount() (int, error) {
 
 	body = qb.repository.buildQueryBody(body, qb.whereClauses, qb.havingClauses)
 	countQuery := withClause + qb.repository.buildCountQuery(body)
-	return qb.repository.runCountQuery(countQuery, qb.args)
+	return qb.repository.runCountQuery(ctx, countQuery, qb.args)
 }
 
 func (qb *queryBuilder) addWhere(clauses ...string) {
@@ -137,11 +125,10 @@ func (qb *queryBuilder) addJoins(joins ...join) {
 	qb.joins.add(joins...)
 }
 
-func (qb *queryBuilder) addFilter(f *filterBuilder) {
+func (qb *queryBuilder) addFilter(f *filterBuilder) error {
 	err := f.getError()
 	if err != nil {
-		qb.err = err
-		return
+		return err
 	}
 
 	clause, args := f.generateWithClauses()
@@ -173,6 +160,8 @@ func (qb *queryBuilder) addFilter(f *filterBuilder) {
 	}
 
 	qb.addJoins(f.getAllJoins()...)
+
+	return nil
 }
 
 func (qb *queryBuilder) parseQueryString(columns []string, q string) {

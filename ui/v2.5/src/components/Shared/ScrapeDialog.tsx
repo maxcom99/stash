@@ -8,9 +8,9 @@ import {
   FormControl,
   Badge,
 } from "react-bootstrap";
-import { CollapseButton } from "src/components/Shared/CollapseButton";
-import Icon from "src/components/Shared/Icon";
-import Modal from "src/components/Shared/Modal";
+import { CollapseButton } from "./CollapseButton";
+import { Icon } from "./Icon";
+import { ModalComponent } from "./Modal";
 import isEqual from "lodash-es/isEqual";
 import clone from "lodash-es/clone";
 import { FormattedMessage, useIntl } from "react-intl";
@@ -20,6 +20,8 @@ import {
   faPlus,
   faTimes,
 } from "@fortawesome/free-solid-svg-icons";
+import { getCountryByISO } from "src/utils/country";
+import { CountrySelect } from "./CountrySelect";
 
 export class ScrapeResult<T> {
   public newValue?: T;
@@ -27,13 +29,20 @@ export class ScrapeResult<T> {
   public scraped: boolean = false;
   public useNewValue: boolean = false;
 
-  public constructor(originalValue?: T | null, newValue?: T | null) {
+  public constructor(
+    originalValue?: T | null,
+    newValue?: T | null,
+    useNewValue?: boolean
+  ) {
     this.originalValue = originalValue ?? undefined;
     this.newValue = newValue ?? undefined;
+    // NOTE: this means that zero values are treated as null
+    // this is incorrect for numbers and booleans, but correct for strings
+    const hasNewValue = !!this.newValue;
 
     const valuesEqual = isEqual(originalValue, newValue);
-    this.useNewValue = !!this.newValue && !valuesEqual;
-    this.scraped = this.useNewValue;
+    this.useNewValue = useNewValue ?? (hasNewValue && !valuesEqual);
+    this.scraped = hasNewValue && !valuesEqual;
   }
 
   public setOriginalValue(value?: T) {
@@ -61,7 +70,29 @@ export class ScrapeResult<T> {
   }
 }
 
-interface IHasName {
+// for types where !!value is a valid value (boolean and number)
+export class ZeroableScrapeResult<T> extends ScrapeResult<T> {
+  public constructor(
+    originalValue?: T | null,
+    newValue?: T | null,
+    useNewValue?: boolean
+  ) {
+    super(originalValue, newValue, useNewValue);
+
+    const hasNewValue = this.newValue !== undefined;
+
+    const valuesEqual = isEqual(originalValue, newValue);
+    this.useNewValue = useNewValue ?? (hasNewValue && !valuesEqual);
+    this.scraped = hasNewValue && !valuesEqual;
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function hasScrapedValues(values: ScrapeResult<any>[]) {
+  return values.some((r) => r.scraped);
+}
+
+export interface IHasName {
   name: string | undefined;
 }
 
@@ -345,6 +376,8 @@ export const ScrapedImageRow: React.FC<IScrapedImageRowProps> = (props) => {
 
 interface IScrapeDialogProps {
   title: string;
+  existingLabel?: string;
+  scrapedLabel?: string;
   renderScrapeRows: () => JSX.Element;
   onClose: (apply?: boolean) => void;
 }
@@ -354,7 +387,7 @@ export const ScrapeDialog: React.FC<IScrapeDialogProps> = (
 ) => {
   const intl = useIntl();
   return (
-    <Modal
+    <ModalComponent
       show
       icon={faPencilAlt}
       header={props.title}
@@ -377,10 +410,14 @@ export const ScrapeDialog: React.FC<IScrapeDialogProps> = (
             <Col lg={{ span: 9, offset: 3 }}>
               <Row>
                 <Form.Label column xs="6">
-                  <FormattedMessage id="dialogs.scrape_results_existing" />
+                  {props.existingLabel ?? (
+                    <FormattedMessage id="dialogs.scrape_results_existing" />
+                  )}
                 </Form.Label>
                 <Form.Label column xs="6">
-                  <FormattedMessage id="dialogs.scrape_results_scraped" />
+                  {props.scrapedLabel ?? (
+                    <FormattedMessage id="dialogs.scrape_results_scraped" />
+                  )}
                 </Form.Label>
               </Row>
             </Col>
@@ -389,6 +426,51 @@ export const ScrapeDialog: React.FC<IScrapeDialogProps> = (
           {props.renderScrapeRows()}
         </Form>
       </div>
-    </Modal>
+    </ModalComponent>
   );
 };
+
+interface IScrapedCountryRowProps {
+  title: string;
+  result: ScrapeResult<string>;
+  onChange: (value: ScrapeResult<string>) => void;
+  locked?: boolean;
+  locale?: string;
+}
+
+export const ScrapedCountryRow: React.FC<IScrapedCountryRowProps> = ({
+  title,
+  result,
+  onChange,
+  locked,
+  locale,
+}) => (
+  <ScrapeDialogRow
+    title={title}
+    result={result}
+    renderOriginalField={() => (
+      <FormControl
+        value={
+          getCountryByISO(result.originalValue, locale) ?? result.originalValue
+        }
+        readOnly
+        className="bg-secondary text-white border-secondary"
+      />
+    )}
+    renderNewField={() => (
+      <CountrySelect
+        value={result.newValue}
+        disabled={locked}
+        onChange={(value) => {
+          if (onChange) {
+            onChange(result.cloneWithValue(value));
+          }
+        }}
+        showFlag={false}
+        isClearable={false}
+        className="flex-grow-1"
+      />
+    )}
+    onChange={onChange}
+  />
+);

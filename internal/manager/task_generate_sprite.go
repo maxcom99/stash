@@ -20,7 +20,7 @@ func (t *GenerateSpriteTask) GetDescription() string {
 }
 
 func (t *GenerateSpriteTask) Start(ctx context.Context) {
-	if !t.Overwrite && !t.required() {
+	if !t.required() {
 		return
 	}
 
@@ -51,6 +51,14 @@ func (t *GenerateSpriteTask) Start(ctx context.Context) {
 
 // required returns true if the sprite needs to be generated
 func (t GenerateSpriteTask) required() bool {
+	if t.Scene.Path == "" {
+		return false
+	}
+
+	if t.Overwrite {
+		return true
+	}
+
 	sceneHash := t.Scene.GetHash(t.fileNamingAlgorithm)
 	return !t.doesSpriteExist(sceneHash)
 }

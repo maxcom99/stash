@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/stashapp/stash/internal/api/loaders"
 	"github.com/stashapp/stash/internal/api/urlbuilders"
 	"github.com/stashapp/stash/pkg/models"
 	"github.com/stashapp/stash/pkg/utils"
@@ -48,6 +49,14 @@ func (r *movieResolver) Date(ctx context.Context, obj *models.Movie) (*string, e
 
 func (r *movieResolver) Rating(ctx context.Context, obj *models.Movie) (*int, error) {
 	if obj.Rating.Valid {
+		rating := models.Rating100To5(int(obj.Rating.Int64))
+		return &rating, nil
+	}
+	return nil, nil
+}
+
+func (r *movieResolver) Rating100(ctx context.Context, obj *models.Movie) (*int, error) {
+	if obj.Rating.Valid {
 		rating := int(obj.Rating.Int64)
 		return &rating, nil
 	}
@@ -56,14 +65,7 @@ func (r *movieResolver) Rating(ctx context.Context, obj *models.Movie) (*int, er
 
 func (r *movieResolver) Studio(ctx context.Context, obj *models.Movie) (ret *models.Studio, err error) {
 	if obj.StudioID.Valid {
-		if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-			ret, err = repo.Studio().Find(int(obj.StudioID.Int64))
-			return err
-		}); err != nil {
-			return nil, err
-		}
-
-		return ret, nil
+		return loaders.From(ctx).StudioByID.Load(int(obj.StudioID.Int64))
 	}
 
 	return nil, nil
@@ -84,39 +86,44 @@ func (r *movieResolver) Synopsis(ctx context.Context, obj *models.Movie) (*strin
 }
 
 func (r *movieResolver) FrontImagePath(ctx context.Context, obj *models.Movie) (*string, error) {
-	baseURL, _ := ctx.Value(BaseURLCtxKey).(string)
-	frontimagePath := urlbuilders.NewMovieURLBuilder(baseURL, obj).GetMovieFrontImageURL()
-	return &frontimagePath, nil
-}
-
-func (r *movieResolver) BackImagePath(ctx context.Context, obj *models.Movie) (*string, error) {
-	// don't return any thing if there is no back image
-	var img []byte
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
+	var hasImage bool
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
 		var err error
-		img, err = repo.Movie().GetBackImage(obj.ID)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		hasImage, err = r.repository.Movie.HasFrontImage(ctx, obj.ID)
+		return err
 	}); err != nil {
 		return nil, err
 	}
 
-	if img == nil {
+	baseURL, _ := ctx.Value(BaseURLCtxKey).(string)
+	imagePath := urlbuilders.NewMovieURLBuilder(baseURL, obj).GetMovieFrontImageURL(hasImage)
+	return &imagePath, nil
+}
+
+func (r *movieResolver) BackImagePath(ctx context.Context, obj *models.Movie) (*string, error) {
+	var hasImage bool
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		var err error
+		hasImage, err = r.repository.Movie.HasBackImage(ctx, obj.ID)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+
+	// don't return anything if there is no back image
+	if !hasImage {
 		return nil, nil
 	}
 
 	baseURL, _ := ctx.Value(BaseURLCtxKey).(string)
-	backimagePath := urlbuilders.NewMovieURLBuilder(baseURL, obj).GetMovieBackImageURL()
-	return &backimagePath, nil
+	imagePath := urlbuilders.NewMovieURLBuilder(baseURL, obj).GetMovieBackImageURL()
+	return &imagePath, nil
 }
 
 func (r *movieResolver) SceneCount(ctx context.Context, obj *models.Movie) (ret *int, err error) {
 	var res int
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		res, err = repo.Scene().CountByMovieID(obj.ID)
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		res, err = r.repository.Scene.CountByMovieID(ctx, obj.ID)
 		return err
 	}); err != nil {
 		return nil, err
@@ -126,9 +133,9 @@ func (r *movieResolver) SceneCount(ctx context.Context, obj *models.Movie) (ret 
 }
 
 func (r *movieResolver) Scenes(ctx context.Context, obj *models.Movie) (ret []*models.Scene, err error) {
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
 		var err error
-		ret, err = repo.Scene().FindByMovieID(obj.ID)
+		ret, err = r.repository.Scene.FindByMovieID(ctx, obj.ID)
 		return err
 	}); err != nil {
 		return nil, err

@@ -1,16 +1,14 @@
 fragment SceneData on Scene {
   id
-  checksum
-  oshash
   title
+  code
   details
+  director
   url
   date
-  rating
+  rating100
   o_counter
   organized
-  path
-  phash
   interactive
   interactive_speed
   captions {
@@ -19,16 +17,13 @@ fragment SceneData on Scene {
   }
   created_at
   updated_at
+  resume_time
+  last_played_at
+  play_duration
+  play_count
 
-  file {
-    size
-    duration
-    video_codec
-    audio_codec
-    width
-    height
-    framerate
-    bitrate
+  files {
+    ...VideoFileData
   }
 
   paths {
@@ -37,7 +32,6 @@ fragment SceneData on Scene {
     stream
     webp
     vtt
-    chapters_vtt
     sprite
     funscript
     interactive_heatmap

@@ -11,6 +11,7 @@ import (
 	"github.com/stashapp/stash/pkg/models"
 	"github.com/stashapp/stash/pkg/plugin"
 	"github.com/stashapp/stash/pkg/scraper"
+	"github.com/stashapp/stash/pkg/txn"
 )
 
 var (
@@ -30,7 +31,12 @@ type hookExecutor interface {
 }
 
 type Resolver struct {
-	txnManager   models.TransactionManager
+	txnManager     txn.Manager
+	repository     manager.Repository
+	sceneService   manager.SceneService
+	imageService   manager.ImageService
+	galleryService manager.GalleryService
+
 	hookExecutor hookExecutor
 }
 
@@ -38,37 +44,40 @@ func (r *Resolver) scraperCache() *scraper.Cache {
 	return manager.GetInstance().ScraperCache
 }
 
-func (r *Resolver) Gallery() models.GalleryResolver {
+func (r *Resolver) Gallery() GalleryResolver {
 	return &galleryResolver{r}
 }
-func (r *Resolver) Mutation() models.MutationResolver {
+func (r *Resolver) GalleryChapter() GalleryChapterResolver {
+	return &galleryChapterResolver{r}
+}
+func (r *Resolver) Mutation() MutationResolver {
 	return &mutationResolver{r}
 }
-func (r *Resolver) Performer() models.PerformerResolver {
+func (r *Resolver) Performer() PerformerResolver {
 	return &performerResolver{r}
 }
-func (r *Resolver) Query() models.QueryResolver {
+func (r *Resolver) Query() QueryResolver {
 	return &queryResolver{r}
 }
-func (r *Resolver) Scene() models.SceneResolver {
+func (r *Resolver) Scene() SceneResolver {
 	return &sceneResolver{r}
 }
-func (r *Resolver) Image() models.ImageResolver {
+func (r *Resolver) Image() ImageResolver {
 	return &imageResolver{r}
 }
-func (r *Resolver) SceneMarker() models.SceneMarkerResolver {
+func (r *Resolver) SceneMarker() SceneMarkerResolver {
 	return &sceneMarkerResolver{r}
 }
-func (r *Resolver) Studio() models.StudioResolver {
+func (r *Resolver) Studio() StudioResolver {
 	return &studioResolver{r}
 }
-func (r *Resolver) Movie() models.MovieResolver {
+func (r *Resolver) Movie() MovieResolver {
 	return &movieResolver{r}
 }
-func (r *Resolver) Subscription() models.SubscriptionResolver {
+func (r *Resolver) Subscription() SubscriptionResolver {
 	return &subscriptionResolver{r}
 }
-func (r *Resolver) Tag() models.TagResolver {
+func (r *Resolver) Tag() TagResolver {
 	return &tagResolver{r}
 }
 
@@ -77,6 +86,7 @@ type queryResolver struct{ *Resolver }
 type subscriptionResolver struct{ *Resolver }
 
 type galleryResolver struct{ *Resolver }
+type galleryChapterResolver struct{ *Resolver }
 type performerResolver struct{ *Resolver }
 type sceneResolver struct{ *Resolver }
 type sceneMarkerResolver struct{ *Resolver }
@@ -85,17 +95,17 @@ type studioResolver struct{ *Resolver }
 type movieResolver struct{ *Resolver }
 type tagResolver struct{ *Resolver }
 
-func (r *Resolver) withTxn(ctx context.Context, fn func(r models.Repository) error) error {
-	return r.txnManager.WithTxn(ctx, fn)
+func (r *Resolver) withTxn(ctx context.Context, fn func(ctx context.Context) error) error {
+	return txn.WithTxn(ctx, r.txnManager, fn)
 }
 
-func (r *Resolver) withReadTxn(ctx context.Context, fn func(r models.ReaderRepository) error) error {
-	return r.txnManager.WithReadTxn(ctx, fn)
+func (r *Resolver) withReadTxn(ctx context.Context, fn func(ctx context.Context) error) error {
+	return txn.WithReadTxn(ctx, r.txnManager, fn)
 }
 
 func (r *queryResolver) MarkerWall(ctx context.Context, q *string) (ret []*models.SceneMarker, err error) {
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		ret, err = repo.SceneMarker().Wall(q)
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		ret, err = r.repository.SceneMarker.Wall(ctx, q)
 		return err
 	}); err != nil {
 		return nil, err
@@ -104,8 +114,8 @@ func (r *queryResolver) MarkerWall(ctx context.Context, q *string) (ret []*model
 }
 
 func (r *queryResolver) SceneWall(ctx context.Context, q *string) (ret []*models.Scene, err error) {
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		ret, err = repo.Scene().Wall(q)
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		ret, err = r.repository.Scene.Wall(ctx, q)
 		return err
 	}); err != nil {
 		return nil, err
@@ -115,8 +125,8 @@ func (r *queryResolver) SceneWall(ctx context.Context, q *string) (ret []*models
 }
 
 func (r *queryResolver) MarkerStrings(ctx context.Context, q *string, sort *string) (ret []*models.MarkerStringsResultType, err error) {
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		ret, err = repo.SceneMarker().GetMarkerStrings(q, sort)
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		ret, err = r.repository.SceneMarker.GetMarkerStrings(ctx, q, sort)
 		return err
 	}); err != nil {
 		return nil, err
@@ -125,28 +135,29 @@ func (r *queryResolver) MarkerStrings(ctx context.Context, q *string, sort *stri
 	return ret, nil
 }
 
-func (r *queryResolver) Stats(ctx context.Context) (*models.StatsResultType, error) {
-	var ret models.StatsResultType
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		scenesQB := repo.Scene()
-		imageQB := repo.Image()
-		galleryQB := repo.Gallery()
-		studiosQB := repo.Studio()
-		performersQB := repo.Performer()
-		moviesQB := repo.Movie()
-		tagsQB := repo.Tag()
-		scenesCount, _ := scenesQB.Count()
-		scenesSize, _ := scenesQB.Size()
-		scenesDuration, _ := scenesQB.Duration()
-		imageCount, _ := imageQB.Count()
-		imageSize, _ := imageQB.Size()
-		galleryCount, _ := galleryQB.Count()
-		performersCount, _ := performersQB.Count()
-		studiosCount, _ := studiosQB.Count()
-		moviesCount, _ := moviesQB.Count()
-		tagsCount, _ := tagsQB.Count()
+func (r *queryResolver) Stats(ctx context.Context) (*StatsResultType, error) {
+	var ret StatsResultType
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		repo := r.repository
+		scenesQB := repo.Scene
+		imageQB := repo.Image
+		galleryQB := repo.Gallery
+		studiosQB := repo.Studio
+		performersQB := repo.Performer
+		moviesQB := repo.Movie
+		tagsQB := repo.Tag
+		scenesCount, _ := scenesQB.Count(ctx)
+		scenesSize, _ := scenesQB.Size(ctx)
+		scenesDuration, _ := scenesQB.Duration(ctx)
+		imageCount, _ := imageQB.Count(ctx)
+		imageSize, _ := imageQB.Size(ctx)
+		galleryCount, _ := galleryQB.Count(ctx)
+		performersCount, _ := performersQB.Count(ctx)
+		studiosCount, _ := studiosQB.Count(ctx)
+		moviesCount, _ := moviesQB.Count(ctx)
+		tagsCount, _ := tagsQB.Count(ctx)
 
-		ret = models.StatsResultType{
+		ret = StatsResultType{
 			SceneCount:     scenesCount,
 			ScenesSize:     scenesSize,
 			ScenesDuration: scenesDuration,
@@ -167,56 +178,59 @@ func (r *queryResolver) Stats(ctx context.Context) (*models.StatsResultType, err
 	return &ret, nil
 }
 
-func (r *queryResolver) Version(ctx context.Context) (*models.Version, error) {
+func (r *queryResolver) Version(ctx context.Context) (*Version, error) {
 	version, hash, buildtime := GetVersion()
 
-	return &models.Version{
+	return &Version{
 		Version:   &version,
 		Hash:      hash,
 		BuildTime: buildtime,
 	}, nil
 }
 
-// Latestversion returns the latest git shorthash commit.
-func (r *queryResolver) Latestversion(ctx context.Context) (*models.ShortVersion, error) {
-	ver, url, err := GetLatestVersion(ctx, true)
-	if err == nil {
-		logger.Infof("Retrieved latest hash: %s", ver)
-	} else {
-		logger.Errorf("Error while retrieving latest hash: %s", err)
+func (r *queryResolver) Latestversion(ctx context.Context) (*LatestVersion, error) {
+	latestRelease, err := GetLatestRelease(ctx)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			logger.Errorf("Error while retrieving latest version: %v", err)
+		}
+		return nil, err
 	}
+	logger.Infof("Retrieved latest version: %s (%s)", latestRelease.Version, latestRelease.ShortHash)
 
-	return &models.ShortVersion{
-		Shorthash: ver,
-		URL:       url,
-	}, err
+	return &LatestVersion{
+		Version:     latestRelease.Version,
+		Shorthash:   latestRelease.ShortHash,
+		ReleaseDate: latestRelease.Date,
+		URL:         latestRelease.Url,
+	}, nil
 }
 
 // Get scene marker tags which show up under the video.
-func (r *queryResolver) SceneMarkerTags(ctx context.Context, scene_id string) ([]*models.SceneMarkerTag, error) {
+func (r *queryResolver) SceneMarkerTags(ctx context.Context, scene_id string) ([]*SceneMarkerTag, error) {
 	sceneID, err := strconv.Atoi(scene_id)
 	if err != nil {
 		return nil, err
 	}
 
 	var keys []int
-	tags := make(map[int]*models.SceneMarkerTag)
+	tags := make(map[int]*SceneMarkerTag)
 
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		sceneMarkers, err := repo.SceneMarker().FindBySceneID(sceneID)
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		sceneMarkers, err := r.repository.SceneMarker.FindBySceneID(ctx, sceneID)
 		if err != nil {
 			return err
 		}
 
-		tqb := repo.Tag()
+		tqb := r.repository.Tag
 		for _, sceneMarker := range sceneMarkers {
-			markerPrimaryTag, err := tqb.Find(sceneMarker.PrimaryTagID)
+			markerPrimaryTag, err := tqb.Find(ctx, sceneMarker.PrimaryTagID)
 			if err != nil {
 				return err
 			}
 			_, hasKey := tags[markerPrimaryTag.ID]
 			if !hasKey {
-				sceneMarkerTag := &models.SceneMarkerTag{Tag: markerPrimaryTag}
+				sceneMarkerTag := &SceneMarkerTag{Tag: markerPrimaryTag}
 				tags[markerPrimaryTag.ID] = sceneMarkerTag
 				keys = append(keys, markerPrimaryTag.ID)
 			}
@@ -235,10 +249,20 @@ func (r *queryResolver) SceneMarkerTags(ctx context.Context, scene_id string) ([
 		return a.SceneMarkers[0].Seconds < b.SceneMarkers[0].Seconds
 	})
 
-	var result []*models.SceneMarkerTag
+	var result []*SceneMarkerTag
 	for _, key := range keys {
 		result = append(result, tags[key])
 	}
 
 	return result, nil
+}
+
+func firstError(errs []error) error {
+	for _, e := range errs {
+		if e != nil {
+			return e
+		}
+	}
+
+	return nil
 }

@@ -20,6 +20,9 @@ type GeneratePreviewTask struct {
 	fileNamingAlgorithm models.HashAlgorithm
 
 	generator *generate.Generator
+
+	videoPreviewExists *bool
+	imagePreviewExists *bool
 }
 
 func (t *GeneratePreviewTask) GetDescription() string {
@@ -27,26 +30,24 @@ func (t *GeneratePreviewTask) GetDescription() string {
 }
 
 func (t *GeneratePreviewTask) Start(ctx context.Context) {
-	if !t.Overwrite && !t.required() {
-		return
-	}
-
-	ffprobe := instance.FFProbe
-	videoFile, err := ffprobe.NewVideoFile(t.Scene.Path)
-	if err != nil {
-		logger.Errorf("error reading video file: %v", err)
-		return
-	}
-
 	videoChecksum := t.Scene.GetHash(t.fileNamingAlgorithm)
 
-	if err := t.generateVideo(videoChecksum, videoFile.Duration); err != nil {
-		logger.Errorf("error generating preview: %v", err)
-		logErrorOutput(err)
-		return
+	if t.videoPreviewRequired() {
+		ffprobe := instance.FFProbe
+		videoFile, err := ffprobe.NewVideoFile(t.Scene.Path)
+		if err != nil {
+			logger.Errorf("error reading video file: %v", err)
+			return
+		}
+
+		if err := t.generateVideo(videoChecksum, videoFile.VideoStreamDuration, videoFile.FrameRate); err != nil {
+			logger.Errorf("error generating preview: %v", err)
+			logErrorOutput(err)
+			return
+		}
 	}
 
-	if t.ImagePreview {
+	if t.imagePreviewRequired() {
 		if err := t.generateWebp(videoChecksum); err != nil {
 			logger.Errorf("error generating preview webp: %v", err)
 			logErrorOutput(err)
@@ -54,12 +55,18 @@ func (t *GeneratePreviewTask) Start(ctx context.Context) {
 	}
 }
 
-func (t GeneratePreviewTask) generateVideo(videoChecksum string, videoDuration float64) error {
+func (t *GeneratePreviewTask) generateVideo(videoChecksum string, videoDuration float64, videoFrameRate float64) error {
 	videoFilename := t.Scene.Path
+	useVsync2 := false
 
-	if err := t.generator.PreviewVideo(context.TODO(), videoFilename, videoDuration, videoChecksum, t.Options, true); err != nil {
+	if videoFrameRate <= 0.01 {
+		logger.Errorf("[generator] Video framerate very low/high (%f) most likely vfr so using -vsync 2", videoFrameRate)
+		useVsync2 = true
+	}
+
+	if err := t.generator.PreviewVideo(context.TODO(), videoFilename, videoDuration, videoChecksum, t.Options, false, useVsync2); err != nil {
 		logger.Warnf("[generator] failed generating scene preview, trying fallback")
-		if err := t.generator.PreviewVideo(context.TODO(), videoFilename, videoDuration, videoChecksum, t.Options, true); err != nil {
+		if err := t.generator.PreviewVideo(context.TODO(), videoFilename, videoDuration, videoChecksum, t.Options, true, useVsync2); err != nil {
 			return err
 		}
 	}
@@ -67,32 +74,59 @@ func (t GeneratePreviewTask) generateVideo(videoChecksum string, videoDuration f
 	return nil
 }
 
-func (t GeneratePreviewTask) generateWebp(videoChecksum string) error {
+func (t *GeneratePreviewTask) generateWebp(videoChecksum string) error {
 	videoFilename := t.Scene.Path
 	return t.generator.PreviewWebp(context.TODO(), videoFilename, videoChecksum)
 }
 
-func (t GeneratePreviewTask) required() bool {
-	sceneHash := t.Scene.GetHash(t.fileNamingAlgorithm)
-	videoExists := t.doesVideoPreviewExist(sceneHash)
-	imageExists := !t.ImagePreview || t.doesImagePreviewExist(sceneHash)
-	return !imageExists || !videoExists
+func (t *GeneratePreviewTask) required() bool {
+	return t.videoPreviewRequired() || t.imagePreviewRequired()
 }
 
-func (t *GeneratePreviewTask) doesVideoPreviewExist(sceneChecksum string) bool {
+func (t *GeneratePreviewTask) videoPreviewRequired() bool {
+	if t.Scene.Path == "" {
+		return false
+	}
+
+	if t.Overwrite {
+		return true
+	}
+
+	sceneChecksum := t.Scene.GetHash(t.fileNamingAlgorithm)
 	if sceneChecksum == "" {
 		return false
 	}
 
-	videoExists, _ := fsutil.FileExists(instance.Paths.Scene.GetVideoPreviewPath(sceneChecksum))
-	return videoExists
+	if t.videoPreviewExists == nil {
+		videoExists, _ := fsutil.FileExists(instance.Paths.Scene.GetVideoPreviewPath(sceneChecksum))
+		t.videoPreviewExists = &videoExists
+	}
+
+	return !*t.videoPreviewExists
 }
 
-func (t *GeneratePreviewTask) doesImagePreviewExist(sceneChecksum string) bool {
+func (t *GeneratePreviewTask) imagePreviewRequired() bool {
+	if !t.ImagePreview {
+		return false
+	}
+
+	if t.Scene.Path == "" {
+		return false
+	}
+
+	if t.Overwrite {
+		return true
+	}
+
+	sceneChecksum := t.Scene.GetHash(t.fileNamingAlgorithm)
 	if sceneChecksum == "" {
 		return false
 	}
 
-	imageExists, _ := fsutil.FileExists(instance.Paths.Scene.GetWebpPreviewPath(sceneChecksum))
-	return imageExists
+	if t.imagePreviewExists == nil {
+		imageExists, _ := fsutil.FileExists(instance.Paths.Scene.GetWebpPreviewPath(sceneChecksum))
+		t.imagePreviewExists = &imageExists
+	}
+
+	return !*t.imagePreviewExists
 }

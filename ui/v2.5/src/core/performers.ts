@@ -2,7 +2,9 @@ import { PerformersCriterion } from "src/models/list-filter/criteria/performers"
 import * as GQL from "src/core/generated-graphql";
 import { ListFilterModel } from "src/models/list-filter/filter";
 
-export const performerFilterHook = (performer: GQL.PerformerDataFragment) => {
+export const usePerformerFilterHook = (
+  performer: GQL.PerformerDataFragment
+) => {
   return (filter: ListFilterModel) => {
     const performerValue = {
       id: performer.id,
@@ -13,25 +15,29 @@ export const performerFilterHook = (performer: GQL.PerformerDataFragment) => {
       return c.criterionOption.type === "performers";
     }) as PerformersCriterion;
 
-    if (
-      performerCriterion &&
-      (performerCriterion.modifier === GQL.CriterionModifier.IncludesAll ||
-        performerCriterion.modifier === GQL.CriterionModifier.Includes)
-    ) {
-      // add the performer if not present
+    if (performerCriterion) {
       if (
-        !performerCriterion.value.find((p) => {
-          return p.id === performer.id;
-        })
+        performerCriterion.modifier === GQL.CriterionModifier.IncludesAll ||
+        performerCriterion.modifier === GQL.CriterionModifier.Includes
       ) {
-        performerCriterion.value.push(performerValue);
+        // add the performer if not present
+        if (
+          !performerCriterion.value.find((p) => {
+            return p.id === performer.id;
+          })
+        ) {
+          performerCriterion.value.push(performerValue);
+        }
+      } else {
+        // overwrite
+        performerCriterion.value = [performerValue];
       }
 
       performerCriterion.modifier = GQL.CriterionModifier.IncludesAll;
     } else {
-      // overwrite
       performerCriterion = new PerformersCriterion();
       performerCriterion.value = [performerValue];
+      performerCriterion.modifier = GQL.CriterionModifier.IncludesAll;
       filter.criteria.push(performerCriterion);
     }
 

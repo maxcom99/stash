@@ -4,11 +4,12 @@ import { FormattedMessage, useIntl } from "react-intl";
 import isEqual from "lodash-es/isEqual";
 import { useBulkGalleryUpdate } from "src/core/StashService";
 import * as GQL from "src/core/generated-graphql";
-import { StudioSelect, Modal } from "src/components/Shared";
-import { useToast } from "src/hooks";
-import { FormUtils } from "src/utils";
-import MultiSet from "../Shared/MultiSet";
-import { RatingStars } from "../Scenes/SceneDetails/RatingStars";
+import { StudioSelect } from "../Shared/Select";
+import { ModalComponent } from "../Shared/Modal";
+import { useToast } from "src/hooks/Toast";
+import FormUtils from "src/utils/form";
+import { MultiSet } from "../Shared/MultiSet";
+import { RatingSystem } from "../Shared/Rating/RatingSystem";
 import {
   getAggregateInputIDs,
   getAggregateInputValue,
@@ -29,12 +30,10 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
 ) => {
   const intl = useIntl();
   const Toast = useToast();
-  const [rating, setRating] = useState<number>();
+  const [rating100, setRating] = useState<number>();
   const [studioId, setStudioId] = useState<string>();
-  const [
-    performerMode,
-    setPerformerMode,
-  ] = React.useState<GQL.BulkUpdateIdMode>(GQL.BulkUpdateIdMode.Add);
+  const [performerMode, setPerformerMode] =
+    React.useState<GQL.BulkUpdateIdMode>(GQL.BulkUpdateIdMode.Add);
   const [performerIds, setPerformerIds] = useState<string[]>();
   const [existingPerformerIds, setExistingPerformerIds] = useState<string[]>();
   const [tagMode, setTagMode] = React.useState<GQL.BulkUpdateIdMode>(
@@ -64,7 +63,7 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
       }),
     };
 
-    galleryInput.rating = getAggregateInputValue(rating, aggregateRating);
+    galleryInput.rating100 = getAggregateInputValue(rating100, aggregateRating);
     galleryInput.studio_id = getAggregateInputValue(
       studioId,
       aggregateStudioId
@@ -121,7 +120,7 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
     let first = true;
 
     state.forEach((gallery: GQL.SlimGalleryDataFragment) => {
-      const galleryRating = gallery.rating;
+      const galleryRating = gallery.rating100;
       const GalleriestudioID = gallery?.studio?.id;
       const galleryPerformerIDs = (gallery.performers ?? [])
         .map((p) => p.id)
@@ -228,7 +227,7 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
 
   function render() {
     return (
-      <Modal
+      <ModalComponent
         show
         icon={faPencilAlt}
         header={intl.formatMessage(
@@ -256,14 +255,13 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
               title: intl.formatMessage({ id: "rating" }),
             })}
             <Col xs={9}>
-              <RatingStars
-                value={rating}
+              <RatingSystem
+                value={rating100}
                 onSetRating={(value) => setRating(value)}
                 disabled={isUpdating}
               />
             </Col>
           </Form.Group>
-
           <Form.Group controlId="studio" as={Row}>
             {FormUtils.renderLabel({
               title: intl.formatMessage({ id: "studio" }),
@@ -303,7 +301,7 @@ export const EditGalleriesDialog: React.FC<IListOperationProps> = (
             />
           </Form.Group>
         </Form>
-      </Modal>
+      </ModalComponent>
     );
   }
 

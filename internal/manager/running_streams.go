@@ -2,39 +2,19 @@ package manager
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/stashapp/stash/internal/manager/config"
+	"github.com/stashapp/stash/internal/static"
+	"github.com/stashapp/stash/pkg/ffmpeg"
 	"github.com/stashapp/stash/pkg/fsutil"
 	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
+	"github.com/stashapp/stash/pkg/txn"
 	"github.com/stashapp/stash/pkg/utils"
 )
-
-type StreamRequestContext struct {
-	context.Context
-	ResponseWriter http.ResponseWriter
-}
-
-func NewStreamRequestContext(w http.ResponseWriter, r *http.Request) *StreamRequestContext {
-	return &StreamRequestContext{
-		Context:        r.Context(),
-		ResponseWriter: w,
-	}
-}
-
-func (c *StreamRequestContext) Cancel() {
-	hj, ok := (c.ResponseWriter).(http.Hijacker)
-	if !ok {
-		return
-	}
-
-	// hijack and close the connection
-	conn, _, _ := hj.Hijack()
-	if conn != nil {
-		conn.Close()
-	}
-}
 
 func KillRunningStreams(scene *models.Scene, fileNamingAlgo models.HashAlgorithm) {
 	instance.ReadLockManager.Cancel(scene.Path)
@@ -49,15 +29,26 @@ func KillRunningStreams(scene *models.Scene, fileNamingAlgo models.HashAlgorithm
 	instance.ReadLockManager.Cancel(transcodePath)
 }
 
+type SceneCoverGetter interface {
+	GetCover(ctx context.Context, sceneID int) ([]byte, error)
+}
+
 type SceneServer struct {
-	TXNManager models.TransactionManager
+	TxnManager       txn.Manager
+	SceneCoverGetter SceneCoverGetter
 }
 
 func (s *SceneServer) StreamSceneDirect(scene *models.Scene, w http.ResponseWriter, r *http.Request) {
-	fileNamingAlgo := config.GetInstance().GetVideoFileNamingAlgorithm()
+	// #3526 - return 404 if the scene does not have any files
+	if scene.Path == "" {
+		http.Error(w, http.StatusText(404), 404)
+		return
+	}
 
-	filepath := GetInstance().Paths.Scene.GetStreamPath(scene.Path, scene.GetHash(fileNamingAlgo))
-	streamRequestCtx := NewStreamRequestContext(w, r)
+	sceneHash := scene.GetHash(config.GetInstance().GetVideoFileNamingAlgorithm())
+
+	filepath := GetInstance().Paths.Scene.GetStreamPath(scene.Path, sceneHash)
+	streamRequestCtx := ffmpeg.NewStreamRequestContext(w, r)
 
 	// #2579 - hijacking and closing the connection here causes video playback to fail in Safari
 	// We trust that the request context will be closed, so we don't need to call Cancel on the
@@ -67,24 +58,45 @@ func (s *SceneServer) StreamSceneDirect(scene *models.Scene, w http.ResponseWrit
 }
 
 func (s *SceneServer) ServeScreenshot(scene *models.Scene, w http.ResponseWriter, r *http.Request) {
-	filepath := GetInstance().Paths.Scene.GetScreenshotPath(scene.GetHash(config.GetInstance().GetVideoFileNamingAlgorithm()))
+	const defaultSceneImage = "scene/scene.svg"
 
-	// fall back to the scene image blob if the file isn't present
-	screenshotExists, _ := fsutil.FileExists(filepath)
-	if screenshotExists {
-		http.ServeFile(w, r, filepath)
-	} else {
-		var cover []byte
-		err := s.TXNManager.WithReadTxn(r.Context(), func(repo models.ReaderRepository) error {
-			cover, _ = repo.Scene().GetCover(scene.ID)
-			return nil
-		})
-		if err != nil {
-			logger.Warnf("read transaction failed while serving screenshot: %v", err)
-		}
-
-		if err = utils.ServeImage(cover, w, r); err != nil {
-			logger.Warnf("unable to serve screenshot image: %v", err)
-		}
+	var cover []byte
+	readTxnErr := txn.WithReadTxn(r.Context(), s.TxnManager, func(ctx context.Context) error {
+		cover, _ = s.SceneCoverGetter.GetCover(ctx, scene.ID)
+		return nil
+	})
+	if errors.Is(readTxnErr, context.Canceled) {
+		return
 	}
+	if readTxnErr != nil {
+		logger.Warnf("read transaction error on fetch screenshot: %v", readTxnErr)
+	}
+
+	if cover == nil {
+		// fallback to legacy image if present
+		if scene.Path != "" {
+			sceneHash := scene.GetHash(config.GetInstance().GetVideoFileNamingAlgorithm())
+			filepath := GetInstance().Paths.Scene.GetLegacyScreenshotPath(sceneHash)
+
+			// fall back to the scene image blob if the file isn't present
+			screenshotExists, _ := fsutil.FileExists(filepath)
+			if screenshotExists {
+				if r.URL.Query().Has("t") {
+					w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+				} else {
+					w.Header().Set("Cache-Control", "no-cache")
+				}
+				http.ServeFile(w, r, filepath)
+				return
+			}
+		}
+
+		// fallback to default cover if none found
+		// should always be there
+		f, _ := static.Scene.Open(defaultSceneImage)
+		defer f.Close()
+		cover, _ = io.ReadAll(f)
+	}
+
+	utils.ServeImage(w, r, cover)
 }

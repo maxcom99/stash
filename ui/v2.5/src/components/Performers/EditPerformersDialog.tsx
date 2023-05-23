@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { Form, Col, Row } from "react-bootstrap";
+import { Col, Form, Row } from "react-bootstrap";
 import { FormattedMessage, useIntl } from "react-intl";
 import { useBulkPerformerUpdate } from "src/core/StashService";
 import * as GQL from "src/core/generated-graphql";
-import { Modal } from "src/components/Shared";
-import { useToast } from "src/hooks";
-import { FormUtils } from "src/utils";
-import MultiSet from "../Shared/MultiSet";
-import { RatingStars } from "../Scenes/SceneDetails/RatingStars";
+import { ModalComponent } from "../Shared/Modal";
+import { useToast } from "src/hooks/Toast";
+import { MultiSet } from "../Shared/MultiSet";
+import { RatingSystem } from "../Shared/Rating/RatingSystem";
 import {
   getAggregateInputValue,
   getAggregateState,
@@ -21,6 +20,7 @@ import {
 import { IndeterminateCheckbox } from "../Shared/IndeterminateCheckbox";
 import { BulkUpdateTextInput } from "../Shared/BulkUpdateTextInput";
 import { faPencilAlt } from "@fortawesome/free-solid-svg-icons";
+import FormUtils from "src/utils/form";
 
 interface IListOperationProps {
   selected: GQL.SlimPerformerDataFragment[];
@@ -29,10 +29,11 @@ interface IListOperationProps {
 
 const performerFields = [
   "favorite",
+  "disambiguation",
   "url",
   "instagram",
   "twitter",
-  "rating",
+  "rating100",
   "gender",
   "birthdate",
   "death_date",
@@ -59,10 +60,8 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
     mode: GQL.BulkUpdateIdMode.Add,
   });
   const [existingTagIds, setExistingTagIds] = useState<string[]>();
-  const [
-    aggregateState,
-    setAggregateState,
-  ] = useState<GQL.BulkPerformerUpdateInput>({});
+  const [aggregateState, setAggregateState] =
+    useState<GQL.BulkPerformerUpdateInput>({});
   // weight needs conversion to/from number
   const [weight, setWeight] = useState<string | undefined>();
   const [updateInput, setUpdateInput] = useState<GQL.BulkPerformerUpdateInput>(
@@ -90,9 +89,9 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
 
     // we don't have unset functionality for the rating star control
     // so need to determine if we are setting a rating or not
-    performerInput.rating = getAggregateInputValue(
-      updateInput.rating,
-      aggregateState.rating
+    performerInput.rating100 = getAggregateInputValue(
+      updateInput.rating100,
+      aggregateState.rating100
     );
 
     // gender dropdown doesn't have unset functionality
@@ -182,7 +181,7 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
 
   function render() {
     return (
-      <Modal
+      <ModalComponent
         show
         icon={faPencilAlt}
         header={intl.formatMessage(
@@ -205,9 +204,9 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
             title: intl.formatMessage({ id: "rating" }),
           })}
           <Col xs={9}>
-            <RatingStars
-              value={updateInput.rating ?? undefined}
-              onSetRating={(value) => setUpdateField({ rating: value })}
+            <RatingSystem
+              value={updateInput.rating100 ?? undefined}
+              onSetRating={(value) => setUpdateField({ rating100: value })}
               disabled={isUpdating}
             />
           </Col>
@@ -228,7 +227,7 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
             <Form.Control
               as="select"
               className="input-control"
-              value={genderToString(updateInput.gender ?? undefined)}
+              value={genderToString(updateInput.gender)}
               onChange={(event) =>
                 setUpdateField({
                   gender: stringToGender(event.currentTarget.value),
@@ -243,6 +242,9 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
             </Form.Control>
           </Form.Group>
 
+          {renderTextField("disambiguation", updateInput.disambiguation, (v) =>
+            setUpdateField({ disambiguation: v })
+          )}
           {renderTextField("birthdate", updateInput.birthdate, (v) =>
             setUpdateField({ birthdate: v })
           )}
@@ -315,7 +317,7 @@ export const EditPerformersDialog: React.FC<IListOperationProps> = (
             />
           </Form.Group>
         </Form>
-      </Modal>
+      </ModalComponent>
     );
   }
 

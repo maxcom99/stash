@@ -1,10 +1,9 @@
 import React from "react";
-import queryString from "query-string";
 import { Tab, Nav, Row, Col } from "react-bootstrap";
 import { useHistory, useLocation } from "react-router-dom";
 import { FormattedMessage, useIntl } from "react-intl";
 import { Helmet } from "react-helmet";
-import { TITLE_SUFFIX } from "src/components/Shared";
+import { TITLE_SUFFIX } from "src/components/Shared/constants";
 import { SettingsAboutPanel } from "./SettingsAboutPanel";
 import { SettingsConfigurationPanel } from "./SettingsSystemPanel";
 import { SettingsInterfacePanel } from "./SettingsInterfacePanel/SettingsInterfacePanel";
@@ -17,12 +16,13 @@ import { SettingsServicesPanel } from "./SettingsServicesPanel";
 import { SettingsContext } from "./context";
 import { SettingsLibraryPanel } from "./SettingsLibraryPanel";
 import { SettingsSecurityPanel } from "./SettingsSecurityPanel";
+import Changelog from "../Changelog/Changelog";
 
 export const Settings: React.FC = () => {
   const intl = useIntl();
   const location = useLocation();
   const history = useHistory();
-  const defaultTab = queryString.parse(location.search).tab ?? "tasks";
+  const defaultTab = new URLSearchParams(location.search).get("tab") ?? "tasks";
 
   const onSelect = (val: string) => history.push(`?tab=${val}`);
 
@@ -93,6 +93,11 @@ export const Settings: React.FC = () => {
               </Nav.Link>
             </Nav.Item>
             <Nav.Item>
+              <Nav.Link eventKey="changelog">
+                <FormattedMessage id="config.categories.changelog" />
+              </Nav.Link>
+            </Nav.Item>
+            <Nav.Item>
               <Nav.Link eventKey="about">
                 <FormattedMessage id="config.categories.about" />
               </Nav.Link>
@@ -137,6 +142,9 @@ export const Settings: React.FC = () => {
               </Tab.Pane>
               <Tab.Pane eventKey="logs" unmountOnExit>
                 <SettingsLogsPanel />
+              </Tab.Pane>
+              <Tab.Pane eventKey="changelog" unmountOnExit>
+                <Changelog />
               </Tab.Pane>
               <Tab.Pane eventKey="about" unmountOnExit>
                 <SettingsAboutPanel />

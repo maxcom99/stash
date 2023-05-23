@@ -9,8 +9,8 @@ import {
   useScenesUpdate,
 } from "src/core/StashService";
 import * as GQL from "src/core/generated-graphql";
-import { LoadingIndicator } from "src/components/Shared";
-import { useToast } from "src/hooks";
+import { LoadingIndicator } from "src/components/Shared/LoadingIndicator";
+import { useToast } from "src/hooks/Toast";
 import { Pagination } from "src/components/List/Pagination";
 import { IParserInput, ParserInput } from "./ParserInput";
 import { ParserField } from "./ParserField";
@@ -40,9 +40,8 @@ export const SceneFilenameParser: React.FC = () => {
   const intl = useIntl();
   const Toast = useToast();
   const [parserResult, setParserResult] = useState<SceneParserResult[]>([]);
-  const [parserInput, setParserInput] = useState<IParserInput>(
-    initialParserInput
-  );
+  const [parserInput, setParserInput] =
+    useState<IParserInput>(initialParserInput);
   const prevParserInputRef = useRef<IParserInput>();
   const prevParserInput = prevParserInputRef.current;
 
@@ -77,7 +76,7 @@ export const SceneFilenameParser: React.FC = () => {
       ParserField.fullDateFields.some((f) => {
         return pattern.includes(`{${f.field}}`);
       });
-    const ratingSet = pattern.includes("{rating}");
+    const ratingSet = pattern.includes("{rating100}");
     const performerSet = pattern.includes("{performer}");
     const tagSet = pattern.includes("{tag}");
     const studioSet = pattern.includes("{studio}");

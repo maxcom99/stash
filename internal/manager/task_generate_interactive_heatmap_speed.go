@@ -2,20 +2,19 @@ package manager
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
+	"github.com/stashapp/stash/pkg/file/video"
 	"github.com/stashapp/stash/pkg/fsutil"
 	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
-	"github.com/stashapp/stash/pkg/scene"
 )
 
 type GenerateInteractiveHeatmapSpeedTask struct {
 	Scene               models.Scene
 	Overwrite           bool
 	fileNamingAlgorithm models.HashAlgorithm
-	TxnManager          models.TransactionManager
+	TxnManager          Repository
 }
 
 func (t *GenerateInteractiveHeatmapSpeedTask) GetDescription() string {
@@ -23,59 +22,48 @@ func (t *GenerateInteractiveHeatmapSpeedTask) GetDescription() string {
 }
 
 func (t *GenerateInteractiveHeatmapSpeedTask) Start(ctx context.Context) {
-	if !t.shouldGenerate() {
+	if !t.required() {
 		return
 	}
 
 	videoChecksum := t.Scene.GetHash(t.fileNamingAlgorithm)
-	funscriptPath := scene.GetFunscriptPath(t.Scene.Path)
+	funscriptPath := video.GetFunscriptPath(t.Scene.Path)
 	heatmapPath := instance.Paths.Scene.GetInteractiveHeatmapPath(videoChecksum)
+	drawRange := instance.Config.GetDrawFunscriptHeatmapRange()
 
-	generator := NewInteractiveHeatmapSpeedGenerator(funscriptPath, heatmapPath)
+	generator := NewInteractiveHeatmapSpeedGenerator(drawRange)
 
-	err := generator.Generate()
+	err := generator.Generate(funscriptPath, heatmapPath, t.Scene.Files.Primary().Duration)
 
 	if err != nil {
 		logger.Errorf("error generating heatmap: %s", err.Error())
 		return
 	}
 
-	median := sql.NullInt64{
-		Int64: generator.InteractiveSpeed,
-		Valid: true,
-	}
+	median := generator.InteractiveSpeed
 
-	var s *models.Scene
-
-	if err := t.TxnManager.WithReadTxn(ctx, func(r models.ReaderRepository) error {
-		var err error
-		s, err = r.Scene().FindByPath(t.Scene.Path)
-		return err
-	}); err != nil {
-		logger.Error(err.Error())
-		return
-	}
-
-	if err := t.TxnManager.WithTxn(ctx, func(r models.Repository) error {
-		qb := r.Scene()
-		scenePartial := models.ScenePartial{
-			ID:               s.ID,
-			InteractiveSpeed: &median,
-		}
-		_, err := qb.Update(scenePartial)
-		return err
-	}); err != nil {
+	if err := t.TxnManager.WithTxn(ctx, func(ctx context.Context) error {
+		primaryFile := t.Scene.Files.Primary()
+		primaryFile.InteractiveSpeed = &median
+		qb := t.TxnManager.File
+		return qb.Update(ctx, primaryFile)
+	}); err != nil && ctx.Err() == nil {
 		logger.Error(err.Error())
 	}
-
 }
 
-func (t *GenerateInteractiveHeatmapSpeedTask) shouldGenerate() bool {
-	if !t.Scene.Interactive {
+func (t *GenerateInteractiveHeatmapSpeedTask) required() bool {
+	primaryFile := t.Scene.Files.Primary()
+	if primaryFile == nil || !primaryFile.Interactive {
 		return false
 	}
+
+	if t.Overwrite {
+		return true
+	}
+
 	sceneHash := t.Scene.GetHash(t.fileNamingAlgorithm)
-	return !t.doesHeatmapExist(sceneHash) || t.Overwrite
+	return !t.doesHeatmapExist(sceneHash) || primaryFile.InteractiveSpeed == nil
 }
 
 func (t *GenerateInteractiveHeatmapSpeedTask) doesHeatmapExist(sceneChecksum string) bool {

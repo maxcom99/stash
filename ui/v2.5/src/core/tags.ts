@@ -6,8 +6,12 @@ import {
   TagsCriterionOption,
 } from "src/models/list-filter/criteria/tags";
 import { ListFilterModel } from "src/models/list-filter/filter";
+import React from "react";
+import { ConfigurationContext } from "src/hooks/Config";
+import { IUIConfig } from "./config";
 
-export const tagFilterHook = (tag: GQL.TagDataFragment) => {
+export const useTagFilterHook = (tag: GQL.TagDataFragment) => {
+  const config = React.useContext(ConfigurationContext);
   return (filter: ListFilterModel) => {
     const tagValue = { id: tag.id, label: tag.name };
     // if tag is already present, then we modify it, otherwise add
@@ -15,28 +19,34 @@ export const tagFilterHook = (tag: GQL.TagDataFragment) => {
       return c.criterionOption.type === "tags";
     }) as TagsCriterion;
 
-    if (
-      tagCriterion &&
-      (tagCriterion.modifier === GQL.CriterionModifier.IncludesAll ||
-        tagCriterion.modifier === GQL.CriterionModifier.Includes)
-    ) {
-      // add the tag if not present
+    if (tagCriterion) {
       if (
-        !tagCriterion.value.items.find((p) => {
-          return p.id === tag.id;
-        })
+        tagCriterion.modifier === GQL.CriterionModifier.IncludesAll ||
+        tagCriterion.modifier === GQL.CriterionModifier.Includes
       ) {
-        tagCriterion.value.items.push(tagValue);
+        // add the tag if not present
+        if (
+          !tagCriterion.value.items.find((p) => {
+            return p.id === tag.id;
+          })
+        ) {
+          tagCriterion.value.items.push(tagValue);
+        }
+      } else {
+        // overwrite
+        tagCriterion.value.items = [tagValue];
       }
 
       tagCriterion.modifier = GQL.CriterionModifier.IncludesAll;
     } else {
-      // overwrite
       tagCriterion = new TagsCriterion(TagsCriterionOption);
       tagCriterion.value = {
         items: [tagValue],
-        depth: 0,
+        depth: (config?.configuration?.ui as IUIConfig)?.showChildTagContent
+          ? -1
+          : 0,
       };
+      tagCriterion.modifier = GQL.CriterionModifier.IncludesAll;
       filter.criteria.push(tagCriterion);
     }
 

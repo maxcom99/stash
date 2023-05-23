@@ -14,8 +14,10 @@
 @import "src/components/SceneFilenameParser/styles.scss";
 @import "src/components/ScenePlayer/styles.scss";
 @import "src/components/Settings/styles.scss";
+@import "src/components/Setup/styles.scss";
 @import "src/components/Studios/styles.scss";
 @import "src/components/Shared/styles.scss";
+@import "src/components/Shared/Rating/styles.scss";
 @import "src/components/Tags/styles.scss";
 @import "src/components/Wall/styles.scss";
 @import "src/components/Tagger/styles.scss";
@@ -23,9 +25,7 @@
 @import "src/hooks/Interactive/interactive.scss";
 @import "src/components/Dialogs/IdentifyDialog/styles.scss";
 @import "src/components/Dialogs/styles.scss";
-@import "../node_modules/flag-icon-css/css/flag-icon.min.css";
-@import "video.js/dist/video-js.css";
-@import "videojs-seek-buttons/dist/videojs-seek-buttons.css";
+@import "flag-icons/css/flag-icons.min.css";
 
 /* stylelint-disable */
 #root {
@@ -276,7 +276,7 @@ div.react-select__control {
   white-space: nowrap;
 
   .react-select__single-value,
-  .react-select__input {
+  .react-select__input-container {
     color: $text-color;
   }
 
@@ -286,11 +286,15 @@ div.react-select__control {
   }
 }
 
+div.react-select__menu-portal {
+  z-index: 1600;
+}
+
 div.react-select__menu,
 div.dropdown-menu {
   background-color: $secondary;
   color: $text-color;
-  z-index: 16;
+  z-index: 1600;
 
   .react-select__option,
   .dropdown-item {
@@ -371,9 +375,8 @@ div.dropdown-menu {
     color: $dark-text;
     font-size: 12px;
     line-height: 1rem;
-    margin-left: 0.5rem;
     opacity: 0.5;
-    padding: 0;
+    padding: 0 0 0 0.5rem;
     position: relative;
 
     &:active,
@@ -405,6 +408,90 @@ div.dropdown-menu {
   margin: 0 10px;
 }
 
+.rating-100-20 {
+  background: #f00;
+}
+
+.rating-100-19 {
+  background: #ff2409;
+}
+
+.rating-100-18 {
+  background: #ff4812;
+}
+
+.rating-100-17 {
+  background: #ff6a07;
+}
+
+.rating-100-16 {
+  background: #ff8000;
+}
+
+.rating-100-15 {
+  background: #fa8804;
+}
+
+.rating-100-14 {
+  background: #f39409;
+}
+
+.rating-100-13 {
+  background: #eca00e;
+}
+
+.rating-100-12 {
+  background: #e7a811;
+}
+
+.rating-100-11 {
+  background: #dfb617;
+}
+
+.rating-100-10 {
+  background: #d2ca20;
+}
+
+.rating-100-9 {
+  background: #cbb526;
+}
+
+.rating-100-8 {
+  background: #c39f2b;
+}
+
+.rating-100-7 {
+  background: #bd8e2f;
+}
+
+.rating-100-6 {
+  background: #b47435;
+}
+
+.rating-100-5 {
+  background: #af7944;
+}
+
+.rating-100-4 {
+  background: #a7805b;
+}
+
+.rating-100-3 {
+  background: #a48363;
+}
+
+.rating-100-2 {
+  background: #9e8974;
+}
+
+.rating-100-1 {
+  background: #9b8c7d;
+}
+
+.rating-100-0 {
+  background: #939393;
+}
+
 .rating-5 {
   background: #ff2f39;
 }
@@ -428,9 +515,9 @@ div.dropdown-menu {
 .rating-banner {
   color: #fff;
   display: block;
-  font-size: 0.86rem;
-  font-weight: 400;
-  left: -46px;
+  font-size: 1rem;
+  font-weight: bold;
+  left: -48px;
   letter-spacing: 1px;
   line-height: 1.6rem;
   padding: 6px 45px;
@@ -655,7 +742,7 @@ div.dropdown-menu {
 }
 
 .error-message {
-  white-space: "pre-wrap";
+  white-space: pre-wrap;
 }
 
 .btn-toolbar .form-control {
@@ -680,6 +767,79 @@ div.dropdown-menu {
   .heading {
     text-align: center;
     text-transform: uppercase;
+  }
+}
+
+$detailTabWidth: calc(100% / 3);
+
+.content-container,
+.details-tab {
+  padding-left: 15px;
+  padding-right: 15px;
+  position: relative;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .details-tab {
+    flex: 0 0 $detailTabWidth;
+    max-width: $detailTabWidth;
+  }
+
+  .content-container {
+    flex: 0 0 calc(100% - #{$detailTabWidth});
+    max-width: calc(100% - #{$detailTabWidth});
+  }
+}
+@media (min-width: 1200px) {
+  .details-tab {
+    flex: 0 0 $detailTabWidth;
+    max-height: calc(100vh - 4rem);
+    max-width: $detailTabWidth;
+    overflow: auto;
+
+    &.collapsed {
+      display: none;
+    }
+  }
+
+  .details-divider {
+    flex: 0 0 15px;
+    height: calc(100vh - 4rem);
+    max-width: 15px;
+
+    button {
+      background-color: transparent;
+      border: 0;
+      color: $link-color;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 800;
+      height: 100%;
+      line-height: 100%;
+      padding: 0;
+      text-align: center;
+      width: 100%;
+
+      &:active:not(:hover),
+      &:focus:not(:hover) {
+        background-color: transparent;
+        border: 0;
+        box-shadow: none;
+      }
+    }
+  }
+
+  .content-container {
+    flex: 0 0 calc(100% - #{$detailTabWidth} - 15px);
+    max-height: calc(100vh - 4rem);
+    max-width: calc(100% - #{$detailTabWidth} - 15px);
+    overflow: auto;
+
+    &.expanded {
+      flex: 0 0 calc(100% - 15px);
+      max-width: calc(100% - 15px);
+    }
   }
 }
 
@@ -827,4 +987,8 @@ select {
 
 .left-spacing {
   margin-left: 0.5em;
+}
+
+.primary-file {
+  font-weight: bold;
 }

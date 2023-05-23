@@ -1,6 +1,7 @@
 fragment ScrapedPerformerData on ScrapedPerformer {
   stored_id
   name
+  disambiguation
   gender
   url
   twitter
@@ -30,6 +31,7 @@ fragment ScrapedPerformerData on ScrapedPerformer {
 fragment ScrapedScenePerformerData on ScrapedPerformer {
   stored_id
   name
+  disambiguation
   gender
   url
   twitter
@@ -105,7 +107,9 @@ fragment ScrapedSceneTagData on ScrapedTag {
 
 fragment ScrapedSceneData on ScrapedScene {
   title
+  code
   details
+  director
   url
   date
   image
@@ -166,7 +170,9 @@ fragment ScrapedGalleryData on ScrapedGallery {
 
 fragment ScrapedStashBoxSceneData on ScrapedScene {
   title
+  code
   details
+  director
   url
   date
   image

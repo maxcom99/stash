@@ -1,16 +1,15 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Button, ButtonGroup } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import cx from "classnames";
 import * as GQL from "src/core/generated-graphql";
-import {
-  Icon,
-  TagLink,
-  HoverPopover,
-  SweatDrops,
-  TruncatedText,
-} from "src/components/Shared";
-import { NavUtils, TextUtils } from "src/utils";
+import { Icon } from "../Shared/Icon";
+import { TagLink } from "../Shared/TagLink";
+import { HoverPopover } from "../Shared/HoverPopover";
+import { SweatDrops } from "../Shared/SweatDrops";
+import { TruncatedText } from "../Shared/TruncatedText";
+import NavUtils from "src/utils/navigation";
+import TextUtils from "src/utils/text";
 import { SceneQueue } from "src/models/sceneQueue";
 import { ConfigurationContext } from "src/hooks/Config";
 import { PerformerPopoverButton } from "../Shared/PerformerPopoverButton";
@@ -25,6 +24,7 @@ import {
   faMapMarkerAlt,
   faTag,
 } from "@fortawesome/free-solid-svg-icons";
+import { objectPath, objectTitle } from "src/core/files";
 
 interface IScenePreviewProps {
   isPortrait: boolean;
@@ -92,17 +92,15 @@ export const SceneCard: React.FC<ISceneCardProps> = (
 ) => {
   const { configuration } = React.useContext(ConfigurationContext);
 
-  // studio image is missing if it uses the default
-  const missingStudioImage = props.scene.studio?.image_path?.endsWith(
-    "?default=true"
+  const file = useMemo(
+    () => (props.scene.files.length > 0 ? props.scene.files[0] : undefined),
+    [props.scene]
   );
-  const showStudioAsText =
-    missingStudioImage || (configuration?.interface.showStudioAsText ?? false);
 
   function maybeRenderSceneSpecsOverlay() {
     let sizeObj = null;
-    if (props.scene.file.size) {
-      sizeObj = TextUtils.fileSize(parseInt(props.scene.file.size));
+    if (file?.size) {
+      sizeObj = TextUtils.fileSize(file.size);
     }
     return (
       <div className="scene-specs-overlay">
@@ -119,19 +117,16 @@ export const SceneCard: React.FC<ISceneCardProps> = (
         ) : (
           ""
         )}
-        {props.scene.file.width && props.scene.file.height ? (
+        {file?.width && file?.height ? (
           <span className="overlay-resolution">
             {" "}
-            {TextUtils.resolution(
-              props.scene.file.width,
-              props.scene.file.height
-            )}
+            {TextUtils.resolution(file?.width, file?.height)}
           </span>
         ) : (
           ""
         )}
-        {(props.scene.file.duration ?? 0) >= 1
-          ? TextUtils.secondsToTimestamp(props.scene.file.duration ?? 0)
+        {(file?.duration ?? 0) >= 1
+          ? TextUtils.secondsToTimestamp(file?.duration ?? 0)
           : ""}
       </div>
     );
@@ -145,21 +140,31 @@ export const SceneCard: React.FC<ISceneCardProps> = (
     );
   }
 
+  function renderStudioThumbnail() {
+    const studioImage = props.scene.studio?.image_path;
+    const studioName = props.scene.studio?.name;
+
+    if (configuration?.interface.showStudioAsText || !studioImage) {
+      return studioName;
+    }
+
+    const studioImageURL = new URL(studioImage);
+    if (studioImageURL.searchParams.get("default") === "true") {
+      return studioName;
+    }
+
+    return (
+      <img className="image-thumbnail" alt={studioName} src={studioImage} />
+    );
+  }
+
   function maybeRenderSceneStudioOverlay() {
     if (!props.scene.studio) return;
 
     return (
       <div className="scene-studio-overlay">
         <Link to={`/studios/${props.scene.studio.id}`}>
-          {showStudioAsText ? (
-            props.scene.studio.name
-          ) : (
-            <img
-              className="image-thumbnail"
-              alt={props.scene.studio.name}
-              src={props.scene.studio.image_path ?? ""}
-            />
-          )}
+          {renderStudioThumbnail()}
         </Link>
       </div>
     );
@@ -300,11 +305,15 @@ export const SceneCard: React.FC<ISceneCardProps> = (
   }
 
   function maybeRenderDupeCopies() {
-    if (props.scene.phash) {
+    const phash = file
+      ? file.fingerprints.find((fp) => fp.type === "phash")
+      : undefined;
+
+    if (phash) {
       return (
         <div className="other-copies extra-scene-info">
           <Button
-            href={NavUtils.makeScenesPHashMatchUrl(props.scene.phash)}
+            href={NavUtils.makeScenesPHashMatchUrl(phash.value)}
             className="minimal"
           >
             <Icon icon={faCopy} />
@@ -344,9 +353,8 @@ export const SceneCard: React.FC<ISceneCardProps> = (
   }
 
   function isPortrait() {
-    const { file } = props.scene;
-    const width = file.width ? file.width : 0;
-    const height = file.height ? file.height : 0;
+    const width = file?.width ? file.width : 0;
+    const height = file?.height ? file.height : 0;
     return height > width;
   }
 
@@ -354,6 +362,16 @@ export const SceneCard: React.FC<ISceneCardProps> = (
     if (!props.compact && props.zoomIndex !== undefined) {
       return `zoom-${props.zoomIndex}`;
     }
+
+    return "";
+  }
+
+  function filelessClass() {
+    if (!props.scene.files.length) {
+      return "fileless";
+    }
+
+    return "";
   }
 
   const cont = configuration?.interface.continuePlaylistDefault ?? false;
@@ -367,15 +385,13 @@ export const SceneCard: React.FC<ISceneCardProps> = (
 
   return (
     <GridCard
-      className={`scene-card ${zoomIndex()}`}
+      className={`scene-card ${zoomIndex()} ${filelessClass()}`}
       url={sceneLink}
-      title={
-        props.scene.title
-          ? props.scene.title
-          : TextUtils.fileNameFromPath(props.scene.path)
-      }
+      title={objectTitle(props.scene)}
       linkClassName="scene-card-link"
       thumbnailSectionClassName="video-section"
+      resumeTime={props.scene.resume_time ?? undefined}
+      duration={file?.duration ?? undefined}
       interactiveHeatmap={
         props.scene.interactive_speed
           ? props.scene.paths.interactive_heatmap ?? undefined
@@ -389,7 +405,7 @@ export const SceneCard: React.FC<ISceneCardProps> = (
             isPortrait={isPortrait()}
             soundActive={configuration?.interface?.soundOnPreview ?? false}
           />
-          <RatingBanner rating={props.scene.rating} />
+          <RatingBanner rating={props.scene.rating100} />
           {maybeRenderSceneSpecsOverlay()}
           {maybeRenderInteractiveSpeedOverlay()}
         </>
@@ -398,7 +414,9 @@ export const SceneCard: React.FC<ISceneCardProps> = (
       details={
         <div className="scene-card__details">
           <span className="scene-card__date">{props.scene.date}</span>
-          <span className="file-path extra-scene-info">{props.scene.path}</span>
+          <span className="file-path extra-scene-info">
+            {objectPath(props.scene)}
+          </span>
           <TruncatedText
             className="scene-card__description"
             text={props.scene.details}

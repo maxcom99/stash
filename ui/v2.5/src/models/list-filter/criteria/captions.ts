@@ -17,6 +17,7 @@ class CaptionsCriterionOptionType extends CriterionOption {
         CriterionModifier.IsNull,
         CriterionModifier.NotNull,
       ],
+      defaultModifier: CriterionModifier.Includes,
       options: languageStrings,
     });
   }
@@ -28,7 +29,7 @@ export const CaptionsCriterionOption = new CaptionsCriterionOptionType(
 
 export class CaptionCriterion extends StringCriterion {
   protected toCriterionInput() {
-    const value = valueToCode(this.value);
+    const value = valueToCode(this.value) ?? "";
 
     return {
       value,

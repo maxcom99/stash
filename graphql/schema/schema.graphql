@@ -14,8 +14,16 @@ type Query {
 
   findScenesByPathRegex(filter: FindFilterType): FindScenesResultType!
 
-  """ Returns any groups of scenes that are perceptual duplicates within the queried distance """
-  findDuplicateScenes(distance: Int): [[Scene!]!]!
+  """
+  Returns any groups of scenes that are perceptual duplicates within the queried distance
+  and the difference between their duration is smaller than durationDiff
+  """
+  findDuplicateScenes(
+    distance: Int,
+    """Max difference in seconds between files in order to be considered for similarity matching.
+    Fractional seconds are ok: 0.5 will mean only files that have durations within 0.5 seconds between them will be matched based on PHash distance."""
+    duration_diff: Float
+  ): [[Scene!]!]!
 
   """Return valid stream paths"""
   sceneStreams(id: ID): [SceneStreamEndpoint!]!
@@ -96,7 +104,7 @@ type Query {
 
   """Scrapes a complete performer record based on a URL"""
   scrapePerformerURL(url: String!): ScrapedPerformer
-  """Scrapes a complete performer record based on a URL"""
+  """Scrapes a complete scene record based on a URL"""
   scrapeSceneURL(url: String!): ScrapedScene
   """Scrapes a complete gallery record based on a URL"""
   scrapeGalleryURL(url: String!): ScrapedGallery
@@ -144,6 +152,10 @@ type Query {
 
   # Get everything
 
+  allScenes: [Scene!]!
+  allSceneMarkers: [SceneMarker!]!
+  allImages: [Image!]!
+  allGalleries: [Gallery!]!
   allPerformers: [Performer!]!
   allStudios: [Studio!]!
   allMovies: [Movie!]!
@@ -155,14 +167,16 @@ type Query {
   version: Version!
 
   # LatestVersion
-  latestversion: ShortVersion!
+  latestversion: LatestVersion!
 }
 
 type Mutation {
   setup(input: SetupInput!): Boolean!
   migrate(input: MigrateInput!): Boolean!
 
+  sceneCreate(input: SceneCreateInput!): Scene
   sceneUpdate(input: SceneUpdateInput!): Scene
+  sceneMerge(input: SceneMergeInput!): Scene
   bulkSceneUpdate(input: BulkSceneUpdateInput!): [Scene!]
   sceneDestroy(input: SceneDestroyInput!): Boolean!
   scenesDestroy(input: ScenesDestroyInput!): Boolean!
@@ -175,12 +189,20 @@ type Mutation {
   """Resets the o-counter for a scene to 0. Returns the new value"""
   sceneResetO(id: ID!): Int!
 
+  """Sets the resume time point (if provided) and adds the provided duration to the scene's play duration"""
+  sceneSaveActivity(id: ID!, resume_time: Float, playDuration: Float): Boolean!
+
+  """Increments the play count for the scene. Returns the new play count value."""
+  sceneIncrementPlayCount(id: ID!): Int!
+
   """Generates screenshot at specified time in seconds. Leave empty to generate default screenshot"""
   sceneGenerateScreenshot(id: ID!, at: Float): String!
 
   sceneMarkerCreate(input: SceneMarkerCreateInput!): SceneMarker
   sceneMarkerUpdate(input: SceneMarkerUpdateInput!): SceneMarker
   sceneMarkerDestroy(id: ID!): Boolean!
+
+  sceneAssignFile(input: AssignSceneFileInput!): Boolean!
 
   imageUpdate(input: ImageUpdateInput!): Image
   bulkImageUpdate(input: BulkImageUpdateInput!): [Image!]
@@ -204,6 +226,10 @@ type Mutation {
   addGalleryImages(input: GalleryAddInput!): Boolean!
   removeGalleryImages(input: GalleryRemoveInput!): Boolean!
 
+  galleryChapterCreate(input: GalleryChapterCreateInput!): GalleryChapter
+  galleryChapterUpdate(input: GalleryChapterUpdateInput!): GalleryChapter
+  galleryChapterDestroy(id: ID!): Boolean!
+
   performerCreate(input: PerformerCreateInput!): Performer
   performerUpdate(input: PerformerUpdateInput!): Performer
   performerDestroy(input: PerformerDestroyInput!): Boolean!
@@ -226,6 +252,16 @@ type Mutation {
   tagDestroy(input: TagDestroyInput!): Boolean!
   tagsDestroy(ids: [ID!]!): Boolean!
   tagsMerge(input: TagsMergeInput!): Tag
+
+  """Moves the given files to the given destination. Returns true if successful.
+  Either the destination_folder or destination_folder_id must be provided. If both are provided, the destination_folder_id takes precedence.
+  Destination folder must be a subfolder of one of the stash library paths.
+  If provided, destination_basename must be a valid filename with an extension that
+  matches one of the media extensions.
+  Creates folder hierarchy if needed.
+  """
+  moveFiles(input: MoveFilesInput!): Boolean!
+  deleteFiles(ids: [ID!]!): Boolean!
 
   # Saved filters
   saveFilter(input: SaveFilterInput!): SavedFilter!
@@ -267,8 +303,16 @@ type Mutation {
   metadataClean(input: CleanMetadataInput!): ID!
   """Identifies scenes using scrapers. Returns the job ID"""
   metadataIdentify(input: IdentifyMetadataInput!): ID!
+
   """Migrate generated files for the current hash naming"""
   migrateHashNaming: ID!
+  """Migrates legacy scene screenshot files into the blob storage"""
+  migrateSceneScreenshots(input: MigrateSceneScreenshotsInput!): ID!
+  """Migrates blobs from the old storage system to the current one"""
+  migrateBlobs(input: MigrateBlobsInput!): ID!
+
+  """Anonymise the database in a separate file. Optionally returns a link to download the database file"""
+  anonymiseDatabase(input: AnonymiseDatabaseInput!): String
 
   """Reload scrapers"""
   reloadScrapers: Boolean!

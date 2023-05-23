@@ -2,11 +2,13 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { FormattedDate, FormattedMessage, useIntl } from "react-intl";
 import * as GQL from "src/core/generated-graphql";
-import { TextUtils } from "src/utils";
-import { TagLink, TruncatedText } from "src/components/Shared";
+import TextUtils from "src/utils/text";
+import { TagLink } from "src/components/Shared/TagLink";
+import { TruncatedText } from "src/components/Shared/TruncatedText";
 import { PerformerCard } from "src/components/Performers/PerformerCard";
-import { RatingStars } from "src/components/Scenes/SceneDetails/RatingStars";
+import { RatingSystem } from "src/components/Shared/Rating/RatingSystem";
 import { sortPerformers } from "src/core/performers";
+import { galleryTitle } from "src/core/galleries";
 
 interface IGalleryDetailProps {
   gallery: GQL.GalleryDataFragment;
@@ -75,7 +77,7 @@ export const GalleryDetailPanel: React.FC<IGalleryDetailProps> = ({
 
   // filename should use entire row if there is no studio
   const galleryDetailsWidth = gallery.studio ? "col-9" : "col-12";
-  const title = gallery.title ?? TextUtils.fileNameFromPath(gallery.path ?? "");
+  const title = galleryTitle(gallery);
 
   return (
     <>
@@ -93,10 +95,10 @@ export const GalleryDetailPanel: React.FC<IGalleryDetailProps> = ({
               />
             </h5>
           ) : undefined}
-          {gallery.rating ? (
+          {gallery.rating100 ? (
             <h6>
               <FormattedMessage id="rating" />:{" "}
-              <RatingStars value={gallery.rating} />
+              <RatingSystem value={gallery.rating100} disabled />
             </h6>
           ) : (
             ""

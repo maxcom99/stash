@@ -2,6 +2,7 @@ fragment PerformerData on Performer {
   id
   checksum
   name
+  disambiguation
   url
   gender
   twitter
@@ -10,13 +11,13 @@ fragment PerformerData on Performer {
   ethnicity
   country
   eye_color
-  height
+  height_cm
   measurements
   fake_tits
   career_length
   tattoos
   piercings
-  aliases
+  alias_list
   favorite
   ignore_auto_tag
   image_path
@@ -24,6 +25,8 @@ fragment PerformerData on Performer {
   image_count
   gallery_count
   movie_count
+  performer_count
+  o_counter
 
   tags {
     ...SlimTagData
@@ -33,7 +36,7 @@ fragment PerformerData on Performer {
     stash_id
     endpoint
   }
-  rating
+  rating100
   details
   death_date
   hair_color

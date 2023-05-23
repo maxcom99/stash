@@ -5,6 +5,13 @@ import (
 	"github.com/stashapp/stash/pkg/plugin/common"
 )
 
+type PluginHook struct {
+	Name        string   `json:"name"`
+	Description *string  `json:"description"`
+	Hooks       []string `json:"hooks"`
+	Plugin      *Plugin  `json:"plugin"`
+}
+
 type HookTriggerEnum string
 
 // Scan-related hooks are current disabled until post-hook execution is
@@ -26,6 +33,10 @@ const (
 	GalleryCreatePost  HookTriggerEnum = "Gallery.Create.Post"
 	GalleryUpdatePost  HookTriggerEnum = "Gallery.Update.Post"
 	GalleryDestroyPost HookTriggerEnum = "Gallery.Destroy.Post"
+
+	GalleryChapterCreatePost  HookTriggerEnum = "GalleryChapter.Create.Post"
+	GalleryChapterUpdatePost  HookTriggerEnum = "GalleryChapter.Update.Post"
+	GalleryChapterDestroyPost HookTriggerEnum = "GalleryChapter.Destroy.Post"
 
 	MovieCreatePost  HookTriggerEnum = "Movie.Create.Post"
 	MovieUpdatePost  HookTriggerEnum = "Movie.Update.Post"
@@ -61,6 +72,10 @@ var AllHookTriggerEnum = []HookTriggerEnum{
 	GalleryCreatePost,
 	GalleryUpdatePost,
 	GalleryDestroyPost,
+
+	GalleryChapterCreatePost,
+	GalleryChapterUpdatePost,
+	GalleryChapterDestroyPost,
 
 	MovieCreatePost,
 	MovieUpdatePost,
@@ -98,6 +113,10 @@ func (e HookTriggerEnum) IsValid() bool {
 		GalleryCreatePost,
 		GalleryUpdatePost,
 		GalleryDestroyPost,
+
+		GalleryChapterCreatePost,
+		GalleryChapterUpdatePost,
+		GalleryChapterDestroyPost,
 
 		MovieCreatePost,
 		MovieUpdatePost,

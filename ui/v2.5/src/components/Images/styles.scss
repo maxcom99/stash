@@ -17,6 +17,10 @@
   &.card {
     overflow: hidden;
     padding: 0;
+
+    @media (max-width: 576px) {
+      width: 100%;
+    }
   }
 
   .rating-banner {
@@ -112,5 +116,18 @@ $imageTabWidth: 450px;
   .rating-stars {
     font-size: 1.3em;
     height: calc(1.5em + 0.75rem + 2px);
+  }
+}
+
+.image-file-card.card {
+  margin: 0;
+  padding: 0;
+
+  .card-header {
+    cursor: pointer;
+  }
+
+  dl {
+    margin-bottom: 0;
   }
 }

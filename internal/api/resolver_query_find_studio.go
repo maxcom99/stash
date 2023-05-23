@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strconv"
 
 	"github.com/stashapp/stash/pkg/models"
@@ -13,25 +15,25 @@ func (r *queryResolver) FindStudio(ctx context.Context, id string) (ret *models.
 		return nil, err
 	}
 
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
 		var err error
-		ret, err = repo.Studio().Find(idInt)
+		ret, err = r.repository.Studio.Find(ctx, idInt)
 		return err
-	}); err != nil {
+	}); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 
 	return ret, nil
 }
 
-func (r *queryResolver) FindStudios(ctx context.Context, studioFilter *models.StudioFilterType, filter *models.FindFilterType) (ret *models.FindStudiosResultType, err error) {
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		studios, total, err := repo.Studio().Query(studioFilter, filter)
+func (r *queryResolver) FindStudios(ctx context.Context, studioFilter *models.StudioFilterType, filter *models.FindFilterType) (ret *FindStudiosResultType, err error) {
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		studios, total, err := r.repository.Studio.Query(ctx, studioFilter, filter)
 		if err != nil {
 			return err
 		}
 
-		ret = &models.FindStudiosResultType{
+		ret = &FindStudiosResultType{
 			Count:   total,
 			Studios: studios,
 		}
@@ -45,8 +47,8 @@ func (r *queryResolver) FindStudios(ctx context.Context, studioFilter *models.St
 }
 
 func (r *queryResolver) AllStudios(ctx context.Context) (ret []*models.Studio, err error) {
-	if err := r.withReadTxn(ctx, func(repo models.ReaderRepository) error {
-		ret, err = repo.Studio().All()
+	if err := r.withReadTxn(ctx, func(ctx context.Context) error {
+		ret, err = r.repository.Studio.All(ctx)
 		return err
 	}); err != nil {
 		return nil, err

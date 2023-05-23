@@ -15,13 +15,13 @@ import {
   useSaveFilter,
   useSetDefaultFilter,
 } from "src/core/StashService";
-import { useToast } from "src/hooks";
+import { useToast } from "src/hooks/Toast";
 import { ListFilterModel } from "src/models/list-filter/filter";
 import { SavedFilterDataFragment } from "src/core/generated-graphql";
-import { LoadingIndicator } from "src/components/Shared";
-import { PersistanceLevel } from "src/hooks/ListHook";
+import { PersistanceLevel } from "./ItemList";
 import { FormattedMessage, useIntl } from "react-intl";
-import { Icon } from "../Shared";
+import { Icon } from "../Shared/Icon";
+import { LoadingIndicator } from "../Shared/LoadingIndicator";
 import { faSave, faTimes } from "@fortawesome/free-solid-svg-icons";
 
 interface ISavedFilterListProps {
@@ -66,7 +66,6 @@ export const SavedFilterList: React.FC<ISavedFilterListProps> = ({
 
   async function onSaveFilter(name: string, id?: string) {
     const filterCopy = filter.clone();
-    filterCopy.currentPage = 1;
 
     try {
       setSaving(true);
@@ -76,7 +75,7 @@ export const SavedFilterList: React.FC<ISavedFilterListProps> = ({
             id,
             mode: filter.mode,
             name,
-            filter: JSON.stringify(filterCopy.getSavedQueryParameters()),
+            filter: filterCopy.makeSavedFilterJSON(),
           },
         },
       });
@@ -136,7 +135,6 @@ export const SavedFilterList: React.FC<ISavedFilterListProps> = ({
 
   async function onSetDefaultFilter() {
     const filterCopy = filter.clone();
-    filterCopy.currentPage = 1;
 
     try {
       setSaving(true);
@@ -145,7 +143,7 @@ export const SavedFilterList: React.FC<ISavedFilterListProps> = ({
         variables: {
           input: {
             mode: filter.mode,
-            filter: JSON.stringify(filterCopy.getSavedQueryParameters()),
+            filter: filterCopy.makeSavedFilterJSON(),
           },
         },
       });
@@ -164,8 +162,11 @@ export const SavedFilterList: React.FC<ISavedFilterListProps> = ({
 
   function filterClicked(f: SavedFilterDataFragment) {
     const newFilter = filter.clone();
+
     newFilter.currentPage = 1;
-    newFilter.configureFromQueryParameters(JSON.parse(f.filter));
+    // #1795 - reset search term if not present in saved filter
+    newFilter.searchTerm = "";
+    newFilter.configureFromJSON(f.filter);
     // #1507 - reset random seed when loaded
     newFilter.randomSeed = -1;
 

@@ -3,8 +3,10 @@ package jsonschema
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	jsoniter "github.com/json-iterator/go"
+	"github.com/stashapp/stash/pkg/fsutil"
 	"github.com/stashapp/stash/pkg/models"
 	"github.com/stashapp/stash/pkg/models/json"
 )
@@ -37,27 +39,46 @@ type SceneMovie struct {
 }
 
 type Scene struct {
-	Title      string           `json:"title,omitempty"`
-	Checksum   string           `json:"checksum,omitempty"`
-	OSHash     string           `json:"oshash,omitempty"`
-	Phash      string           `json:"phash,omitempty"`
-	Studio     string           `json:"studio,omitempty"`
-	URL        string           `json:"url,omitempty"`
-	Date       string           `json:"date,omitempty"`
-	Rating     int              `json:"rating,omitempty"`
-	Organized  bool             `json:"organized,omitempty"`
-	OCounter   int              `json:"o_counter,omitempty"`
-	Details    string           `json:"details,omitempty"`
-	Galleries  []string         `json:"galleries,omitempty"`
-	Performers []string         `json:"performers,omitempty"`
-	Movies     []SceneMovie     `json:"movies,omitempty"`
-	Tags       []string         `json:"tags,omitempty"`
-	Markers    []SceneMarker    `json:"markers,omitempty"`
-	File       *SceneFile       `json:"file,omitempty"`
-	Cover      string           `json:"cover,omitempty"`
-	CreatedAt  json.JSONTime    `json:"created_at,omitempty"`
-	UpdatedAt  json.JSONTime    `json:"updated_at,omitempty"`
-	StashIDs   []models.StashID `json:"stash_ids,omitempty"`
+	Title        string           `json:"title,omitempty"`
+	Code         string           `json:"code,omitempty"`
+	Studio       string           `json:"studio,omitempty"`
+	URL          string           `json:"url,omitempty"`
+	Date         string           `json:"date,omitempty"`
+	Rating       int              `json:"rating,omitempty"`
+	Organized    bool             `json:"organized,omitempty"`
+	OCounter     int              `json:"o_counter,omitempty"`
+	Details      string           `json:"details,omitempty"`
+	Director     string           `json:"director,omitempty"`
+	Galleries    []GalleryRef     `json:"galleries,omitempty"`
+	Performers   []string         `json:"performers,omitempty"`
+	Movies       []SceneMovie     `json:"movies,omitempty"`
+	Tags         []string         `json:"tags,omitempty"`
+	Markers      []SceneMarker    `json:"markers,omitempty"`
+	Files        []string         `json:"files,omitempty"`
+	Cover        string           `json:"cover,omitempty"`
+	CreatedAt    json.JSONTime    `json:"created_at,omitempty"`
+	UpdatedAt    json.JSONTime    `json:"updated_at,omitempty"`
+	LastPlayedAt json.JSONTime    `json:"last_played_at,omitempty"`
+	ResumeTime   float64          `json:"resume_time,omitempty"`
+	PlayCount    int              `json:"play_count,omitempty"`
+	PlayDuration float64          `json:"play_duration,omitempty"`
+	StashIDs     []models.StashID `json:"stash_ids,omitempty"`
+}
+
+func (s Scene) Filename(id int, basename string, hash string) string {
+	ret := fsutil.SanitiseBasename(s.Title)
+	if ret == "" {
+		ret = basename
+	}
+
+	if hash != "" {
+		ret += "." + hash
+	} else {
+		// scenes may have no file and therefore no hash
+		ret += "." + strconv.Itoa(id)
+	}
+
+	return ret + ".json"
 }
 
 func LoadSceneFile(filePath string) (*Scene, error) {

@@ -11,9 +11,11 @@ import {
   useImageUpdate,
   mutateMetadataScan,
 } from "src/core/StashService";
-import { ErrorMessage, LoadingIndicator, Icon } from "src/components/Shared";
-import { useToast } from "src/hooks";
-import { TextUtils } from "src/utils";
+import { ErrorMessage } from "src/components/Shared/ErrorMessage";
+import { LoadingIndicator } from "src/components/Shared/LoadingIndicator";
+import { Icon } from "src/components/Shared/Icon";
+import { Counter } from "src/components/Shared/Counter";
+import { useToast } from "src/hooks/Toast";
 import * as Mousetrap from "mousetrap";
 import { OCounterButton } from "src/components/Scenes/SceneDetails/OCounterButton";
 import { OrganizedButton } from "src/components/Scenes/SceneDetails/OrganizedButton";
@@ -22,6 +24,7 @@ import { ImageEditPanel } from "./ImageEditPanel";
 import { ImageDetailPanel } from "./ImageDetailPanel";
 import { DeleteImagesDialog } from "../DeleteImagesDialog";
 import { faEllipsisV } from "@fortawesome/free-solid-svg-icons";
+import { objectPath, objectTitle } from "src/core/files";
 
 interface IImageParams {
   id?: string;
@@ -48,12 +51,12 @@ export const Image: React.FC = () => {
   const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState<boolean>(false);
 
   async function onRescan() {
-    if (!image) {
+    if (!image || !image.visual_files.length) {
       return;
     }
 
     await mutateMetadataScan({
-      paths: [image.path],
+      paths: [objectPath(image)],
     });
 
     Toast.success({
@@ -178,6 +181,9 @@ export const Image: React.FC = () => {
             <Nav.Item>
               <Nav.Link eventKey="image-file-info-panel">
                 <FormattedMessage id="file_info" />
+                {image.visual_files.length > 1 && (
+                  <Counter count={image.visual_files.length ?? 0} />
+                )}
               </Nav.Link>
             </Nav.Item>
             <Nav.Item>
@@ -231,7 +237,9 @@ export const Image: React.FC = () => {
     Mousetrap.bind("a", () => setActiveTabKey("image-details-panel"));
     Mousetrap.bind("e", () => setActiveTabKey("image-edit-panel"));
     Mousetrap.bind("f", () => setActiveTabKey("image-file-info-panel"));
-    Mousetrap.bind("o", () => onIncrementClick());
+    Mousetrap.bind("o", () => {
+      onIncrementClick();
+    });
 
     return () => {
       Mousetrap.unbind("a");
@@ -251,10 +259,14 @@ export const Image: React.FC = () => {
     return <ErrorMessage error={`No image found with id ${id}.`} />;
   }
 
+  const title = objectTitle(image);
+  const ImageView =
+    image.visual_files[0].__typename == "VideoFile" ? "video" : "img";
+
   return (
     <div className="row">
       <Helmet>
-        <title>{image.title ?? TextUtils.fileNameFromPath(image.path)}</title>
+        <title>{title}</title>
       </Helmet>
 
       {maybeRenderDeleteDialog()}
@@ -271,16 +283,22 @@ export const Image: React.FC = () => {
               </Link>
             </h1>
           )}
-          <h3 className="image-header">
-            {image.title ?? TextUtils.fileNameFromPath(image.path)}
-          </h3>
+          <h3 className="image-header">{title}</h3>
         </div>
         {renderTabs()}
       </div>
       <div className="image-container">
-        <img
+        <ImageView
+          loop={image.visual_files[0].__typename == "VideoFile"}
+          autoPlay={image.visual_files[0].__typename == "VideoFile"}
+          controls={image.visual_files[0].__typename == "VideoFile"}
           className="m-sm-auto no-gutter image-image"
-          alt={image.title ?? ""}
+          style={
+            image.visual_files[0].__typename == "VideoFile"
+              ? { width: "100%", height: "100%" }
+              : {}
+          }
+          alt={title}
           src={image.paths.image ?? ""}
         />
       </div>

@@ -1,14 +1,17 @@
 import React from "react";
 import * as GQL from "src/core/generated-graphql";
 import { SceneList } from "src/components/Scenes/SceneList";
-import { performerFilterHook } from "src/core/performers";
+import { usePerformerFilterHook } from "src/core/performers";
 
 interface IPerformerDetailsProps {
+  active: boolean;
   performer: GQL.PerformerDataFragment;
 }
 
 export const PerformerScenesPanel: React.FC<IPerformerDetailsProps> = ({
+  active,
   performer,
 }) => {
-  return <SceneList filterHook={performerFilterHook(performer)} />;
+  const filterHook = usePerformerFilterHook(performer);
+  return <SceneList filterHook={filterHook} alterQuery={active} />;
 };

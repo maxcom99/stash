@@ -1,22 +1,25 @@
 package file
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 
+	"github.com/stashapp/stash/pkg/fsutil"
 	"github.com/stashapp/stash/pkg/logger"
+	"github.com/stashapp/stash/pkg/txn"
 )
 
 const deleteFileSuffix = ".delete"
 
 // RenamerRemover provides access to the Rename and Remove functions.
 type RenamerRemover interface {
-	Rename(oldpath, newpath string) error
+	Renamer
 	Remove(name string) error
 	RemoveAll(path string) error
-	Stat(name string) (fs.FileInfo, error)
+	Statter
 }
 
 type renamerRemoverImpl struct {
@@ -42,6 +45,16 @@ func (r renamerRemoverImpl) Stat(path string) (fs.FileInfo, error) {
 	return r.StatFn(path)
 }
 
+func newRenamerRemoverImpl() renamerRemoverImpl {
+	return renamerRemoverImpl{
+		// use fsutil.SafeMove to support cross-device moves
+		RenameFn:    fsutil.SafeMove,
+		RemoveFn:    os.Remove,
+		RemoveAllFn: os.RemoveAll,
+		StatFn:      os.Stat,
+	}
+}
+
 // Deleter is used to safely delete files and directories from the filesystem.
 // During a transaction, files and directories are marked for deletion using
 // the Files and Dirs methods. This will rename the files/directories to be
@@ -57,13 +70,19 @@ type Deleter struct {
 
 func NewDeleter() *Deleter {
 	return &Deleter{
-		RenamerRemover: renamerRemoverImpl{
-			RenameFn:    os.Rename,
-			RemoveFn:    os.Remove,
-			RemoveAllFn: os.RemoveAll,
-			StatFn:      os.Stat,
-		},
+		RenamerRemover: newRenamerRemoverImpl(),
 	}
+}
+
+// RegisterHooks registers post-commit and post-rollback hooks.
+func (d *Deleter) RegisterHooks(ctx context.Context) {
+	txn.AddPostCommitHook(ctx, func(ctx context.Context) {
+		d.Commit()
+	})
+
+	txn.AddPostRollbackHook(ctx, func(ctx context.Context) {
+		d.Rollback()
+	})
 }
 
 // Files designates files to be deleted. Each file marked will be renamed to add
@@ -158,4 +177,62 @@ func (d *Deleter) renameForDelete(path string) error {
 
 func (d *Deleter) renameForRestore(path string) error {
 	return d.RenamerRemover.Rename(path+deleteFileSuffix, path)
+}
+
+func Destroy(ctx context.Context, destroyer Destroyer, f File, fileDeleter *Deleter, deleteFile bool) error {
+	if err := destroyer.Destroy(ctx, f.Base().ID); err != nil {
+		return err
+	}
+
+	// don't delete files in zip files
+	if deleteFile && f.Base().ZipFileID == nil {
+		if err := fileDeleter.Files([]string{f.Base().Path}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type ZipDestroyer struct {
+	FileDestroyer   GetterDestroyer
+	FolderDestroyer FolderGetterDestroyer
+}
+
+func (d *ZipDestroyer) DestroyZip(ctx context.Context, f File, fileDeleter *Deleter, deleteFile bool) error {
+	// destroy contained files
+	files, err := d.FileDestroyer.FindByZipFileID(ctx, f.Base().ID)
+	if err != nil {
+		return err
+	}
+
+	for _, ff := range files {
+		if err := d.FileDestroyer.Destroy(ctx, ff.Base().ID); err != nil {
+			return err
+		}
+	}
+
+	// destroy contained folders
+	folders, err := d.FolderDestroyer.FindByZipFileID(ctx, f.Base().ID)
+	if err != nil {
+		return err
+	}
+
+	for _, ff := range folders {
+		if err := d.FolderDestroyer.Destroy(ctx, ff.ID); err != nil {
+			return err
+		}
+	}
+
+	if err := d.FileDestroyer.Destroy(ctx, f.Base().ID); err != nil {
+		return err
+	}
+
+	if deleteFile {
+		if err := fileDeleter.Files([]string{f.Base().Path}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

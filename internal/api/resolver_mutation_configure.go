@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 
 	"github.com/stashapp/stash/internal/manager"
 	"github.com/stashapp/stash/internal/manager/config"
@@ -15,21 +16,21 @@ import (
 
 var ErrOverriddenConfig = errors.New("cannot set overridden value")
 
-func (r *mutationResolver) Setup(ctx context.Context, input models.SetupInput) (bool, error) {
+func (r *mutationResolver) Setup(ctx context.Context, input manager.SetupInput) (bool, error) {
 	err := manager.GetInstance().Setup(ctx, input)
 	return err == nil, err
 }
 
-func (r *mutationResolver) Migrate(ctx context.Context, input models.MigrateInput) (bool, error) {
+func (r *mutationResolver) Migrate(ctx context.Context, input manager.MigrateInput) (bool, error) {
 	err := manager.GetInstance().Migrate(ctx, input)
 	return err == nil, err
 }
 
-func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.ConfigGeneralInput) (*models.ConfigGeneralResult, error) {
+func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input ConfigGeneralInput) (*ConfigGeneralResult, error) {
 	c := config.GetInstance()
 
 	existingPaths := c.GetStashPaths()
-	if len(input.Stashes) > 0 {
+	if input.Stashes != nil {
 		for _, s := range input.Stashes {
 			// Only validate existence of new paths
 			isNew := true
@@ -58,7 +59,7 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 	}
 
 	validateDir := func(key string, value string, optional bool) error {
-		if err := checkConfigOverride(config.Metadata); err != nil {
+		if err := checkConfigOverride(key); err != nil {
 			return err
 		}
 
@@ -82,6 +83,15 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 			return makeConfigGeneralResult(), fmt.Errorf("invalid database path, use extension db, sqlite, or sqlite3")
 		}
 		c.Set(config.Database, input.DatabasePath)
+	}
+
+	existingBackupDirectoryPath := c.GetBackupDirectoryPath()
+	if input.BackupDirectoryPath != nil && existingBackupDirectoryPath != *input.BackupDirectoryPath {
+		if err := validateDir(config.BackupDirectoryPath, *input.BackupDirectoryPath, true); err != nil {
+			return makeConfigGeneralResult(), err
+		}
+
+		c.Set(config.BackupDirectoryPath, input.BackupDirectoryPath)
 	}
 
 	existingGeneratedPath := c.GetGeneratedPath()
@@ -113,6 +123,7 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 		c.Set(config.Metadata, input.MetadataPath)
 	}
 
+	refreshStreamManager := false
 	existingCachePath := c.GetCachePath()
 	if input.CachePath != nil && existingCachePath != *input.CachePath {
 		if err := validateDir(config.Cache, *input.CachePath, true); err != nil {
@@ -120,6 +131,29 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 		}
 
 		c.Set(config.Cache, input.CachePath)
+		refreshStreamManager = true
+	}
+
+	refreshBlobStorage := false
+	existingBlobsPath := c.GetBlobsPath()
+	if input.BlobsPath != nil && existingBlobsPath != *input.BlobsPath {
+		if err := validateDir(config.BlobsPath, *input.BlobsPath, true); err != nil {
+			return makeConfigGeneralResult(), err
+		}
+
+		c.Set(config.BlobsPath, input.BlobsPath)
+		refreshBlobStorage = true
+	}
+
+	if input.BlobsStorage != nil && *input.BlobsStorage != c.GetBlobsStorage() {
+		if *input.BlobsStorage == config.BlobStorageTypeFilesystem && c.GetBlobsPath() == "" {
+			return makeConfigGeneralResult(), fmt.Errorf("blobs path must be set when using filesystem storage")
+		}
+
+		// TODO - migrate between systems
+		c.Set(config.BlobsStorage, input.BlobsStorage)
+
+		refreshBlobStorage = true
 	}
 
 	if input.VideoFileNamingAlgorithm != nil && *input.VideoFileNamingAlgorithm != c.GetVideoFileNamingAlgorithm() {
@@ -132,7 +166,9 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 		}
 
 		// validate changing VideoFileNamingAlgorithm
-		if err := manager.ValidateVideoFileNamingAlgorithm(r.txnManager, *input.VideoFileNamingAlgorithm); err != nil {
+		if err := r.withTxn(context.TODO(), func(ctx context.Context) error {
+			return manager.ValidateVideoFileNamingAlgorithm(ctx, r.repository.Scene, *input.VideoFileNamingAlgorithm)
+		}); err != nil {
 			return makeConfigGeneralResult(), err
 		}
 
@@ -167,6 +203,9 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 		c.Set(config.PreviewPreset, input.PreviewPreset.String())
 	}
 
+	if input.TranscodeHardwareAcceleration != nil {
+		c.Set(config.TranscodeHardwareAcceleration, *input.TranscodeHardwareAcceleration)
+	}
 	if input.MaxTranscodeSize != nil {
 		c.Set(config.MaxTranscodeSize, input.MaxTranscodeSize.String())
 	}
@@ -179,8 +218,27 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 		c.Set(config.WriteImageThumbnails, *input.WriteImageThumbnails)
 	}
 
-	if input.Username != nil {
+	if input.CreateImageClipsFromVideos != nil {
+		c.Set(config.CreateImageClipsFromVideos, *input.CreateImageClipsFromVideos)
+	}
+
+	if input.GalleryCoverRegex != nil {
+
+		_, err := regexp.Compile(*input.GalleryCoverRegex)
+		if err != nil {
+			return makeConfigGeneralResult(), fmt.Errorf("Gallery cover regex '%v' invalid, '%v'", *input.GalleryCoverRegex, err.Error())
+		}
+
+		c.Set(config.GalleryCoverRegex, *input.GalleryCoverRegex)
+	}
+
+	if input.Username != nil && *input.Username != c.GetUsername() {
 		c.Set(config.Username, input.Username)
+		if *input.Password == "" {
+			logger.Info("Username cleared")
+		} else {
+			logger.Info("Username changed")
+		}
 	}
 
 	if input.Password != nil {
@@ -189,6 +247,11 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 		currentPWHash := c.GetPasswordHash()
 
 		if *input.Password != currentPWHash {
+			if *input.Password == "" {
+				logger.Info("Password cleared")
+			} else {
+				logger.Info("Password changed")
+			}
 			c.SetPassword(*input.Password)
 		}
 	}
@@ -216,10 +279,22 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 	}
 
 	if input.Excludes != nil {
+		for _, r := range input.Excludes {
+			_, err := regexp.Compile(r)
+			if err != nil {
+				return makeConfigGeneralResult(), fmt.Errorf("video exclusion pattern '%v' invalid: %w", r, err)
+			}
+		}
 		c.Set(config.Exclude, input.Excludes)
 	}
 
 	if input.ImageExcludes != nil {
+		for _, r := range input.ImageExcludes {
+			_, err := regexp.Compile(r)
+			if err != nil {
+				return makeConfigGeneralResult(), fmt.Errorf("image/gallery exclusion pattern '%v' invalid: %w", r, err)
+			}
+		}
 		c.Set(config.ImageExclude, input.ImageExcludes)
 	}
 
@@ -269,6 +344,23 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 		c.Set(config.PythonPath, input.PythonPath)
 	}
 
+	if input.TranscodeInputArgs != nil {
+		c.Set(config.TranscodeInputArgs, input.TranscodeInputArgs)
+	}
+	if input.TranscodeOutputArgs != nil {
+		c.Set(config.TranscodeOutputArgs, input.TranscodeOutputArgs)
+	}
+	if input.LiveTranscodeInputArgs != nil {
+		c.Set(config.LiveTranscodeInputArgs, input.LiveTranscodeInputArgs)
+	}
+	if input.LiveTranscodeOutputArgs != nil {
+		c.Set(config.LiveTranscodeOutputArgs, input.LiveTranscodeOutputArgs)
+	}
+
+	if input.DrawFunscriptHeatmapRange != nil {
+		c.Set(config.DrawFunscriptHeatmapRange, input.DrawFunscriptHeatmapRange)
+	}
+
 	if err := c.Write(); err != nil {
 		return makeConfigGeneralResult(), err
 	}
@@ -277,11 +369,17 @@ func (r *mutationResolver) ConfigureGeneral(ctx context.Context, input models.Co
 	if refreshScraperCache {
 		manager.GetInstance().RefreshScraperCache()
 	}
+	if refreshStreamManager {
+		manager.GetInstance().RefreshStreamManager()
+	}
+	if refreshBlobStorage {
+		manager.GetInstance().SetBlobStoreOptions()
+	}
 
 	return makeConfigGeneralResult(), nil
 }
 
-func (r *mutationResolver) ConfigureInterface(ctx context.Context, input models.ConfigInterfaceInput) (*models.ConfigInterfaceResult, error) {
+func (r *mutationResolver) ConfigureInterface(ctx context.Context, input ConfigInterfaceInput) (*ConfigInterfaceResult, error) {
 	c := config.GetInstance()
 
 	setBool := func(key string, v *bool) {
@@ -338,10 +436,10 @@ func (r *mutationResolver) ConfigureInterface(ctx context.Context, input models.
 			c.Set(config.ImageLightboxSlideshowDelay, *options.SlideshowDelay)
 		}
 
-		setString(config.ImageLightboxDisplayMode, (*string)(options.DisplayMode))
+		setString(config.ImageLightboxDisplayModeKey, (*string)(options.DisplayMode))
 		setBool(config.ImageLightboxScaleUp, options.ScaleUp)
 		setBool(config.ImageLightboxResetZoomOnNav, options.ResetZoomOnNav)
-		setString(config.ImageLightboxScrollMode, (*string)(options.ScrollMode))
+		setString(config.ImageLightboxScrollModeKey, (*string)(options.ScrollMode))
 
 		if options.ScrollAttemptsBeforeChange != nil {
 			c.Set(config.ImageLightboxScrollAttemptsBeforeChange, *options.ScrollAttemptsBeforeChange)
@@ -353,6 +451,18 @@ func (r *mutationResolver) ConfigureInterface(ctx context.Context, input models.
 	}
 
 	setBool(config.CSSEnabled, input.CSSEnabled)
+
+	if input.Javascript != nil {
+		c.SetJavascript(*input.Javascript)
+	}
+
+	setBool(config.JavascriptEnabled, input.JavascriptEnabled)
+
+	if input.CustomLocales != nil {
+		c.SetCustomLocales(*input.CustomLocales)
+	}
+
+	setBool(config.CustomLocalesEnabled, input.CustomLocalesEnabled)
 
 	if input.DisableDropdownCreate != nil {
 		ddc := input.DisableDropdownCreate
@@ -376,7 +486,7 @@ func (r *mutationResolver) ConfigureInterface(ctx context.Context, input models.
 	return makeConfigInterfaceResult(), nil
 }
 
-func (r *mutationResolver) ConfigureDlna(ctx context.Context, input models.ConfigDLNAInput) (*models.ConfigDLNAResult, error) {
+func (r *mutationResolver) ConfigureDlna(ctx context.Context, input ConfigDLNAInput) (*ConfigDLNAResult, error) {
 	c := config.GetInstance()
 
 	if input.ServerName != nil {
@@ -385,6 +495,10 @@ func (r *mutationResolver) ConfigureDlna(ctx context.Context, input models.Confi
 
 	if input.WhitelistedIPs != nil {
 		c.Set(config.DLNADefaultIPWhitelist, input.WhitelistedIPs)
+	}
+
+	if input.VideoSortOrder != nil {
+		c.Set(config.DLNAVideoSortOrder, input.VideoSortOrder)
 	}
 
 	currentDLNAEnabled := c.GetDLNADefaultEnabled()
@@ -413,7 +527,7 @@ func (r *mutationResolver) ConfigureDlna(ctx context.Context, input models.Confi
 	return makeConfigDLNAResult(), nil
 }
 
-func (r *mutationResolver) ConfigureScraping(ctx context.Context, input models.ConfigScrapingInput) (*models.ConfigScrapingResult, error) {
+func (r *mutationResolver) ConfigureScraping(ctx context.Context, input ConfigScrapingInput) (*ConfigScrapingResult, error) {
 	c := config.GetInstance()
 
 	refreshScraperCache := false
@@ -428,6 +542,12 @@ func (r *mutationResolver) ConfigureScraping(ctx context.Context, input models.C
 	}
 
 	if input.ExcludeTagPatterns != nil {
+		for _, r := range input.ExcludeTagPatterns {
+			_, err := regexp.Compile(r)
+			if err != nil {
+				return makeConfigScrapingResult(), fmt.Errorf("tag exclusion pattern '%v' invalid: %w", r, err)
+			}
+		}
 		c.Set(config.ScraperExcludeTagPatterns, input.ExcludeTagPatterns)
 	}
 
@@ -445,7 +565,7 @@ func (r *mutationResolver) ConfigureScraping(ctx context.Context, input models.C
 	return makeConfigScrapingResult(), nil
 }
 
-func (r *mutationResolver) ConfigureDefaults(ctx context.Context, input models.ConfigDefaultSettingsInput) (*models.ConfigDefaultSettingsResult, error) {
+func (r *mutationResolver) ConfigureDefaults(ctx context.Context, input ConfigDefaultSettingsInput) (*ConfigDefaultSettingsResult, error) {
 	c := config.GetInstance()
 
 	if input.Identify != nil {
@@ -453,7 +573,9 @@ func (r *mutationResolver) ConfigureDefaults(ctx context.Context, input models.C
 	}
 
 	if input.Scan != nil {
-		c.Set(config.DefaultScanSettings, input.Scan)
+		// if input.Scan is used then ScanMetadataOptions is included in the config file
+		// this causes the values to not be read correctly
+		c.Set(config.DefaultScanSettings, input.Scan.ScanMetadataOptions)
 	}
 
 	if input.AutoTag != nil {
@@ -479,7 +601,7 @@ func (r *mutationResolver) ConfigureDefaults(ctx context.Context, input models.C
 	return makeConfigDefaultsResult(), nil
 }
 
-func (r *mutationResolver) GenerateAPIKey(ctx context.Context, input models.GenerateAPIKeyInput) (string, error) {
+func (r *mutationResolver) GenerateAPIKey(ctx context.Context, input GenerateAPIKeyInput) (string, error) {
 	c := config.GetInstance()
 
 	var newAPIKey string

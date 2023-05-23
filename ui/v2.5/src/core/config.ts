@@ -1,5 +1,7 @@
 import { IntlShape } from "react-intl";
-import { ITypename } from "src/utils";
+import { ITypename } from "src/utils/data";
+import { ImageWallOptions } from "src/utils/imageWall";
+import { RatingSystemOptions } from "src/utils/rating";
 import { FilterMode, SortDirectionEnum } from "./generated-graphql";
 
 // NOTE: double capitals aren't converted correctly in the backend
@@ -23,10 +25,41 @@ export interface ICustomFilter extends ITypename {
   direction: SortDirectionEnum;
 }
 
+// NOTE: This value cannot be more defined, because the generated enum it depends upon is UpperCase, which leads to errors on saving
+export type PinnedFilters = Record<string, Array<string>>;
+
 export type FrontPageContent = ISavedFilterRow | ICustomFilter;
+
+export const defaultMaxOptionsShown = 200;
 
 export interface IUIConfig {
   frontPageContent?: FrontPageContent[];
+
+  showChildTagContent?: boolean;
+  showChildStudioContent?: boolean;
+  showTagCardOnHover?: boolean;
+
+  abbreviateCounters?: boolean;
+
+  ratingSystemOptions?: RatingSystemOptions;
+
+  // if true continue scene will always play from the beginning
+  alwaysStartFromBeginning?: boolean;
+  // if true enable activity tracking
+  trackActivity?: boolean;
+  // the minimum percentage of scene duration which a scene must be played
+  // before the play count is incremented
+  minimumPlayPercent?: number;
+
+  // maximum number of items to shown in the dropdown list - defaults to 200
+  // upper limit of 1000
+  maxOptionsShown?: number;
+
+  imageWallOptions?: ImageWallOptions;
+
+  lastNoteSeen?: number;
+
+  pinnedFilters?: PinnedFilters;
 }
 
 function recentlyReleased(

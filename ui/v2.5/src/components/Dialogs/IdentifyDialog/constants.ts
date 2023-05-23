@@ -10,7 +10,9 @@ export interface IScraperSource {
 
 export const sceneFields = [
   "title",
+  "code",
   "date",
+  "director",
   "details",
   "url",
   "studio",
@@ -18,10 +20,18 @@ export const sceneFields = [
   "tags",
   "stash_ids",
 ] as const;
-export type SceneField = typeof sceneFields[number];
+export type SceneField = (typeof sceneFields)[number];
 
 export const multiValueSceneFields: SceneField[] = [
   "studio",
   "performers",
   "tags",
 ];
+
+export function sceneFieldMessageID(field: SceneField) {
+  if (field === "code") {
+    return "scene_code";
+  }
+
+  return field;
+}

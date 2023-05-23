@@ -2,19 +2,18 @@ import { Button, ButtonGroup } from "react-bootstrap";
 import React from "react";
 import { Link } from "react-router-dom";
 import * as GQL from "src/core/generated-graphql";
-import {
-  GridCard,
-  HoverPopover,
-  Icon,
-  TagLink,
-  TruncatedText,
-} from "src/components/Shared";
-import { PopoverCountButton } from "src/components/Shared/PopoverCountButton";
-import { NavUtils, TextUtils } from "src/utils";
-import { ConfigurationContext } from "src/hooks/Config";
+import { GridCard } from "../Shared/GridCard";
+import { HoverPopover } from "../Shared/HoverPopover";
+import { Icon } from "../Shared/Icon";
+import { TagLink } from "../Shared/TagLink";
+import { TruncatedText } from "../Shared/TruncatedText";
 import { PerformerPopoverButton } from "../Shared/PerformerPopoverButton";
+import { PopoverCountButton } from "../Shared/PopoverCountButton";
+import NavUtils from "src/utils/navigation";
+import { ConfigurationContext } from "src/hooks/Config";
 import { RatingBanner } from "../Shared/RatingBanner";
 import { faBox, faPlayCircle, faTag } from "@fortawesome/free-solid-svg-icons";
+import { galleryTitle } from "src/core/galleries";
 
 interface IProps {
   gallery: GQL.SlimGalleryDataFragment;
@@ -148,11 +147,7 @@ export const GalleryCard: React.FC<IProps> = (props) => {
     <GridCard
       className={`gallery-card zoom-${props.zoomIndex}`}
       url={`/galleries/${props.gallery.id}`}
-      title={
-        props.gallery.title
-          ? props.gallery.title
-          : TextUtils.fileNameFromPath(props.gallery.path ?? "")
-      }
+      title={galleryTitle(props.gallery)}
       linkClassName="gallery-card-header"
       image={
         <>
@@ -163,20 +158,18 @@ export const GalleryCard: React.FC<IProps> = (props) => {
               src={`${props.gallery.cover.paths.thumbnail}`}
             />
           ) : undefined}
-          <RatingBanner rating={props.gallery.rating} />
+          <RatingBanner rating={props.gallery.rating100} />
         </>
       }
       overlays={maybeRenderSceneStudioOverlay()}
       details={
         <div className="gallery-card__details">
           <span className="gallery-card__date">{props.gallery.date}</span>
-          <p>
-            <TruncatedText
-              className="gallery-card__description"
-              text={props.gallery.details}
-              lineCount={3}
-            />
-          </p>
+          <TruncatedText
+            className="gallery-card__description"
+            text={props.gallery.details}
+            lineCount={3}
+          />
         </div>
       }
       popovers={maybeRenderPopoverButtonGroup()}

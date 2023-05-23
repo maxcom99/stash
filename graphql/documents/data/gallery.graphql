@@ -1,17 +1,23 @@
 fragment GalleryData on Gallery {
   id
-  checksum
-  path
   created_at
   updated_at
   title
   date
   url
   details
-  rating
+  rating100
   organized
-  images {
-    ...SlimImageData
+
+  files {
+    ...GalleryFileData
+  }
+  folder {
+    ...FolderData
+  }
+
+  chapters {
+    ...GalleryChapterData
   }
   cover {
     ...SlimImageData

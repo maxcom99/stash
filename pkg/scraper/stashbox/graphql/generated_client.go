@@ -55,8 +55,10 @@ type Query struct {
 	Me                            *User                        "json:\"me\" graphql:\"me\""
 	SearchPerformer               []*Performer                 "json:\"searchPerformer\" graphql:\"searchPerformer\""
 	SearchScene                   []*Scene                     "json:\"searchScene\" graphql:\"searchScene\""
+	SearchTag                     []*Tag                       "json:\"searchTag\" graphql:\"searchTag\""
 	FindDraft                     *Draft                       "json:\"findDraft\" graphql:\"findDraft\""
 	FindDrafts                    []*Draft                     "json:\"findDrafts\" graphql:\"findDrafts\""
+	QueryExistingScene            QueryExistingSceneResult     "json:\"queryExistingScene\" graphql:\"queryExistingScene\""
 	Version                       Version                      "json:\"version\" graphql:\"version\""
 	GetConfig                     StashBoxConfig               "json:\"getConfig\" graphql:\"getConfig\""
 }
@@ -180,7 +182,9 @@ type FingerprintFragment struct {
 type SceneFragment struct {
 	ID           string                         "json:\"id\" graphql:\"id\""
 	Title        *string                        "json:\"title\" graphql:\"title\""
+	Code         *string                        "json:\"code\" graphql:\"code\""
 	Details      *string                        "json:\"details\" graphql:\"details\""
+	Director     *string                        "json:\"director\" graphql:\"director\""
 	Duration     *int                           "json:\"duration\" graphql:\"duration\""
 	Date         *string                        "json:\"date\" graphql:\"date\""
 	Urls         []*URLFragment                 "json:\"urls\" graphql:\"urls\""
@@ -235,71 +239,11 @@ const FindSceneByFingerprintDocument = `query FindSceneByFingerprint ($fingerpri
 		... SceneFragment
 	}
 }
-fragment URLFragment on URL {
-	url
-	type
-}
 fragment ImageFragment on Image {
 	id
 	url
 	width
 	height
-}
-fragment TagFragment on Tag {
-	name
-	id
-}
-fragment MeasurementsFragment on Measurements {
-	band_size
-	cup_size
-	waist
-	hip
-}
-fragment FingerprintFragment on Fingerprint {
-	algorithm
-	hash
-	duration
-}
-fragment SceneFragment on Scene {
-	id
-	title
-	details
-	duration
-	date
-	urls {
-		... URLFragment
-	}
-	images {
-		... ImageFragment
-	}
-	studio {
-		... StudioFragment
-	}
-	tags {
-		... TagFragment
-	}
-	performers {
-		... PerformerAppearanceFragment
-	}
-	fingerprints {
-		... FingerprintFragment
-	}
-}
-fragment StudioFragment on Studio {
-	name
-	id
-	urls {
-		... URLFragment
-	}
-	images {
-		... ImageFragment
-	}
-}
-fragment PerformerAppearanceFragment on PerformerAppearance {
-	as
-	performer {
-		... PerformerFragment
-	}
 }
 fragment PerformerFragment on Performer {
 	id
@@ -335,13 +279,75 @@ fragment PerformerFragment on Performer {
 		... BodyModificationFragment
 	}
 }
+fragment SceneFragment on Scene {
+	id
+	title
+	code
+	details
+	director
+	duration
+	date
+	urls {
+		... URLFragment
+	}
+	images {
+		... ImageFragment
+	}
+	studio {
+		... StudioFragment
+	}
+	tags {
+		... TagFragment
+	}
+	performers {
+		... PerformerAppearanceFragment
+	}
+	fingerprints {
+		... FingerprintFragment
+	}
+}
+fragment URLFragment on URL {
+	url
+	type
+}
+fragment PerformerAppearanceFragment on PerformerAppearance {
+	as
+	performer {
+		... PerformerFragment
+	}
+}
 fragment FuzzyDateFragment on FuzzyDate {
 	date
 	accuracy
 }
+fragment MeasurementsFragment on Measurements {
+	band_size
+	cup_size
+	waist
+	hip
+}
 fragment BodyModificationFragment on BodyModification {
 	location
 	description
+}
+fragment FingerprintFragment on Fingerprint {
+	algorithm
+	hash
+	duration
+}
+fragment StudioFragment on Studio {
+	name
+	id
+	urls {
+		... URLFragment
+	}
+	images {
+		... ImageFragment
+	}
+}
+fragment TagFragment on Tag {
+	name
+	id
 }
 `
 
@@ -363,70 +369,6 @@ const FindScenesByFullFingerprintsDocument = `query FindScenesByFullFingerprints
 		... SceneFragment
 	}
 }
-fragment SceneFragment on Scene {
-	id
-	title
-	details
-	duration
-	date
-	urls {
-		... URLFragment
-	}
-	images {
-		... ImageFragment
-	}
-	studio {
-		... StudioFragment
-	}
-	tags {
-		... TagFragment
-	}
-	performers {
-		... PerformerAppearanceFragment
-	}
-	fingerprints {
-		... FingerprintFragment
-	}
-}
-fragment URLFragment on URL {
-	url
-	type
-}
-fragment StudioFragment on Studio {
-	name
-	id
-	urls {
-		... URLFragment
-	}
-	images {
-		... ImageFragment
-	}
-}
-fragment PerformerAppearanceFragment on PerformerAppearance {
-	as
-	performer {
-		... PerformerFragment
-	}
-}
-fragment BodyModificationFragment on BodyModification {
-	location
-	description
-}
-fragment FingerprintFragment on Fingerprint {
-	algorithm
-	hash
-	duration
-}
-fragment ImageFragment on Image {
-	id
-	url
-	width
-	height
-}
-fragment TagFragment on Tag {
-	name
-	id
-}
 fragment PerformerFragment on Performer {
 	id
 	name
@@ -470,6 +412,72 @@ fragment MeasurementsFragment on Measurements {
 	cup_size
 	waist
 	hip
+}
+fragment SceneFragment on Scene {
+	id
+	title
+	code
+	details
+	director
+	duration
+	date
+	urls {
+		... URLFragment
+	}
+	images {
+		... ImageFragment
+	}
+	studio {
+		... StudioFragment
+	}
+	tags {
+		... TagFragment
+	}
+	performers {
+		... PerformerAppearanceFragment
+	}
+	fingerprints {
+		... FingerprintFragment
+	}
+}
+fragment URLFragment on URL {
+	url
+	type
+}
+fragment ImageFragment on Image {
+	id
+	url
+	width
+	height
+}
+fragment BodyModificationFragment on BodyModification {
+	location
+	description
+}
+fragment FingerprintFragment on Fingerprint {
+	algorithm
+	hash
+	duration
+}
+fragment StudioFragment on Studio {
+	name
+	id
+	urls {
+		... URLFragment
+	}
+	images {
+		... ImageFragment
+	}
+}
+fragment TagFragment on Tag {
+	name
+	id
+}
+fragment PerformerAppearanceFragment on PerformerAppearance {
+	as
+	performer {
+		... PerformerFragment
+	}
 }
 `
 
@@ -491,6 +499,25 @@ const FindScenesBySceneFingerprintsDocument = `query FindScenesBySceneFingerprin
 		... SceneFragment
 	}
 }
+fragment StudioFragment on Studio {
+	name
+	id
+	urls {
+		... URLFragment
+	}
+	images {
+		... ImageFragment
+	}
+}
+fragment FuzzyDateFragment on FuzzyDate {
+	date
+	accuracy
+}
+fragment FingerprintFragment on Fingerprint {
+	algorithm
+	hash
+	duration
+}
 fragment URLFragment on URL {
 	url
 	type
@@ -501,14 +528,10 @@ fragment ImageFragment on Image {
 	width
 	height
 }
-fragment StudioFragment on Studio {
-	name
-	id
-	urls {
-		... URLFragment
-	}
-	images {
-		... ImageFragment
+fragment PerformerAppearanceFragment on PerformerAppearance {
+	as
+	performer {
+		... PerformerFragment
 	}
 }
 fragment PerformerFragment on Performer {
@@ -551,15 +574,16 @@ fragment MeasurementsFragment on Measurements {
 	waist
 	hip
 }
-fragment FingerprintFragment on Fingerprint {
-	algorithm
-	hash
-	duration
+fragment BodyModificationFragment on BodyModification {
+	location
+	description
 }
 fragment SceneFragment on Scene {
 	id
 	title
+	code
 	details
+	director
 	duration
 	date
 	urls {
@@ -584,20 +608,6 @@ fragment SceneFragment on Scene {
 fragment TagFragment on Tag {
 	name
 	id
-}
-fragment PerformerAppearanceFragment on PerformerAppearance {
-	as
-	performer {
-		... PerformerFragment
-	}
-}
-fragment FuzzyDateFragment on FuzzyDate {
-	date
-	accuracy
-}
-fragment BodyModificationFragment on BodyModification {
-	location
-	description
 }
 `
 
@@ -622,7 +632,9 @@ const SearchSceneDocument = `query SearchScene ($term: String!) {
 fragment SceneFragment on Scene {
 	id
 	title
+	code
 	details
+	director
 	duration
 	date
 	urls {
@@ -648,15 +660,41 @@ fragment URLFragment on URL {
 	url
 	type
 }
+fragment TagFragment on Tag {
+	name
+	id
+}
+fragment FuzzyDateFragment on FuzzyDate {
+	date
+	accuracy
+}
+fragment MeasurementsFragment on Measurements {
+	band_size
+	cup_size
+	waist
+	hip
+}
 fragment ImageFragment on Image {
 	id
 	url
 	width
 	height
 }
-fragment TagFragment on Tag {
+fragment StudioFragment on Studio {
 	name
 	id
+	urls {
+		... URLFragment
+	}
+	images {
+		... ImageFragment
+	}
+}
+fragment PerformerAppearanceFragment on PerformerAppearance {
+	as
+	performer {
+		... PerformerFragment
+	}
 }
 fragment PerformerFragment on Performer {
 	id
@@ -692,40 +730,14 @@ fragment PerformerFragment on Performer {
 		... BodyModificationFragment
 	}
 }
-fragment FuzzyDateFragment on FuzzyDate {
-	date
-	accuracy
+fragment BodyModificationFragment on BodyModification {
+	location
+	description
 }
 fragment FingerprintFragment on Fingerprint {
 	algorithm
 	hash
 	duration
-}
-fragment StudioFragment on Studio {
-	name
-	id
-	urls {
-		... URLFragment
-	}
-	images {
-		... ImageFragment
-	}
-}
-fragment PerformerAppearanceFragment on PerformerAppearance {
-	as
-	performer {
-		... PerformerFragment
-	}
-}
-fragment MeasurementsFragment on Measurements {
-	band_size
-	cup_size
-	waist
-	hip
-}
-fragment BodyModificationFragment on BodyModification {
-	location
-	description
 }
 `
 
@@ -746,6 +758,20 @@ const SearchPerformerDocument = `query SearchPerformer ($term: String!) {
 	searchPerformer(term: $term) {
 		... PerformerFragment
 	}
+}
+fragment FuzzyDateFragment on FuzzyDate {
+	date
+	accuracy
+}
+fragment MeasurementsFragment on Measurements {
+	band_size
+	cup_size
+	waist
+	hip
+}
+fragment BodyModificationFragment on BodyModification {
+	location
+	description
 }
 fragment PerformerFragment on Performer {
 	id
@@ -790,20 +816,6 @@ fragment ImageFragment on Image {
 	url
 	width
 	height
-}
-fragment FuzzyDateFragment on FuzzyDate {
-	date
-	accuracy
-}
-fragment MeasurementsFragment on Measurements {
-	band_size
-	cup_size
-	waist
-	hip
-}
-fragment BodyModificationFragment on BodyModification {
-	location
-	description
 }
 `
 
@@ -903,19 +915,26 @@ const FindSceneByIDDocument = `query FindSceneByID ($id: ID!) {
 		... SceneFragment
 	}
 }
-fragment BodyModificationFragment on BodyModification {
-	location
-	description
+fragment FingerprintFragment on Fingerprint {
+	algorithm
+	hash
+	duration
 }
 fragment URLFragment on URL {
 	url
 	type
 }
-fragment ImageFragment on Image {
-	id
-	url
-	width
-	height
+fragment PerformerAppearanceFragment on PerformerAppearance {
+	as
+	performer {
+		... PerformerFragment
+	}
+}
+fragment MeasurementsFragment on Measurements {
+	band_size
+	cup_size
+	waist
+	hip
 }
 fragment TagFragment on Tag {
 	name
@@ -959,16 +978,16 @@ fragment FuzzyDateFragment on FuzzyDate {
 	date
 	accuracy
 }
-fragment MeasurementsFragment on Measurements {
-	band_size
-	cup_size
-	waist
-	hip
+fragment BodyModificationFragment on BodyModification {
+	location
+	description
 }
 fragment SceneFragment on Scene {
 	id
 	title
+	code
 	details
+	director
 	duration
 	date
 	urls {
@@ -990,6 +1009,12 @@ fragment SceneFragment on Scene {
 		... FingerprintFragment
 	}
 }
+fragment ImageFragment on Image {
+	id
+	url
+	width
+	height
+}
 fragment StudioFragment on Studio {
 	name
 	id
@@ -999,17 +1024,6 @@ fragment StudioFragment on Studio {
 	images {
 		... ImageFragment
 	}
-}
-fragment PerformerAppearanceFragment on PerformerAppearance {
-	as
-	performer {
-		... PerformerFragment
-	}
-}
-fragment FingerprintFragment on Fingerprint {
-	algorithm
-	hash
-	duration
 }
 `
 

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Button } from "react-bootstrap";
 import { FormattedMessage, useIntl } from "react-intl";
 import { Helmet } from "react-helmet";
 import Mousetrap from "mousetrap";
@@ -9,13 +10,12 @@ import {
   useMovieDestroy,
 } from "src/core/StashService";
 import { useParams, useHistory } from "react-router-dom";
-import {
-  DetailsEditNavbar,
-  ErrorMessage,
-  LoadingIndicator,
-  Modal,
-} from "src/components/Shared";
-import { useToast } from "src/hooks";
+import { DetailsEditNavbar } from "src/components/Shared/DetailsEditNavbar";
+import { ErrorMessage } from "src/components/Shared/ErrorMessage";
+import { LoadingIndicator } from "src/components/Shared/LoadingIndicator";
+import { useLightbox } from "src/hooks/Lightbox/hooks";
+import { ModalComponent } from "src/components/Shared/Modal";
+import { useToast } from "src/hooks/Toast";
 import { MovieScenesPanel } from "./MovieScenesPanel";
 import { MovieDetailsPanel } from "./MovieDetailsPanel";
 import { MovieEditPanel } from "./MovieEditPanel";
@@ -35,13 +35,46 @@ const MoviePage: React.FC<IProps> = ({ movie }) => {
   const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState<boolean>(false);
 
   // Editing movie state
-  const [frontImage, setFrontImage] = useState<string | undefined | null>(
-    undefined
-  );
-  const [backImage, setBackImage] = useState<string | undefined | null>(
-    undefined
-  );
+  const [frontImage, setFrontImage] = useState<string | null>();
+  const [backImage, setBackImage] = useState<string | null>();
   const [encodingImage, setEncodingImage] = useState<boolean>(false);
+
+  const defaultImage =
+    movie.front_image_path && movie.front_image_path.includes("default=true")
+      ? true
+      : false;
+
+  const lightboxImages = useMemo(() => {
+    const covers = [
+      ...(movie.front_image_path && !defaultImage
+        ? [
+            {
+              paths: {
+                thumbnail: movie.front_image_path,
+                image: movie.front_image_path,
+              },
+            },
+          ]
+        : []),
+      ...(movie.back_image_path
+        ? [
+            {
+              paths: {
+                thumbnail: movie.back_image_path,
+                image: movie.back_image_path,
+              },
+            },
+          ]
+        : []),
+    ];
+    return covers;
+  }, [movie.front_image_path, movie.back_image_path, defaultImage]);
+
+  const index = lightboxImages.length;
+
+  const showLightbox = useLightbox({
+    images: lightboxImages,
+  });
 
   const [updateMovie, { loading: updating }] = useMovieUpdate();
   const [deleteMovie, { loading: deleting }] = useMovieDestroy({
@@ -51,7 +84,9 @@ const MoviePage: React.FC<IProps> = ({ movie }) => {
   // set up hotkeys
   useEffect(() => {
     Mousetrap.bind("e", () => setIsEditing(true));
-    Mousetrap.bind("d d", () => onDelete());
+    Mousetrap.bind("d d", () => {
+      onDelete();
+    });
 
     return () => {
       Mousetrap.unbind("e");
@@ -59,26 +94,14 @@ const MoviePage: React.FC<IProps> = ({ movie }) => {
     };
   });
 
-  const onImageEncoding = (isEncoding = false) => setEncodingImage(isEncoding);
-
-  function getMovieInput(
-    input: Partial<GQL.MovieCreateInput | GQL.MovieUpdateInput>
-  ) {
-    const ret: Partial<GQL.MovieCreateInput | GQL.MovieUpdateInput> = {
-      ...input,
-      id: movie.id,
-    };
-
-    return ret;
-  }
-
-  async function onSave(
-    input: Partial<GQL.MovieCreateInput | GQL.MovieUpdateInput>
-  ) {
+  async function onSave(input: GQL.MovieCreateInput) {
     try {
       const result = await updateMovie({
         variables: {
-          input: getMovieInput(input) as GQL.MovieUpdateInput,
+          input: {
+            id: movie.id,
+            ...input,
+          },
         },
       });
       if (result.data?.movieUpdate) {
@@ -109,7 +132,7 @@ const MoviePage: React.FC<IProps> = ({ movie }) => {
 
   function renderDeleteAlert() {
     return (
-      <Modal
+      <ModalComponent
         show={isDeleteAlertOpen}
         icon={faTrashAlt}
         accept={{
@@ -129,25 +152,37 @@ const MoviePage: React.FC<IProps> = ({ movie }) => {
             }}
           />
         </p>
-      </Modal>
+      </ModalComponent>
     );
   }
 
   function renderFrontImage() {
     let image = movie.front_image_path;
     if (isEditing) {
-      if (frontImage === null) {
-        image = `${image}&default=true`;
+      if (frontImage === null && image) {
+        const imageURL = new URL(image);
+        imageURL.searchParams.set("default", "true");
+        image = imageURL.toString();
       } else if (frontImage) {
         image = frontImage;
       }
     }
 
-    if (image) {
+    if (image && defaultImage) {
       return (
         <div className="movie-image-container">
           <img alt="Front Cover" src={image} />
         </div>
+      );
+    } else if (image) {
+      return (
+        <Button
+          className="movie-image-container"
+          variant="link"
+          onClick={() => showLightbox()}
+        >
+          <img alt="Front Cover" src={image} />
+        </Button>
       );
     }
   }
@@ -164,9 +199,13 @@ const MoviePage: React.FC<IProps> = ({ movie }) => {
 
     if (image) {
       return (
-        <div className="movie-image-container">
+        <Button
+          className="movie-image-container"
+          variant="link"
+          onClick={() => showLightbox(index - 1)}
+        >
           <img alt="Back Cover" src={image} />
-        </div>
+        </Button>
       );
     }
   }
@@ -214,13 +253,13 @@ const MoviePage: React.FC<IProps> = ({ movie }) => {
             onDelete={onDelete}
             setFrontImage={setFrontImage}
             setBackImage={setBackImage}
-            onImageEncoding={onImageEncoding}
+            setEncodingImage={setEncodingImage}
           />
         )}
       </div>
 
       <div className="col-xl-8 col-lg-6">
-        <MovieScenesPanel movie={movie} />
+        <MovieScenesPanel active={true} movie={movie} />
       </div>
       {renderDeleteAlert()}
     </div>

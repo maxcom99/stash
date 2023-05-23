@@ -2,19 +2,19 @@ package manager
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+	"strconv"
 	"time"
 
-	"github.com/stashapp/stash/pkg/hash/md5"
 	"github.com/stashapp/stash/pkg/logger"
 	"github.com/stashapp/stash/pkg/models"
 	"github.com/stashapp/stash/pkg/scraper/stashbox"
+	"github.com/stashapp/stash/pkg/sliceutil/stringslice"
+	"github.com/stashapp/stash/pkg/txn"
 	"github.com/stashapp/stash/pkg/utils"
 )
 
 type StashBoxPerformerTagTask struct {
-	txnManager      models.TransactionManager
 	box             *models.StashBox
 	name            *string
 	performer       *models.Performer
@@ -31,7 +31,7 @@ func (t *StashBoxPerformerTagTask) Description() string {
 	if t.name != nil {
 		name = *t.name
 	} else if t.performer != nil {
-		name = t.performer.Name.String
+		name = t.performer.Name
 	}
 
 	return fmt.Sprintf("Tagging performer %s from stash-box", name)
@@ -41,21 +41,19 @@ func (t *StashBoxPerformerTagTask) stashBoxPerformerTag(ctx context.Context) {
 	var performer *models.ScrapedPerformer
 	var err error
 
-	client := stashbox.NewClient(*t.box, t.txnManager)
+	client := stashbox.NewClient(*t.box, instance.Repository, stashbox.Repository{
+		Scene:     instance.Repository.Scene,
+		Performer: instance.Repository.Performer,
+		Tag:       instance.Repository.Tag,
+		Studio:    instance.Repository.Studio,
+	})
 
 	if t.refresh {
 		var performerID string
-		txnErr := t.txnManager.WithReadTxn(ctx, func(r models.ReaderRepository) error {
-			stashids, _ := r.Performer().GetStashIDs(t.performer.ID)
-			for _, id := range stashids {
-				if id.Endpoint == t.box.Endpoint {
-					performerID = id.StashID
-				}
+		for _, id := range t.performer.StashIDs.List() {
+			if id.Endpoint == t.box.Endpoint {
+				performerID = id.StashID
 			}
-			return nil
-		})
-		if txnErr != nil {
-			logger.Warnf("error while executing read transaction: %v", err)
 		}
 		if performerID != "" {
 			performer, err = client.FindStashBoxPerformerByID(ctx, performerID)
@@ -65,7 +63,7 @@ func (t *StashBoxPerformerTagTask) stashBoxPerformerTag(ctx context.Context) {
 		if t.name != nil {
 			name = *t.name
 		} else {
-			name = t.performer.Name.String
+			name = t.performer.Name
 		}
 		performer, err = client.FindStashBoxPerformerByName(ctx, name)
 	}
@@ -81,104 +79,22 @@ func (t *StashBoxPerformerTagTask) stashBoxPerformerTag(ctx context.Context) {
 	}
 
 	if performer != nil {
-		updatedTime := time.Now()
-
 		if t.performer != nil {
-			partial := models.PerformerPartial{
-				ID:        t.performer.ID,
-				UpdatedAt: &models.SQLiteTimestamp{Timestamp: updatedTime},
-			}
+			partial := t.getPartial(performer, excluded)
 
-			if performer.Aliases != nil && !excluded["aliases"] {
-				value := getNullString(performer.Aliases)
-				partial.Aliases = &value
-			}
-			if performer.Birthdate != nil && *performer.Birthdate != "" && !excluded["birthdate"] {
-				value := getDate(performer.Birthdate)
-				partial.Birthdate = &value
-			}
-			if performer.CareerLength != nil && !excluded["career_length"] {
-				value := getNullString(performer.CareerLength)
-				partial.CareerLength = &value
-			}
-			if performer.Country != nil && !excluded["country"] {
-				value := getNullString(performer.Country)
-				partial.Country = &value
-			}
-			if performer.Ethnicity != nil && !excluded["ethnicity"] {
-				value := getNullString(performer.Ethnicity)
-				partial.Ethnicity = &value
-			}
-			if performer.EyeColor != nil && !excluded["eye_color"] {
-				value := getNullString(performer.EyeColor)
-				partial.EyeColor = &value
-			}
-			if performer.FakeTits != nil && !excluded["fake_tits"] {
-				value := getNullString(performer.FakeTits)
-				partial.FakeTits = &value
-			}
-			if performer.Gender != nil && !excluded["gender"] {
-				value := getNullString(performer.Gender)
-				partial.Gender = &value
-			}
-			if performer.Height != nil && !excluded["height"] {
-				value := getNullString(performer.Height)
-				partial.Height = &value
-			}
-			if performer.Instagram != nil && !excluded["instagram"] {
-				value := getNullString(performer.Instagram)
-				partial.Instagram = &value
-			}
-			if performer.Measurements != nil && !excluded["measurements"] {
-				value := getNullString(performer.Measurements)
-				partial.Measurements = &value
-			}
-			if excluded["name"] && performer.Name != nil {
-				value := sql.NullString{String: *performer.Name, Valid: true}
-				partial.Name = &value
-				checksum := md5.FromString(*performer.Name)
-				partial.Checksum = &checksum
-			}
-			if performer.Piercings != nil && !excluded["piercings"] {
-				value := getNullString(performer.Piercings)
-				partial.Piercings = &value
-			}
-			if performer.Tattoos != nil && !excluded["tattoos"] {
-				value := getNullString(performer.Tattoos)
-				partial.Tattoos = &value
-			}
-			if performer.Twitter != nil && !excluded["twitter"] {
-				value := getNullString(performer.Twitter)
-				partial.Twitter = &value
-			}
-			if performer.URL != nil && !excluded["url"] {
-				value := getNullString(performer.URL)
-				partial.URL = &value
-			}
-
-			txnErr := t.txnManager.WithTxn(ctx, func(r models.Repository) error {
-				_, err := r.Performer().Update(partial)
-
-				if !t.refresh {
-					err = r.Performer().UpdateStashIDs(t.performer.ID, []models.StashID{
-						{
-							Endpoint: t.box.Endpoint,
-							StashID:  *performer.RemoteSiteID,
-						},
-					})
-					if err != nil {
-						return err
-					}
-				}
+			txnErr := txn.WithTxn(ctx, instance.Repository, func(ctx context.Context) error {
+				r := instance.Repository
+				_, err := r.Performer.UpdatePartial(ctx, t.performer.ID, partial)
 
 				if len(performer.Images) > 0 && !excluded["image"] {
 					image, err := utils.ReadImageFromURL(ctx, performer.Images[0])
-					if err != nil {
-						return err
-					}
-					err = r.Performer().UpdateImage(t.performer.ID, image)
-					if err != nil {
-						return err
+					if err == nil {
+						err = r.Performer.UpdateImage(ctx, t.performer.ID, image)
+						if err != nil {
+							return err
+						}
+					} else {
+						logger.Warnf("Failed to read performer image: %v", err)
 					}
 				}
 
@@ -192,44 +108,51 @@ func (t *StashBoxPerformerTagTask) stashBoxPerformerTag(ctx context.Context) {
 				return err
 			})
 			if txnErr != nil {
-				logger.Warnf("failure to execute partial update of performer: %v", err)
+				logger.Warnf("failure to execute partial update of performer: %v", txnErr)
 			}
 		} else if t.name != nil && performer.Name != nil {
 			currentTime := time.Now()
-			newPerformer := models.Performer{
-				Aliases:      getNullString(performer.Aliases),
-				Birthdate:    getDate(performer.Birthdate),
-				CareerLength: getNullString(performer.CareerLength),
-				Checksum:     md5.FromString(*performer.Name),
-				Country:      getNullString(performer.Country),
-				CreatedAt:    models.SQLiteTimestamp{Timestamp: currentTime},
-				Ethnicity:    getNullString(performer.Ethnicity),
-				EyeColor:     getNullString(performer.EyeColor),
-				FakeTits:     getNullString(performer.FakeTits),
-				Favorite:     sql.NullBool{Bool: false, Valid: true},
-				Gender:       getNullString(performer.Gender),
-				Height:       getNullString(performer.Height),
-				Instagram:    getNullString(performer.Instagram),
-				Measurements: getNullString(performer.Measurements),
-				Name:         sql.NullString{String: *performer.Name, Valid: true},
-				Piercings:    getNullString(performer.Piercings),
-				Tattoos:      getNullString(performer.Tattoos),
-				Twitter:      getNullString(performer.Twitter),
-				URL:          getNullString(performer.URL),
-				UpdatedAt:    models.SQLiteTimestamp{Timestamp: currentTime},
+			var aliases []string
+			if performer.Aliases != nil {
+				aliases = stringslice.FromString(*performer.Aliases, ",")
+			} else {
+				aliases = []string{}
 			}
-			err := t.txnManager.WithTxn(ctx, func(r models.Repository) error {
-				createdPerformer, err := r.Performer().Create(newPerformer)
-				if err != nil {
-					return err
-				}
-
-				err = r.Performer().UpdateStashIDs(createdPerformer.ID, []models.StashID{
+			newPerformer := models.Performer{
+				Aliases:        models.NewRelatedStrings(aliases),
+				Disambiguation: getString(performer.Disambiguation),
+				Details:        getString(performer.Details),
+				Birthdate:      getDate(performer.Birthdate),
+				DeathDate:      getDate(performer.DeathDate),
+				CareerLength:   getString(performer.CareerLength),
+				Country:        getString(performer.Country),
+				CreatedAt:      currentTime,
+				Ethnicity:      getString(performer.Ethnicity),
+				EyeColor:       getString(performer.EyeColor),
+				HairColor:      getString(performer.HairColor),
+				FakeTits:       getString(performer.FakeTits),
+				Gender:         models.GenderEnum(getString(performer.Gender)),
+				Height:         getIntPtr(performer.Height),
+				Weight:         getIntPtr(performer.Weight),
+				Instagram:      getString(performer.Instagram),
+				Measurements:   getString(performer.Measurements),
+				Name:           *performer.Name,
+				Piercings:      getString(performer.Piercings),
+				Tattoos:        getString(performer.Tattoos),
+				Twitter:        getString(performer.Twitter),
+				URL:            getString(performer.URL),
+				StashIDs: models.NewRelatedStashIDs([]models.StashID{
 					{
 						Endpoint: t.box.Endpoint,
 						StashID:  *performer.RemoteSiteID,
 					},
-				})
+				}),
+				UpdatedAt: currentTime,
+			}
+
+			err := txn.WithTxn(ctx, instance.Repository, func(ctx context.Context) error {
+				r := instance.Repository
+				err := r.Performer.Create(ctx, &newPerformer)
 				if err != nil {
 					return err
 				}
@@ -239,7 +162,7 @@ func (t *StashBoxPerformerTagTask) stashBoxPerformerTag(ctx context.Context) {
 					if imageErr != nil {
 						return imageErr
 					}
-					err = r.Performer().UpdateImage(createdPerformer.ID, image)
+					err = r.Performer.UpdateImage(ctx, newPerformer.ID, image)
 				}
 				return err
 			})
@@ -254,24 +177,129 @@ func (t *StashBoxPerformerTagTask) stashBoxPerformerTag(ctx context.Context) {
 		if t.name != nil {
 			name = *t.name
 		} else if t.performer != nil {
-			name = t.performer.Name.String
+			name = t.performer.Name
 		}
 		logger.Infof("No match found for %s", name)
 	}
 }
 
-func getDate(val *string) models.SQLiteDate {
+func (t *StashBoxPerformerTagTask) getPartial(performer *models.ScrapedPerformer, excluded map[string]bool) models.PerformerPartial {
+	partial := models.NewPerformerPartial()
+
+	if performer.Aliases != nil && !excluded["aliases"] {
+		partial.Aliases = &models.UpdateStrings{
+			Values: stringslice.FromString(*performer.Aliases, ","),
+			Mode:   models.RelationshipUpdateModeSet,
+		}
+	}
+	if performer.Birthdate != nil && *performer.Birthdate != "" && !excluded["birthdate"] {
+		value := getDate(performer.Birthdate)
+		partial.Birthdate = models.NewOptionalDate(*value)
+	}
+	if performer.DeathDate != nil && *performer.DeathDate != "" && !excluded["deathdate"] {
+		value := getDate(performer.DeathDate)
+		partial.Birthdate = models.NewOptionalDate(*value)
+	}
+	if performer.CareerLength != nil && !excluded["career_length"] {
+		partial.CareerLength = models.NewOptionalString(*performer.CareerLength)
+	}
+	if performer.Country != nil && !excluded["country"] {
+		partial.Country = models.NewOptionalString(*performer.Country)
+	}
+	if performer.Ethnicity != nil && !excluded["ethnicity"] {
+		partial.Ethnicity = models.NewOptionalString(*performer.Ethnicity)
+	}
+	if performer.EyeColor != nil && !excluded["eye_color"] {
+		partial.EyeColor = models.NewOptionalString(*performer.EyeColor)
+	}
+	if performer.HairColor != nil && !excluded["hair_color"] {
+		partial.HairColor = models.NewOptionalString(*performer.HairColor)
+	}
+	if performer.FakeTits != nil && !excluded["fake_tits"] {
+		partial.FakeTits = models.NewOptionalString(*performer.FakeTits)
+	}
+	if performer.Gender != nil && !excluded["gender"] {
+		partial.Gender = models.NewOptionalString(*performer.Gender)
+	}
+	if performer.Height != nil && !excluded["height"] {
+		h, err := strconv.Atoi(*performer.Height)
+		if err == nil {
+			partial.Height = models.NewOptionalInt(h)
+		}
+	}
+	if performer.Weight != nil && !excluded["weight"] {
+		w, err := strconv.Atoi(*performer.Weight)
+		if err == nil {
+			partial.Weight = models.NewOptionalInt(w)
+		}
+	}
+	if performer.Instagram != nil && !excluded["instagram"] {
+		partial.Instagram = models.NewOptionalString(*performer.Instagram)
+	}
+	if performer.Measurements != nil && !excluded["measurements"] {
+		partial.Measurements = models.NewOptionalString(*performer.Measurements)
+	}
+	if excluded["name"] && performer.Name != nil {
+		partial.Name = models.NewOptionalString(*performer.Name)
+	}
+	if performer.Disambiguation != nil && !excluded["disambiguation"] {
+		partial.Disambiguation = models.NewOptionalString(*performer.Disambiguation)
+	}
+	if performer.Piercings != nil && !excluded["piercings"] {
+		partial.Piercings = models.NewOptionalString(*performer.Piercings)
+	}
+	if performer.Tattoos != nil && !excluded["tattoos"] {
+		partial.Tattoos = models.NewOptionalString(*performer.Tattoos)
+	}
+	if performer.Twitter != nil && !excluded["twitter"] {
+		partial.Twitter = models.NewOptionalString(*performer.Twitter)
+	}
+	if performer.URL != nil && !excluded["url"] {
+		partial.URL = models.NewOptionalString(*performer.URL)
+	}
+	if !t.refresh {
+		// #3547 - need to overwrite the stash id for the endpoint, but preserve
+		// existing stash ids for other endpoints
+		partial.StashIDs = &models.UpdateStashIDs{
+			StashIDs: t.performer.StashIDs.List(),
+			Mode:     models.RelationshipUpdateModeSet,
+		}
+
+		partial.StashIDs.Set(models.StashID{
+			Endpoint: t.box.Endpoint,
+			StashID:  *performer.RemoteSiteID,
+		})
+	}
+
+	return partial
+}
+
+func getDate(val *string) *models.Date {
 	if val == nil {
-		return models.SQLiteDate{Valid: false}
+		return nil
+	}
+
+	ret := models.NewDate(*val)
+	return &ret
+}
+
+func getString(val *string) string {
+	if val == nil {
+		return ""
 	} else {
-		return models.SQLiteDate{String: *val, Valid: true}
+		return *val
 	}
 }
 
-func getNullString(val *string) sql.NullString {
+func getIntPtr(val *string) *int {
 	if val == nil {
-		return sql.NullString{Valid: false}
+		return nil
 	} else {
-		return sql.NullString{String: *val, Valid: true}
+		v, err := strconv.Atoi(*val)
+		if err != nil {
+			return nil
+		}
+
+		return &v
 	}
 }

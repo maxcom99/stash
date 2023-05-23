@@ -5,39 +5,68 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+
+	"github.com/stashapp/stash/pkg/logger"
 )
+
+// CopyFile copies the contents of the file at srcpath to a regular file at dstpath.
+// It will copy the last modified timestamp
+// If dstpath already exists the function will fail.
+func CopyFile(srcpath, dstpath string) (err error) {
+	r, err := os.Open(srcpath)
+	if err != nil {
+		return err
+	}
+
+	w, err := os.OpenFile(dstpath, os.O_CREATE|os.O_EXCL, 0666)
+	if err != nil {
+		r.Close() // We need to close the input file as the defer below would not be called.
+		return err
+	}
+
+	defer func() {
+		r.Close() // ok to ignore error: file was opened read-only.
+		e := w.Close()
+		// Report the error from w.Close, if any.
+		// But do so only if there isn't already an outgoing error.
+		if e != nil && err == nil {
+			err = e
+		}
+		// Copy modified time
+		if err == nil {
+			// io.Copy succeeded, we should fix the dstpath timestamp
+			srcFileInfo, e := os.Stat(srcpath)
+			if e != nil {
+				err = e
+				return
+			}
+
+			e = os.Chtimes(dstpath, srcFileInfo.ModTime(), srcFileInfo.ModTime())
+			if e != nil {
+				err = e
+			}
+		}
+	}()
+
+	_, err = io.Copy(w, r)
+	return err
+}
 
 // SafeMove attempts to move the file with path src to dest using os.Rename. If this fails, then it copies src to dest, then deletes src.
 func SafeMove(src, dst string) error {
 	err := os.Rename(src, dst)
 
 	if err != nil {
-		in, err := os.Open(src)
-		if err != nil {
-			return err
-		}
-		defer in.Close()
-
-		out, err := os.Create(dst)
-		if err != nil {
-			return err
-		}
-		defer out.Close()
-
-		_, err = io.Copy(out, in)
-		if err != nil {
-			return err
-		}
-
-		err = out.Close()
+		err = CopyFile(src, dst)
 		if err != nil {
 			return err
 		}
 
 		err = os.Remove(src)
 		if err != nil {
-			return err
+			logger.Errorf("error removing old file %s during SafeMove: %v", src, err)
 		}
 	}
 
@@ -83,14 +112,10 @@ func FileExists(path string) (bool, error) {
 func WriteFile(path string, file []byte) error {
 	pathErr := EnsureDirAll(filepath.Dir(path))
 	if pathErr != nil {
-		return fmt.Errorf("cannot ensure path %s", pathErr)
+		return fmt.Errorf("cannot ensure path exists: %w", pathErr)
 	}
 
-	err := os.WriteFile(path, file, 0755)
-	if err != nil {
-		return fmt.Errorf("write error for thumbnail %s: %s ", path, err)
-	}
-	return nil
+	return os.WriteFile(path, file, 0755)
 }
 
 // GetNameFromPath returns the name of a file from its path
@@ -115,4 +140,26 @@ func Touch(path string) error {
 		defer file.Close()
 	}
 	return nil
+}
+
+var (
+	replaceCharsRE = regexp.MustCompile(`[&=\\/:*"?_ ]`)
+	removeCharsRE  = regexp.MustCompile(`[^[:alnum:]-.]`)
+	multiHyphenRE  = regexp.MustCompile(`\-+`)
+)
+
+// SanitiseBasename returns a file basename removing any characters that are illegal or problematic to use in the filesystem.
+func SanitiseBasename(v string) string {
+	v = strings.TrimSpace(v)
+
+	// replace illegal filename characters with -
+	v = replaceCharsRE.ReplaceAllString(v, "-")
+
+	// remove other characters
+	v = removeCharsRE.ReplaceAllString(v, "")
+
+	// remove multiple hyphens
+	v = multiHyphenRE.ReplaceAllString(v, "-")
+
+	return strings.TrimSpace(v)
 }
