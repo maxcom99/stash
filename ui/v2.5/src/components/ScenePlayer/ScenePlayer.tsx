@@ -11,6 +11,7 @@ import videojs, { VideoJsPlayer, VideoJsPlayerOptions } from "video.js";
 import "videojs-contrib-dash";
 import "videojs-mobile-ui";
 import "videojs-seek-buttons";
+import { UAParser } from "ua-parser-js";
 import "./live";
 import "./PlaylistButtons";
 import "./source-selector";
@@ -19,6 +20,7 @@ import "./markers";
 import "./vtt-thumbnails";
 import "./big-buttons";
 import "./track-activity";
+import "./vrmode";
 import cx from "classnames";
 import {
   useSceneSaveActivity,
@@ -77,6 +79,12 @@ function handleHotkeys(player: VideoJsPlayer, event: videojs.KeyboardEvent) {
     case 37: // left arrow
       seekStep(-seekFactor);
       break;
+  }
+
+  // toggle player looping with shift+l
+  if (event.shiftKey && event.which === 76) {
+    player.loop(!player.loop());
+    return;
   }
 
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
@@ -160,7 +168,7 @@ function getMarkerTitle(marker: MarkerFragment) {
 }
 
 interface IScenePlayerProps {
-  scene: GQL.SceneDataFragment | undefined | null;
+  scene: GQL.SceneDataFragment;
   hideScrubberOverride: boolean;
   autoplay?: boolean;
   permitLoop?: boolean;
@@ -212,9 +220,10 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
 
   const minimumPlayPercent = uiConfig?.minimumPlayPercent ?? 0;
   const trackActivity = uiConfig?.trackActivity ?? false;
+  const vrTag = uiConfig?.vrTag ?? undefined;
 
   const file = useMemo(
-    () => ((scene?.files.length ?? 0) > 0 ? scene?.files[0] : undefined),
+    () => (scene.files.length > 0 ? scene.files[0] : undefined),
     [scene]
   );
 
@@ -275,7 +284,6 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
         chaptersButton: false,
       },
       html5: {
-        nativeTextTracks: false,
         dash: {
           updateSettings: [
             {
@@ -317,11 +325,13 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
         },
         skipButtons: {},
         trackActivity: {},
+        vrMenu: {},
       },
     };
 
     const videoEl = document.createElement("video-js");
     videoEl.setAttribute("data-vjs-player", "true");
+    videoEl.setAttribute("crossorigin", "anonymous");
     videoEl.classList.add("vjs-big-play-centered");
     videoRef.current!.appendChild(videoEl);
 
@@ -347,6 +357,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
       // reset sceneId to force reload sources
       sceneId.current = undefined;
     };
+    // empty deps - only init once
   }, []);
 
   useEffect(() => {
@@ -358,7 +369,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
   }, [getPlayer, onNext, onPrevious]);
 
   useEffect(() => {
-    if (scene?.interactive && interactiveInitialised) {
+    if (scene.interactive && interactiveInitialised) {
       interactiveReady.current = false;
       uploadScript(scene.paths.funscript || "").then(() => {
         interactiveReady.current = true;
@@ -367,9 +378,24 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
   }, [
     uploadScript,
     interactiveInitialised,
-    scene?.interactive,
-    scene?.paths.funscript,
+    scene.interactive,
+    scene.paths.funscript,
   ]);
+
+  useEffect(() => {
+    const player = getPlayer();
+    if (!player) return;
+
+    const vrMenu = player.vrMenu();
+
+    let showButton = false;
+
+    if (vrTag) {
+      showButton = scene.tags.some((tag) => vrTag === tag.name);
+    }
+
+    vrMenu.setShowButton(showButton);
+  }, [getPlayer, scene, vrTag]);
 
   // Player event handlers
   useEffect(() => {
@@ -418,7 +444,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
 
     function onplay(this: VideoJsPlayer) {
       this.persistVolume().enabled = true;
-      if (scene?.interactive && interactiveReady.current) {
+      if (scene.interactive && interactiveReady.current) {
         interactiveClient.play(this.currentTime());
       }
     }
@@ -429,14 +455,14 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
 
     function seeking(this: VideoJsPlayer) {
       if (this.paused()) return;
-      if (scene?.interactive && interactiveReady.current) {
+      if (scene.interactive && interactiveReady.current) {
         interactiveClient.play(this.currentTime());
       }
     }
 
     function timeupdate(this: VideoJsPlayer) {
       if (this.paused()) return;
-      if (scene?.interactive && interactiveReady.current) {
+      if (scene.interactive && interactiveReady.current) {
         interactiveClient.ensurePlaying(this.currentTime());
       }
       setTime(this.currentTime());
@@ -460,7 +486,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
     if (!player) return;
 
     // don't re-initialise the player unless the scene has changed
-    if (!scene || !file || scene.id === sceneId.current) return;
+    if (!file || scene.id === sceneId.current) return;
 
     sceneId.current = scene.id;
 
@@ -487,24 +513,36 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
     };
     player.mobileUi(mobileUiOptions);
 
+    function isDirect(src: URL) {
+      return (
+        src.pathname.endsWith("/stream") ||
+        src.pathname.endsWith("/stream.mpd") ||
+        src.pathname.endsWith("/stream.m3u8")
+      );
+    }
+
     const { duration } = file;
     const sourceSelector = player.sourceSelector();
+    const isSafari = UAParser().browser.name?.includes("Safari");
     sourceSelector.setSources(
-      scene.sceneStreams.map((stream) => {
-        const src = new URL(stream.url);
-        const isDirect =
-          src.pathname.endsWith("/stream") ||
-          src.pathname.endsWith("/stream.mpd") ||
-          src.pathname.endsWith("/stream.m3u8");
+      scene.sceneStreams
+        .filter((stream) => {
+          const src = new URL(stream.url);
+          const isFileTranscode = !isDirect(src);
 
-        return {
-          src: stream.url,
-          type: stream.mime_type ?? undefined,
-          label: stream.label ?? undefined,
-          offset: !isDirect,
-          duration,
-        };
-      })
+          return !(isFileTranscode && isSafari);
+        })
+        .map((stream) => {
+          const src = new URL(stream.url);
+
+          return {
+            src: stream.url,
+            type: stream.mime_type ?? undefined,
+            label: stream.label ?? undefined,
+            offset: !isDirect(src),
+            duration,
+          };
+        })
     );
 
     function getDefaultLanguageCode() {
@@ -597,7 +635,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
 
   useEffect(() => {
     const player = getPlayer();
-    if (!player || !scene) return;
+    if (!player) return;
 
     const markers = player.markers();
     markers.clearMarkers();
@@ -620,7 +658,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
     if (!player) return;
 
     async function saveActivity(resumeTime: number, playDuration: number) {
-      if (!scene?.id) return;
+      if (!scene.id) return;
 
       await sceneSaveActivity({
         variables: {
@@ -632,7 +670,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
     }
 
     async function incrementPlayCount() {
-      if (!scene?.id) return;
+      if (!scene.id) return;
 
       await sceneIncrementPlayCount({
         variables: {
@@ -649,6 +687,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
   }, [
     getPlayer,
     scene,
+    vrTag,
     trackActivity,
     minimumPlayPercent,
     sceneIncrementPlayCount,
@@ -665,7 +704,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
 
   useEffect(() => {
     const player = getPlayer();
-    if (!player || !scene || !ready || !auto.current) {
+    if (!player || !ready || !auto.current) {
       return;
     }
 
@@ -733,7 +772,7 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
   }
 
   const isPortrait =
-    scene && file && file.height && file.width && file.height > file.width;
+    file && file.height && file.width && file.height > file.width;
 
   return (
     <div
@@ -741,10 +780,10 @@ export const ScenePlayer: React.FC<IScenePlayerProps> = ({
       onKeyDownCapture={onKeyDown}
     >
       <div className="video-wrapper" ref={videoRef} />
-      {scene?.interactive &&
+      {scene.interactive &&
         (interactiveState !== ConnectionState.Ready ||
           getPlayer()?.paused()) && <SceneInteractiveStatus />}
-      {scene && file && showScrubber && (
+      {file && showScrubber && (
         <ScenePlayerScrubber
           file={file}
           scene={scene}

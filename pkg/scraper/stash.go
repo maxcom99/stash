@@ -69,6 +69,8 @@ type scrapedPerformerStash struct {
 	Height       *string            `graphql:"height" json:"height"`
 	Measurements *string            `graphql:"measurements" json:"measurements"`
 	FakeTits     *string            `graphql:"fake_tits" json:"fake_tits"`
+	PenisLength  *string            `graphql:"penis_length" json:"penis_length"`
+	Circumcised  *string            `graphql:"circumcised" json:"circumcised"`
 	CareerLength *string            `graphql:"career_length" json:"career_length"`
 	Tattoos      *string            `graphql:"tattoos" json:"tattoos"`
 	Piercings    *string            `graphql:"piercings" json:"piercings"`
@@ -326,7 +328,7 @@ func sceneToUpdateInput(scene *models.Scene) models.SceneUpdateInput {
 		ID:      strconv.Itoa(scene.ID),
 		Title:   &title,
 		Details: &scene.Details,
-		URL:     &scene.URL,
+		Urls:    scene.URLs.List(),
 		Date:    dateToStringPtr(scene.Date),
 	}
 }

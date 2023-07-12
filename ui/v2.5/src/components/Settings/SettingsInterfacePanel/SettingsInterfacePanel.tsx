@@ -290,6 +290,13 @@ export const SettingsInterfacePanel: React.FC = () => {
           checked={ui.trackActivity ?? undefined}
           onChange={(v) => saveUI({ trackActivity: v })}
         />
+        <StringSetting
+          id="vr-tag"
+          headingID="config.ui.scene_player.options.vr_tag.heading"
+          subHeadingID="config.ui.scene_player.options.vr_tag.description"
+          value={ui.vrTag ?? undefined}
+          onChange={(v) => saveUI({ vrTag: v })}
+        />
         <ModalSetting<number>
           id="ignore-interval"
           headingID="config.ui.minimum_play_percent.heading"
@@ -748,6 +755,14 @@ export const SettingsInterfacePanel: React.FC = () => {
           subHeadingID="config.ui.funscript_offset.description"
           value={iface.funscriptOffset ?? undefined}
           onChange={(v) => saveInterface({ funscriptOffset: v })}
+        />
+
+        <BooleanSetting
+          id="use-stash-hosted-funscript"
+          headingID="config.ui.use_stash_hosted_funscript.heading"
+          subHeadingID="config.ui.use_stash_hosted_funscript.description"
+          checked={iface.useStashHostedFunscript ?? false}
+          onChange={(v) => saveInterface({ useStashHostedFunscript: v })}
         />
       </SettingSection>
     </>

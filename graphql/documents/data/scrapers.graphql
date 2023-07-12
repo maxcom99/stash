@@ -13,6 +13,8 @@ fragment ScrapedPerformerData on ScrapedPerformer {
   height
   measurements
   fake_tits
+  penis_length
+  circumcised
   career_length
   tattoos
   piercings
@@ -43,6 +45,8 @@ fragment ScrapedScenePerformerData on ScrapedPerformer {
   height
   measurements
   fake_tits
+  penis_length
+  circumcised
   career_length
   tattoos
   piercings
@@ -110,7 +114,7 @@ fragment ScrapedSceneData on ScrapedScene {
   code
   details
   director
-  url
+  urls
   date
   image
   remote_site_id
