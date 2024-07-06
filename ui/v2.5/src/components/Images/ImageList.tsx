@@ -14,14 +14,12 @@ import { queryFindImages, useFindImages } from "src/core/StashService";
 import {
   makeItemList,
   IItemListOperation,
-  PersistanceLevel,
   showWhenSelected,
 } from "../List/ItemList";
 import { useLightbox } from "src/hooks/Lightbox/hooks";
 import { ListFilterModel } from "src/models/list-filter/filter";
 import { DisplayMode } from "src/models/list-filter/types";
 
-import { ImageCard } from "./ImageCard";
 import { ImageWallItem } from "./ImageWallItem";
 import { EditImagesDialog } from "./EditImagesDialog";
 import { DeleteImagesDialog } from "./DeleteImagesDialog";
@@ -31,7 +29,8 @@ import { ExportDialog } from "../Shared/ExportDialog";
 import { objectTitle } from "src/core/files";
 import TextUtils from "src/utils/text";
 import { ConfigurationContext } from "src/hooks/Config";
-import { IUIConfig } from "src/core/config";
+import { ImageGridCard } from "./ImageGridCard";
+import { View } from "../List/views";
 
 interface IImageWallProps {
   images: GQL.SlimImageDataFragment[];
@@ -43,7 +42,7 @@ interface IImageWallProps {
 
 const ImageWall: React.FC<IImageWallProps> = ({ images, handleImageOpen }) => {
   const { configuration } = useContext(ConfigurationContext);
-  const uiConfig = configuration?.ui as IUIConfig | undefined;
+  const uiConfig = configuration?.ui;
 
   let photos: {
     src: string;
@@ -196,35 +195,15 @@ const ImageListImages: React.FC<IImageListImages> = ({
     ev.preventDefault();
   }
 
-  function renderImageCard(
-    index: number,
-    image: GQL.SlimImageDataFragment,
-    zoomIndex: number
-  ) {
-    return (
-      <ImageCard
-        key={image.id}
-        image={image}
-        zoomIndex={zoomIndex}
-        selecting={selectedIds.size > 0}
-        selected={selectedIds.has(image.id)}
-        onSelectedChanged={(selected: boolean, shiftKey: boolean) =>
-          onSelectChange(image.id, selected, shiftKey)
-        }
-        onPreview={
-          selectedIds.size < 1 ? (ev) => onPreview(index, ev) : undefined
-        }
-      />
-    );
-  }
-
   if (filter.displayMode === DisplayMode.Grid) {
     return (
-      <div className="row justify-content-center">
-        {images.map((image, index) =>
-          renderImageCard(index, image, filter.zoomIndex)
-        )}
-      </div>
+      <ImageGridCard
+        images={images}
+        selectedIds={selectedIds}
+        zoomIndex={filter.zoomIndex}
+        onSelectChange={onSelectChange}
+        onPreview={onPreview}
+      />
     );
   }
   if (filter.displayMode === DisplayMode.Wall) {
@@ -291,8 +270,7 @@ const ImageItemList = makeItemList({
 
 interface IImageList {
   filterHook?: (filter: ListFilterModel) => ListFilterModel;
-  persistState?: PersistanceLevel;
-  persistanceKey?: string;
+  view?: View;
   alterQuery?: boolean;
   extraOperations?: IItemListOperation<GQL.FindImagesQueryResult>[];
   chapters?: GQL.GalleryChapterDataFragment[];
@@ -300,8 +278,7 @@ interface IImageList {
 
 export const ImageList: React.FC<IImageList> = ({
   filterHook,
-  persistState,
-  persistanceKey,
+  view,
   alterQuery,
   extraOperations,
   chapters = [],
@@ -442,8 +419,7 @@ export const ImageList: React.FC<IImageList> = ({
       zoomable
       selectable
       filterHook={filterHook}
-      persistState={persistState}
-      persistanceKey={persistanceKey}
+      view={view}
       alterQuery={alterQuery}
       otherOperations={otherOperations}
       addKeybinds={addKeybinds}

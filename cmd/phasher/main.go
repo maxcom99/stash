@@ -2,14 +2,14 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
+	"os/exec"
 
 	flag "github.com/spf13/pflag"
 	"github.com/stashapp/stash/pkg/ffmpeg"
-	"github.com/stashapp/stash/pkg/file"
 	"github.com/stashapp/stash/pkg/hash/videophash"
+	"github.com/stashapp/stash/pkg/models"
 )
 
 func customUsage() {
@@ -28,8 +28,8 @@ func printPhash(ff *ffmpeg.FFMpeg, ffp ffmpeg.FFProbe, inputfile string, quiet *
 	// videoFile.Path (from BaseFile)
 	// videoFile.Duration
 	// The rest of the struct isn't needed.
-	vf := &file.VideoFile{
-		BaseFile: &file.BaseFile{Path: inputfile},
+	vf := &models.VideoFile{
+		BaseFile: &models.BaseFile{Path: inputfile},
 		Duration: ffvideoFile.FileDuration,
 	}
 
@@ -44,6 +44,13 @@ func printPhash(ff *ffmpeg.FFMpeg, ffp ffmpeg.FFProbe, inputfile string, quiet *
 		fmt.Printf("%x %v\n", *phash, vf.Path)
 	}
 	return nil
+}
+
+func getPaths() (string, string) {
+	ffmpegPath, _ := exec.LookPath("ffmpeg")
+	ffprobePath, _ := exec.LookPath("ffprobe")
+
+	return ffmpegPath, ffprobePath
 }
 
 func main() {
@@ -66,13 +73,13 @@ func main() {
 	}
 
 	if len(args) > 1 {
-		fmt.Fprintln(os.Stderr, "Files will be processed sequentially! Consier using GNU Parallel.")
+		fmt.Fprintln(os.Stderr, "Files will be processed sequentially! If required, use e.g. GNU Parallel to run concurrently.")
 		fmt.Fprintf(os.Stderr, "Example: parallel %v ::: *.mp4\n", os.Args[0])
 	}
 
-	ffmpegPath, ffprobePath := ffmpeg.GetPaths(nil)
+	ffmpegPath, ffprobePath := getPaths()
 	encoder := ffmpeg.NewEncoder(ffmpegPath)
-	encoder.InitHWSupport(context.TODO())
+	// don't need to InitHWSupport, phashing doesn't use hw acceleration
 	ffprobe := ffmpeg.FFProbe(ffprobePath)
 
 	for _, item := range args {

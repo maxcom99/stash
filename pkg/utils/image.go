@@ -20,6 +20,10 @@ const base64RE = `^data:.+\/(.+);base64,(.*)$`
 // ProcessImageInput transforms an image string either from a base64 encoded
 // string, or from a URL, and returns the image as a byte slice
 func ProcessImageInput(ctx context.Context, imageInput string) ([]byte, error) {
+	if imageInput == "" {
+		return []byte{}, nil
+	}
+
 	regex := regexp.MustCompile(base64RE)
 	if regex.MatchString(imageInput) {
 		d, err := ProcessBase64Image(imageInput)
@@ -35,6 +39,7 @@ func ReadImageFromURL(ctx context.Context, url string) ([]byte, error) {
 	client := &http.Client{
 		Transport: &http.Transport{ // ignore insecure certificates
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			Proxy:           http.ProxyFromEnvironment,
 		},
 
 		Timeout: imageGetTimeout,

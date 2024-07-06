@@ -6,7 +6,7 @@ enum GenderEnum {
   INTERSEX
   NON_BINARY
 }
- 
+
 enum CircumisedEnum {
   CUT
   UNCUT
@@ -14,18 +14,17 @@ enum CircumisedEnum {
 
 type Performer {
   id: ID!
-  checksum: String @deprecated(reason: "Not used") 
   name: String!
   disambiguation: String
-  url: String
+  url: String @deprecated(reason: "Use urls")
+  urls: [String!]
   gender: GenderEnum
-  twitter: String
-  instagram: String
+  twitter: String @deprecated(reason: "Use urls")
+  instagram: String @deprecated(reason: "Use urls")
   birthdate: String
   ethnicity: String
   country: String
   eye_color: String
-  height: String @deprecated(reason: "Use height_cm")
   height_cm: Int
   measurements: String
   fake_tits: String
@@ -34,7 +33,6 @@ type Performer {
   career_length: String
   tattoos: String
   piercings: String
-  aliases: String @deprecated(reason: "Use alias_list")
   alias_list: [String!]!
   favorite: Boolean!
   tags: [Tag!]!
@@ -44,13 +42,12 @@ type Performer {
   scene_count: Int! # Resolver
   image_count: Int! # Resolver
   gallery_count: Int! # Resolver
-  movie_count: Int! # Resolver
+  group_count: Int! # Resolver
+  movie_count: Int! @deprecated(reason: "use group_count instead") # Resolver
   performer_count: Int! # Resolver
   o_counter: Int # Resolver
   scenes: [Scene!]!
   stash_ids: [StashID!]!
-  # rating expressed as 1-5
-  rating: Int @deprecated(reason: "Use 1-100 range with rating100")
   # rating expressed as 1-100
   rating100: Int
   details: String
@@ -59,20 +56,20 @@ type Performer {
   weight: Int
   created_at: Time!
   updated_at: Time!
-  movies: [Movie!]!
+  groups: [Group!]! @deprecated(reason: "use groups instead")
+  movies: [Movie!]! @deprecated(reason: "use groups instead")
 }
 
 input PerformerCreateInput {
   name: String!
   disambiguation: String
-  url: String
+  url: String @deprecated(reason: "Use urls")
+  urls: [String!]
   gender: GenderEnum
   birthdate: String
   ethnicity: String
   country: String
   eye_color: String
-  # height must be parsable into an integer
-  height: String @deprecated(reason: "Use height_cm")
   height_cm: Int
   measurements: String
   fake_tits: String
@@ -81,17 +78,14 @@ input PerformerCreateInput {
   career_length: String
   tattoos: String
   piercings: String
-  aliases: String @deprecated(reason: "Use alias_list")
   alias_list: [String!]
-  twitter: String
-  instagram: String
+  twitter: String @deprecated(reason: "Use urls")
+  instagram: String @deprecated(reason: "Use urls")
   favorite: Boolean
   tag_ids: [ID!]
-  """This should be a URL or a base64 encoded data URL"""
+  "This should be a URL or a base64 encoded data URL"
   image: String
   stash_ids: [StashIDInput!]
-  # rating expressed as 1-5
-  rating: Int @deprecated(reason: "Use 1-100 range with rating100")
   # rating expressed as 1-100
   rating100: Int
   details: String
@@ -105,14 +99,13 @@ input PerformerUpdateInput {
   id: ID!
   name: String
   disambiguation: String
-  url: String
+  url: String @deprecated(reason: "Use urls")
+  urls: [String!]
   gender: GenderEnum
   birthdate: String
   ethnicity: String
   country: String
   eye_color: String
-  # height must be parsable into an integer
-  height: String @deprecated(reason: "Use height_cm")
   height_cm: Int
   measurements: String
   fake_tits: String
@@ -121,17 +114,14 @@ input PerformerUpdateInput {
   career_length: String
   tattoos: String
   piercings: String
-  aliases: String @deprecated(reason: "Use alias_list")
   alias_list: [String!]
-  twitter: String
-  instagram: String
+  twitter: String @deprecated(reason: "Use urls")
+  instagram: String @deprecated(reason: "Use urls")
   favorite: Boolean
   tag_ids: [ID!]
-  """This should be a URL or a base64 encoded data URL"""
+  "This should be a URL or a base64 encoded data URL"
   image: String
   stash_ids: [StashIDInput!]
-  # rating expressed as 1-5
-  rating: Int @deprecated(reason: "Use 1-100 range with rating100")
   # rating expressed as 1-100
   rating100: Int
   details: String
@@ -150,14 +140,13 @@ input BulkPerformerUpdateInput {
   clientMutationId: String
   ids: [ID!]
   disambiguation: String
-  url: String
+  url: String @deprecated(reason: "Use urls")
+  urls: BulkUpdateStrings
   gender: GenderEnum
   birthdate: String
   ethnicity: String
   country: String
   eye_color: String
-  # height must be parsable into an integer
-  height: String @deprecated(reason: "Use height_cm")
   height_cm: Int
   measurements: String
   fake_tits: String
@@ -166,14 +155,11 @@ input BulkPerformerUpdateInput {
   career_length: String
   tattoos: String
   piercings: String
-  aliases: String @deprecated(reason: "Use alias_list")
   alias_list: BulkUpdateStrings
-  twitter: String
-  instagram: String
+  twitter: String @deprecated(reason: "Use urls")
+  instagram: String @deprecated(reason: "Use urls")
   favorite: Boolean
   tag_ids: BulkUpdateIds
-  # rating expressed as 1-5
-  rating: Int @deprecated(reason: "Use 1-100 range with rating100")
   # rating expressed as 1-100
   rating100: Int
   details: String

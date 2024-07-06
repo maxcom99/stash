@@ -6,6 +6,7 @@ import {
   TagsCriterionOption,
 } from "src/models/list-filter/criteria/tags";
 import { SceneMarkerList } from "src/components/Scenes/SceneMarkerList";
+import { View } from "src/components/List/views";
 
 interface ITagMarkersPanel {
   active: boolean;
@@ -21,7 +22,7 @@ export const TagMarkersPanel: React.FC<ITagMarkersPanel> = ({
     // if tag is already present, then we modify it, otherwise add
     let tagCriterion = filter.criteria.find((c) => {
       return c.criterionOption.type === "tags";
-    }) as TagsCriterion;
+    }) as TagsCriterion | undefined;
 
     if (
       tagCriterion &&
@@ -52,5 +53,11 @@ export const TagMarkersPanel: React.FC<ITagMarkersPanel> = ({
     return filter;
   }
 
-  return <SceneMarkerList filterHook={filterHook} alterQuery={active} />;
+  return (
+    <SceneMarkerList
+      filterHook={filterHook}
+      alterQuery={active}
+      view={View.TagMarkers}
+    />
+  );
 };

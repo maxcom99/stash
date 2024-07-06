@@ -43,18 +43,19 @@ type ScraperSource struct {
 }
 
 type SceneIdentifier struct {
+	TxnManager         txn.Manager
 	SceneReaderUpdater SceneReaderUpdater
-	StudioCreator      StudioCreator
+	StudioReaderWriter models.StudioReaderWriter
 	PerformerCreator   PerformerCreator
-	TagCreatorFinder   TagCreatorFinder
+	TagFinderCreator   models.TagFinderCreator
 
 	DefaultOptions              *MetadataOptions
 	Sources                     []ScraperSource
 	SceneUpdatePostHookExecutor SceneUpdatePostHookExecutor
 }
 
-func (t *SceneIdentifier) Identify(ctx context.Context, txnManager txn.Manager, scene *models.Scene) error {
-	result, err := t.scrapeScene(ctx, txnManager, scene)
+func (t *SceneIdentifier) Identify(ctx context.Context, scene *models.Scene) error {
+	result, err := t.scrapeScene(ctx, scene)
 	var multipleMatchErr *MultipleMatchesFoundError
 	if err != nil {
 		if !errors.As(err, &multipleMatchErr) {
@@ -70,7 +71,7 @@ func (t *SceneIdentifier) Identify(ctx context.Context, txnManager txn.Manager, 
 			options := t.getOptions(multipleMatchErr.Source)
 			if options.SkipMultipleMatchTag != nil && len(*options.SkipMultipleMatchTag) > 0 {
 				// Tag it with the multiple results tag
-				err := t.addTagToScene(ctx, txnManager, scene, *options.SkipMultipleMatchTag)
+				err := t.addTagToScene(ctx, scene, *options.SkipMultipleMatchTag)
 				if err != nil {
 					return err
 				}
@@ -83,7 +84,7 @@ func (t *SceneIdentifier) Identify(ctx context.Context, txnManager txn.Manager, 
 	}
 
 	// results were found, modify the scene
-	if err := t.modifyScene(ctx, txnManager, scene, result); err != nil {
+	if err := t.modifyScene(ctx, scene, result); err != nil {
 		return fmt.Errorf("error modifying scene: %v", err)
 	}
 
@@ -95,7 +96,7 @@ type scrapeResult struct {
 	source ScraperSource
 }
 
-func (t *SceneIdentifier) scrapeScene(ctx context.Context, txnManager txn.Manager, scene *models.Scene) (*scrapeResult, error) {
+func (t *SceneIdentifier) scrapeScene(ctx context.Context, scene *models.Scene) (*scrapeResult, error) {
 	// iterate through the input sources
 	for _, source := range t.Sources {
 		// scrape using the source
@@ -126,10 +127,14 @@ func (t *SceneIdentifier) scrapeScene(ctx context.Context, txnManager txn.Manage
 
 // Returns a MetadataOptions object with any default options overwritten by source specific options
 func (t *SceneIdentifier) getOptions(source ScraperSource) MetadataOptions {
-	options := *t.DefaultOptions
+	var options MetadataOptions
+	if t.DefaultOptions != nil {
+		options = *t.DefaultOptions
+	}
 	if source.Options == nil {
 		return options
 	}
+
 	if source.Options.SetCoverImage != nil {
 		options.SetCoverImage = source.Options.SetCoverImage
 	}
@@ -151,6 +156,7 @@ func (t *SceneIdentifier) getOptions(source ScraperSource) MetadataOptions {
 	if source.Options.SkipSingleNamePerformerTag != nil && len(*source.Options.SkipSingleNamePerformerTag) > 0 {
 		options.SkipSingleNamePerformerTag = source.Options.SkipSingleNamePerformerTag
 	}
+
 	return options
 }
 
@@ -174,9 +180,9 @@ func (t *SceneIdentifier) getSceneUpdater(ctx context.Context, s *models.Scene, 
 
 	rel := sceneRelationships{
 		sceneReader:              t.SceneReaderUpdater,
-		studioCreator:            t.StudioCreator,
+		studioReaderWriter:       t.StudioReaderWriter,
 		performerCreator:         t.PerformerCreator,
-		tagCreatorFinder:         t.TagCreatorFinder,
+		tagCreator:               t.TagFinderCreator,
 		scene:                    s,
 		result:                   result,
 		fieldOptions:             fieldOptions,
@@ -246,7 +252,8 @@ func (t *SceneIdentifier) getSceneUpdater(ctx context.Context, s *models.Scene, 
 		}
 	}
 
-	if utils.IsTrue(options.SetCoverImage) {
+	// SetCoverImage defaults to true if unset
+	if options.SetCoverImage == nil || *options.SetCoverImage {
 		ret.CoverImage, err = rel.cover(ctx)
 		if err != nil {
 			return nil, err
@@ -256,9 +263,9 @@ func (t *SceneIdentifier) getSceneUpdater(ctx context.Context, s *models.Scene, 
 	return ret, nil
 }
 
-func (t *SceneIdentifier) modifyScene(ctx context.Context, txnManager txn.Manager, s *models.Scene, result *scrapeResult) error {
+func (t *SceneIdentifier) modifyScene(ctx context.Context, s *models.Scene, result *scrapeResult) error {
 	var updater *scene.UpdateSet
-	if err := txn.WithTxn(ctx, txnManager, func(ctx context.Context) error {
+	if err := txn.WithTxn(ctx, t.TxnManager, func(ctx context.Context) error {
 		// load scene relationships
 		if err := s.LoadURLs(ctx, t.SceneReaderUpdater); err != nil {
 			return err
@@ -311,8 +318,8 @@ func (t *SceneIdentifier) modifyScene(ctx context.Context, txnManager txn.Manage
 	return nil
 }
 
-func (t *SceneIdentifier) addTagToScene(ctx context.Context, txnManager txn.Manager, s *models.Scene, tagToAdd string) error {
-	if err := txn.WithTxn(ctx, txnManager, func(ctx context.Context) error {
+func (t *SceneIdentifier) addTagToScene(ctx context.Context, s *models.Scene, tagToAdd string) error {
+	if err := txn.WithTxn(ctx, t.TxnManager, func(ctx context.Context) error {
 		tagID, err := strconv.Atoi(tagToAdd)
 		if err != nil {
 			return fmt.Errorf("error converting tag ID %s: %w", tagToAdd, err)
@@ -323,7 +330,7 @@ func (t *SceneIdentifier) addTagToScene(ctx context.Context, txnManager txn.Mana
 		}
 		existing := s.TagIDs.List()
 
-		if sliceutil.Include(existing, tagID) {
+		if sliceutil.Contains(existing, tagID) {
 			// skip if the scene was already tagged
 			return nil
 		}
@@ -332,7 +339,7 @@ func (t *SceneIdentifier) addTagToScene(ctx context.Context, txnManager txn.Mana
 			return err
 		}
 
-		ret, err := t.TagCreatorFinder.Find(ctx, tagID)
+		ret, err := t.TagFinderCreator.Find(ctx, tagID)
 		if err != nil {
 			logger.Infof("Added tag id %s to skipped scene %s", tagToAdd, s.Path)
 		} else {
@@ -370,8 +377,10 @@ func getScenePartial(scene *models.Scene, scraped *scraper.ScrapedScene, fieldOp
 	}
 	if scraped.Date != nil && (scene.Date == nil || scene.Date.String() != *scraped.Date) {
 		if shouldSetSingleValueField(fieldOptions["date"], scene.Date != nil) {
-			d := models.NewDate(*scraped.Date)
-			partial.Date = models.NewOptionalDate(d)
+			d, err := models.ParseDate(*scraped.Date)
+			if err == nil {
+				partial.Date = models.NewOptionalDate(d)
+			}
 		}
 	}
 	if scraped.Details != nil && (scene.Details != *scraped.Details) {
@@ -384,7 +393,7 @@ func getScenePartial(scene *models.Scene, scraped *scraper.ScrapedScene, fieldOp
 		switch getFieldStrategy(fieldOptions["url"]) {
 		case FieldStrategyOverwrite:
 			// only overwrite if not equal
-			if len(sliceutil.Exclude(scene.URLs.List(), scraped.URLs)) != 0 {
+			if len(sliceutil.Exclude(scraped.URLs, scene.URLs.List())) != 0 {
 				partial.URLs = &models.UpdateStrings{
 					Values: scraped.URLs,
 					Mode:   models.RelationshipUpdateModeSet,

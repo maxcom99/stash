@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/stashapp/stash/pkg/models"
-	"github.com/stashapp/stash/pkg/sliceutil/intslice"
+	"github.com/stashapp/stash/pkg/sliceutil"
 	"github.com/stashapp/stash/pkg/sliceutil/stringslice"
 	"github.com/stretchr/testify/assert"
 )
@@ -74,6 +74,27 @@ func TestMarkerCountByTagID(t *testing.T) {
 	})
 }
 
+func TestMarkerQueryQ(t *testing.T) {
+	withTxn(func(ctx context.Context) error {
+		q := getSceneTitle(sceneIdxWithMarkers)
+		m, _, err := db.SceneMarker.Query(ctx, nil, &models.FindFilterType{
+			Q: &q,
+		})
+
+		if err != nil {
+			t.Errorf("Error querying scene markers: %s", err.Error())
+		}
+
+		if !assert.Greater(t, len(m), 0) {
+			return nil
+		}
+
+		assert.Equal(t, sceneIDs[sceneIdxWithMarkers], m[0].SceneID)
+
+		return nil
+	})
+}
+
 func TestMarkerQuerySortBySceneUpdated(t *testing.T) {
 	withTxn(func(ctx context.Context) error {
 		sort := "scenes_updated_at"
@@ -112,7 +133,7 @@ func verifyIDs(t *testing.T, modifier models.CriterionModifier, values []int, re
 	case models.CriterionModifierNotEquals:
 		foundAll := true
 		for _, v := range values {
-			if !intslice.IntInclude(results, v) {
+			if !sliceutil.Contains(results, v) {
 				foundAll = false
 				break
 			}
